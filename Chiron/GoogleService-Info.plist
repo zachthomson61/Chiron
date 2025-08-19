@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyBholmjnajJwN4Bm5jdk9-bJejGKvl4hHM</string>
+	<key>GCM_SENDER_ID</key>
+	<string>1002952514872</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.zachthomson.Chiron</string>
+	<key>PROJECT_ID</key>
+	<string>chiron-6c955</string>
+	<key>STORAGE_BUCKET</key>
+	<string>chiron-6c955.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:1002952514872:ios:3fa3ce7e28f02f178a35cd</string>
+</dict>
+</plist>

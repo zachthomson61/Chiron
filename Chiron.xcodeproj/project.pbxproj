@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		042491252E3E986400AC3367 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 042491242E3E986400AC3367 /* FirebaseCore */; };
+		042491272E3E986400AC3367 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 042491262E3E986400AC3367 /* FirebaseStorage */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		0446A8042E31DA8300A13506 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -29,9 +34,22 @@
 		0446A80D2E31DA8300A13506 /* ChironUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChironUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		042491222E3E948900AC3367 /* Exceptions for "Chiron" folder in "Chiron" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 0446A7F02E31DA8200A13506 /* Chiron */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0446A7F32E31DA8200A13506 /* Chiron */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				042491222E3E948900AC3367 /* Exceptions for "Chiron" folder in "Chiron" target */,
+			);
 			path = Chiron;
 			sourceTree = "<group>";
 		};
@@ -52,6 +70,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				042491252E3E986400AC3367 /* FirebaseCore in Frameworks */,
+				042491272E3E986400AC3367 /* FirebaseStorage in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +132,8 @@
 			);
 			name = Chiron;
 			packageProductDependencies = (
+				042491242E3E986400AC3367 /* FirebaseCore */,
+				042491262E3E986400AC3367 /* FirebaseStorage */,
 			);
 			productName = Chiron;
 			productReference = 0446A7F12E31DA8200A13506 /* Chiron.app */;
@@ -195,6 +217,9 @@
 			);
 			mainGroup = 0446A7E82E31DA8200A13506;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				042491232E3E96ED00AC3367 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0446A7F22E31DA8200A13506 /* Products */;
 			projectDirPath = "";
@@ -395,8 +420,12 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = FVN2FXMFMB;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				I = "";
+				INFOPLIST_FILE = Chiron/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to analyze your workout form and provide real-time feedback during exercises.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -407,11 +436,12 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = Hephaestus.Chiron;
+				PRODUCT_BUNDLE_IDENTIFIER = com.zachthomson.Chiron;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				e = "";
 			};
 			name = Debug;
 		};
@@ -422,8 +452,12 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = FVN2FXMFMB;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				I = "";
+				INFOPLIST_FILE = Chiron/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to analyze your workout form and provide real-time feedback during exercises.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -434,11 +468,12 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = Hephaestus.Chiron;
+				PRODUCT_BUNDLE_IDENTIFIER = com.zachthomson.Chiron;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				e = "";
 			};
 			name = Release;
 		};
@@ -550,6 +585,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		042491232E3E96ED00AC3367 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		042491242E3E986400AC3367 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 042491232E3E96ED00AC3367 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		042491262E3E986400AC3367 /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 042491232E3E96ED00AC3367 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 0446A7E92E31DA8200A13506 /* Project object */;
 }

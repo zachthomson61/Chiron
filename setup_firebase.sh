@@ -1,0 +1,36 @@
+#!/bin/bash
+
+echo "🔥 Firebase Setup for Chiron"
+echo "============================"
+echo ""
+
+echo "1. Create a Firebase project at https://console.firebase.google.com/"
+echo "2. Enable Firebase Storage in your project"
+echo "3. Add an iOS app to your Firebase project"
+echo "4. Download the GoogleService-Info.plist file"
+echo "5. Replace Chiron/GoogleService-Info.plist with your downloaded file"
+echo ""
+
+echo "📱 In Xcode:"
+echo "1. Go to File > Add Package Dependencies"
+echo "2. Add: https://github.com/firebase/firebase-ios-sdk.git"
+echo "3. Select FirebaseCore and FirebaseStorage"
+echo ""
+
+echo "🔧 Firebase Storage Rules:"
+echo "Go to Firebase Console > Storage > Rules and add:"
+echo ""
+echo "rules_version = '2';"
+echo "service firebase.storage {"
+echo "  match /b/{bucket}/o {"
+echo "    match /workout-videos/{workoutId}/{allPaths=**} {"
+echo "      allow read, write: if request.auth != null;"
+echo "    }"
+echo "    match /workout-data/{workoutId}/{allPaths=**} {"
+echo "      allow read, write: if request.auth != null;"
+echo "    }"
+echo "  }"
+echo "}"
+echo ""
+
+echo "✅ Setup complete! The app will now record and upload workout videos to Firebase Storage." 
