@@ -100,6 +100,9 @@ struct CameraSetupView: View {
         .onAppear { 
             setupCameraForSetupMode()
             segmentationProcessor.setProcessingEnabled(true)
+            
+            // Add speech feedback for form instructions
+            SpeechManager.shared.speak("Go slow and controlled on the way down. Keep your chest tall and core tight")
         }
         .onDisappear { 
             stopRepCounterTimer()
@@ -129,6 +132,9 @@ struct CameraSetupView: View {
         // Stop segmentation processing before switching to workout mode
         segmentationProcessor.stopProcessing()
         segmentationProcessor.setProcessingEnabled(false)
+        
+        // Add speech feedback
+        SpeechManager.shared.speak("Let's get it!")
         
         SharedCameraSessionManager.shared.switchToWorkoutMode()
         SharedCameraSessionManager.shared.startPoseAnalysis()
