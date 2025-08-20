@@ -17,13 +17,17 @@ struct CameraSetupView: View {
             VStack {
                 HStack {
                     Button(action: { dismiss() }) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 6) {
                             Image(systemName: "chevron.left")
                             Text("Back")
                         }
-                        .foregroundColor(.textPrimary)
+                        .foregroundColor(.white)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
                     }
-                    .shadow(color: .black, radius: 2, x: 1, y: 1)
+                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
                     Spacer()
 
                     if workoutActive {
@@ -46,9 +50,12 @@ struct CameraSetupView: View {
                 Spacer()
 
                 if !workoutActive {
+                    Spacer()
+                    
                     InstructionCard()
                         .padding(.horizontal, 20)
-                        .padding(.bottom, 16)
+                    
+                    Spacer()
 
                     Button(action: startWorkout) {
                         Text("Start Bodyweight Squat")
@@ -88,12 +95,17 @@ struct CameraSetupView: View {
     }
 
     private func setupCameraForSetupMode() {
-        // Ensure shared session exists
+        // Ensure shared session exists and is properly configured
         SharedCameraSessionManager.shared.setupCameraSession()
         SharedCameraSessionManager.shared.switchToSetupMode()
+        
         // Start running the session if needed so the preview is live
-        if let session = SharedCameraSessionManager.shared.getCaptureSession(), !session.isRunning {
-            DispatchQueue.global(qos: .userInitiated).async { session.startRunning() }
+        if let session = SharedCameraSessionManager.shared.getCaptureSession() {
+            if !session.isRunning {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    session.startRunning()
+                }
+            }
         }
     }
 
@@ -149,15 +161,35 @@ final class SetupCameraPreviewView: UIView {
     }
 
     private func setup() {
-        if let session = SharedCameraSessionManager.shared.getCaptureSession() {
-            let layer = AVCaptureVideoPreviewLayer(session: session)
-            layer.videoGravity = .resizeAspectFill
-            // Mirror for front camera UI only; analysis buffers are unmirrored in manager
-            layer.connection?.automaticallyAdjustsVideoMirroring = false
-            layer.connection?.isVideoMirrored = true
-            previewLayer = layer
-            self.layer.addSublayer(layer)
-            layer.frame = bounds
+        // Wait a bit for the shared manager to be ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.setupPreviewLayer()
+        }
+    }
+    
+    private func setupPreviewLayer() {
+        guard let session = SharedCameraSessionManager.shared.getCaptureSession() else {
+            // Retry if session isn't ready yet
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                self?.setupPreviewLayer()
+            }
+            return
+        }
+        
+        let layer = AVCaptureVideoPreviewLayer(session: session)
+        layer.videoGravity = .resizeAspectFill
+        // Mirror for front camera UI only; analysis buffers are unmirrored in manager
+        layer.connection?.automaticallyAdjustsVideoMirroring = false
+        layer.connection?.isVideoMirrored = true
+        previewLayer = layer
+        self.layer.addSublayer(layer)
+        layer.frame = bounds
+        
+        // Ensure session is running
+        if !session.isRunning {
+            DispatchQueue.global(qos: .userInitiated).async {
+                session.startRunning()
+            }
         }
     }
 
@@ -175,31 +207,34 @@ private struct InstructionCard: View {
                 Image(systemName: "camera.viewfinder")
                     .font(.title3)
                     .foregroundColor(.primaryPurple)
-                Text("Attempt to Place Your Camera")
+                Text("Attempt to Place Your Phone:")
                     .font(.headline)
                     .foregroundColor(.white)
             }
 
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "1.circle.fill").foregroundColor(.primaryPurple)
-                Text("Stand side-on to the camera")
-                    .foregroundColor(.white)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "ruler").foregroundColor(.primaryPurple)
+                    Text("6-8' Away")
+                        .foregroundColor(.white)
+                }
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "angle").foregroundColor(.primaryPurple)
+                    Text("45° to Your Body")
+                        .foregroundColor(.white)
+                }
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "person.fill").foregroundColor(.primaryPurple)
+                    Text("At Waist to Chest Height")
+                        .foregroundColor(.white)
+                }
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "figure.walk").foregroundColor(.primaryPurple)
+                    Text("With Feet in View")
+                        .foregroundColor(.white)
+                }
             }
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "2.circle.fill").foregroundColor(.primaryPurple)
-                Text("Center yourself in frame")
-                    .foregroundColor(.white)
-            }
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "3.circle.fill").foregroundColor(.primaryPurple)
-                Text("At Chest to Head Height")
-                    .foregroundColor(.white)
-            }
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "4.circle.fill").foregroundColor(.primaryPurple)
-                Text("With Feet in View")
-                    .foregroundColor(.white)
-            }
+            .padding(.leading, 20)
         }
         .padding(16)
         .background(
