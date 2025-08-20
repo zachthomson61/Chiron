@@ -39,7 +39,8 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
         // Setup video data output
         videoDataOutput = AVCaptureVideoDataOutput()
         videoDataOutput?.alwaysDiscardsLateVideoFrames = true
-        videoDataOutput?.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange]
+        // Prefer BGRA for downstream Vision/CI processing
+        videoDataOutput?.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         
         if let videoDataOutput = videoDataOutput, captureSession.canAddOutput(videoDataOutput) {
             captureSession.addOutput(videoDataOutput)

@@ -7,12 +7,22 @@ struct CameraSetupView: View {
     @State private var currentRepCount: Int = 0
     @State private var repUpdateTimer: Timer?
     @State private var showExerciseSelection: Bool = false
+    
+    // Segmentation overlay
+    @StateObject private var segmentationProcessor = SegmentationProcessor()
 
     var body: some View {
         ZStack {
             // Live camera preview (shared session)
-            SetupCameraPreviewRepresentable()
+            SetupCameraPreviewRepresentable(processor: segmentationProcessor)
                 .ignoresSafeArea()
+
+            // Segmentation overlay image (semi-transparent green silhouette)
+            if !workoutActive {
+                SegmentationOverlayView(processor: segmentationProcessor)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
 
             VStack {
                 HStack {
@@ -87,8 +97,14 @@ struct CameraSetupView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .onAppear { setupCameraForSetupMode() }
-        .onDisappear { stopRepCounterTimer() }
+        .onAppear { 
+            setupCameraForSetupMode()
+            segmentationProcessor.setProcessingEnabled(true)
+        }
+        .onDisappear { 
+            stopRepCounterTimer()
+            segmentationProcessor.setProcessingEnabled(false)
+        }
         .fullScreenCover(isPresented: $showExerciseSelection) {
             ExerciseSelectionView(viewModel: WorkoutViewModel())
         }
@@ -110,6 +126,10 @@ struct CameraSetupView: View {
     }
 
     private func startWorkout() {
+        // Stop segmentation processing before switching to workout mode
+        segmentationProcessor.stopProcessing()
+        segmentationProcessor.setProcessingEnabled(false)
+        
         SharedCameraSessionManager.shared.switchToWorkoutMode()
         SharedCameraSessionManager.shared.startPoseAnalysis()
         startRepCounterTimer()
@@ -139,16 +159,44 @@ struct CameraSetupView: View {
     }
 }
 
+// MARK: - Segmentation Overlay SwiftUI View
+private struct SegmentationOverlayView: View {
+    @ObservedObject var processor: SegmentationProcessor
+
+    var body: some View {
+        GeometryReader { geo in
+            if let cg = processor.overlayImage {
+                Image(uiImage: UIImage(cgImage: cg))
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+            } else {
+                Color.clear
+            }
+        }
+    }
+}
+
 // MARK: - Camera Preview (Setup)
 struct SetupCameraPreviewRepresentable: UIViewRepresentable {
+    let processor: SegmentationProcessor
     func makeUIView(context: Context) -> SetupCameraPreviewView {
-        SetupCameraPreviewView()
+        SetupCameraPreviewView(processor: processor)
     }
     func updateUIView(_ uiView: SetupCameraPreviewView, context: Context) {}
 }
 
 final class SetupCameraPreviewView: UIView {
     private var previewLayer: AVCaptureVideoPreviewLayer?
+    private weak var processor: SegmentationProcessor?
+    private var videoDelegate: VideoDelegate?
+
+    init(processor: SegmentationProcessor) {
+        self.processor = processor
+        super.init(frame: .zero)
+        setup()
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -185,6 +233,25 @@ final class SetupCameraPreviewView: UIView {
         self.layer.addSublayer(layer)
         layer.frame = bounds
         
+        // Attach video output delegate for segmentation during setup mode
+        if let videoOutput = SharedCameraSessionManager.shared.getVideoDataOutput() {
+            let queue = DispatchQueue(label: "segmentationVideoQueue")
+            let delegate = VideoDelegate(processor: processor)
+            videoOutput.setSampleBufferDelegate(delegate, queue: queue)
+            if let conn = videoOutput.connection(with: .video) {
+                if #available(iOS 17.0, *) {
+                    conn.videoRotationAngle = 90.0
+                } else {
+                    conn.videoOrientation = .portrait
+                }
+                if conn.isVideoMirroringSupported {
+                    // Keep analysis buffers unmirrored; preview handles mirroring
+                    conn.isVideoMirrored = false
+                }
+            }
+            self.videoDelegate = delegate
+        }
+        
         // Ensure session is running
         if !session.isRunning {
             DispatchQueue.global(qos: .userInitiated).async {
@@ -197,20 +264,31 @@ final class SetupCameraPreviewView: UIView {
         super.layoutSubviews()
         previewLayer?.frame = bounds
     }
+
+    deinit {
+        // Detach delegate when view goes away
+        SharedCameraSessionManager.shared.getVideoDataOutput()?.setSampleBufferDelegate(nil, queue: nil)
+    }
+
+    // MARK: - Delegate proxy
+    private final class VideoDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+        weak var processor: SegmentationProcessor?
+        init(processor: SegmentationProcessor?) {
+            self.processor = processor
+        }
+        func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+            processor?.process(sampleBuffer: sampleBuffer, mirrored: true)
+        }
+    }
 }
 
 // MARK: - Instruction Card
 private struct InstructionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "camera.viewfinder")
-                    .font(.title3)
-                    .foregroundColor(.primaryPurple)
-                Text("Attempt to Place Your Phone:")
-                    .font(.headline)
-                    .foregroundColor(.white)
-            }
+            Text("Attempt to Place Your Phone:")
+                .font(.headline)
+                .foregroundColor(.white)
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 8) {
@@ -260,5 +338,6 @@ private struct InstructionCard: View {
         .opacity(0.9)
     }
 }
+
 
 
