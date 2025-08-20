@@ -189,4 +189,149 @@ class OpenAICoachingManager: ObservableObject {
             completion(feedback)
         }
     }
+    
+    // MARK: - Two-point concise feedback
+    func getTwoPointFeedback(formAnalysis: FormAnalysis, completion: @escaping (String, String) -> Void) {
+        let summary = formAnalysis.summary
+        // Provide structured metrics and issues to reduce generic answers
+        let analysisPayload: [String: Any] = [
+            "depth": formAnalysis.depth,
+            "back_angle": formAnalysis.backAngle,
+            "knee_alignment": formAnalysis.kneeAlignment,
+            "rep_count": formAnalysis.repCount,
+            "issues": formAnalysis.issues
+        ]
+        let analysisJSON: String = {
+            if let data = try? JSONSerialization.data(withJSONObject: analysisPayload, options: [.sortedKeys]),
+               let str = String(data: data, encoding: .utf8) { return str }
+            return "{}"
+        }()
+
+        let prompt = """
+        You are a concise fitness coach for bodyweight squats.
+        Use the analysis below to output ONLY compact JSON with two short cues:
+        {"good":"<one short, specific thing they did well>", "improve":"<one short, specific thing to improve>"}
+        Rules:
+        - Be specific and actionable (e.g., "Push your knees out", "Keep chest tall", "Brace your core").
+        - Do NOT mention reps, sets, or scores.
+        - Do NOT output generic phrases like "Completed full set" or "Work on form" or "Keep practicing".
+        - Keep each value under 9 words, no punctuation at the end, no newlines.
+
+        ANALYSIS_METRICS_JSON:
+        \(analysisJSON)
+
+        ANALYSIS_SUMMARY:
+        \(summary)
+        """
+
+        print("🤖 TwoPoint: preparing OpenAI request. Summary length=\(summary.count)")
+
+        guard let url = URL(string: baseURL) else {
+            completion("Good control.", "Go a bit deeper.")
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let body: [String: Any] = [
+            "model": "gpt-4",
+            "messages": [
+                ["role": "system", "content": "You are a precise JSON generator. Output only JSON, no commentary."],
+                ["role": "user", "content": prompt]
+            ],
+            "max_tokens": 60,
+            "temperature": 0.6
+        ]
+
+        do { request.httpBody = try JSONSerialization.data(withJSONObject: body) } catch {
+            completion("Good control.", "Go a bit deeper.")
+            return
+        }
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let http = response as? HTTPURLResponse {
+                print("🤖 TwoPoint: HTTP status=\(http.statusCode)")
+            }
+            if let error = error {
+                print("❌ OpenAI two-point error: \(error)")
+                DispatchQueue.main.async { completion("Good control.", "Go a bit deeper.") }
+                return
+            }
+            guard let data = data else {
+                DispatchQueue.main.async { completion("Good control.", "Go a bit deeper.") }
+                return
+            }
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let choices = json["choices"] as? [[String: Any]],
+                   let first = choices.first,
+                   let message = first["message"] as? [String: Any],
+                   let content = message["content"] as? String {
+                    print("🤖 TwoPoint: raw content=\(content)")
+                    var good = ""
+                    var improve = ""
+                    if let contentData = content.data(using: .utf8),
+                       let parsed = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any] {
+                        good = (parsed["good"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        improve = (parsed["improve"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    } else {
+                        // Heuristic fallback: split
+                        let parts = content
+                            .replacingOccurrences(of: "\n", with: ". ")
+                            .components(separatedBy: ". ")
+                            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                        good = parts.first ?? "Good control"
+                        improve = parts.dropFirst().first ?? "Go a bit deeper"
+                    }
+                    // Filter generic content
+                    let genericPatterns = ["completed full set", "work on", "form", "practice", "overall", "good job", "nice work"]
+                    func isGeneric(_ s: String) -> Bool {
+                        let lower = s.lowercased()
+                        return genericPatterns.contains { lower.contains($0) }
+                    }
+                    if good.isEmpty || improve.isEmpty || isGeneric(good) || isGeneric(improve) {
+                        // Build rule-based fallback from metrics/issues
+                        let fallback = Self.ruleBasedTwoPoint(from: formAnalysis)
+                        DispatchQueue.main.async { completion(fallback.0, fallback.1) }
+                    } else {
+                        DispatchQueue.main.async { completion(good, improve) }
+                    }
+                } else {
+                    DispatchQueue.main.async { completion("Good control.", "Go a bit deeper.") }
+                }
+            } catch {
+                print("❌ Parse error: \(error)")
+                DispatchQueue.main.async { completion("Good control.", "Go a bit deeper.") }
+            }
+        }.resume()
+    }
+
+    private static func ruleBasedTwoPoint(from analysis: FormAnalysis) -> (String, String) {
+        // Good
+        let good: String
+        if analysis.depth >= 0.6 {
+            good = "Good depth"
+        } else if abs(analysis.backAngle) <= 25 {
+            good = "Chest tall"
+        } else {
+            good = "Controlled tempo"
+        }
+        // Improve
+        let improve: String
+        if analysis.issues.contains("Knee Valgus") {
+            improve = "Push your knees out"
+        } else if analysis.issues.contains("Knee Varus") {
+            improve = "Keep knees over toes"
+        } else if analysis.issues.contains("Forward Lean") {
+            improve = "Lift your chest"
+        } else if analysis.issues.contains("Insufficient Depth") || analysis.depth < 0.45 {
+            improve = "Squat a little deeper"
+        } else {
+            improve = "Brace your core"
+        }
+        return (good, improve)
+    }
 } 

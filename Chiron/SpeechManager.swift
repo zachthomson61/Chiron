@@ -12,6 +12,7 @@ class SpeechManager: NSObject, ObservableObject {
     // OpenAI TTS Integration
     private var audioPlayer: AVAudioPlayer?
     private var audioCache: [String: Data] = [:]
+    private let audioCacheQueue = DispatchQueue(label: "speech.audioCache.queue", attributes: .concurrent)
     private var currentTask: URLSessionDataTask?
     private let openAIAPIKey: String?
     private let openAITTSURL = "https://api.openai.com/v1/audio/speech"
@@ -31,6 +32,9 @@ class SpeechManager: NSObject, ObservableObject {
     private var audioEngine: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+    
+    // Simple FIFO queue to avoid interrupting back-to-back cues
+    private var speakQueue: [(text: String, priority: SpeechPriority)] = []
     
     private override init() {
         // Get OpenAI API key from environment or Info.plist
@@ -70,8 +74,12 @@ class SpeechManager: NSObject, ObservableObject {
         
         print("🎤 Attempting to speak: \(text)")
         
-        // Stop any current speech
-        stopSpeaking()
+        // If already speaking, enqueue to avoid cutting off current audio
+        if isSpeaking || audioPlayer != nil || (synthesizer?.isSpeaking ?? false) {
+            print("🎤 Queuing utterance: \(text)")
+            speakQueue.append((text, priority))
+            return
+        }
         
         // Ensure audio session is active
         if !isAudioSessionActive {
@@ -98,6 +106,21 @@ class SpeechManager: NSObject, ObservableObject {
         // Try OpenAI TTS first, with fallback to system voice
         Task {
             await speakWithOpenAI(text, priority: priority)
+        }
+    }
+
+    private func playNextFromQueueIfAvailable() {
+        guard speechEnabled else { speakQueue.removeAll(); return }
+        guard !speakQueue.isEmpty else { return }
+        let next = speakQueue.removeFirst()
+        print("🎤 Dequeued utterance: \(next.text)")
+        if !isAudioSessionActive {
+            setupAudioSession()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.continueSpeaking(next.text, priority: next.priority)
+            }
+        } else {
+            continueSpeaking(next.text, priority: next.priority)
         }
     }
     
@@ -235,46 +258,10 @@ class SpeechManager: NSObject, ObservableObject {
     func speakFormFeedback(_ feedback: FormFeedback) {
         guard speechEnabled else { return }
         
-        var speechText = ""
-        
-        // Depth status
-        switch feedback.depthStatus {
-        case .perfect:
-            speechText += "Perfect depth! "
-        case .good:
-            speechText += "Good depth. "
-        case .watch:
-            speechText += "Go deeper. "
-        case .poor:
-            speechText += "Depth needs work. "
-        }
-        
-        // Posture status
-        switch feedback.postureStatus {
-        case .perfect:
-            speechText += "Excellent posture. "
-        case .good:
-            speechText += "Good posture. "
-        case .watch:
-            speechText += "Watch your posture. "
-        case .poor:
-            speechText += "Posture needs improvement. "
-        }
-        
-        // Tempo status
-        switch feedback.tempoStatus {
-        case .perfect:
-            speechText += "Perfect tempo. "
-        case .good:
-            speechText += "Good tempo. "
-        case .watch:
-            speechText += "Slow down. "
-        case .poor:
-            speechText += "Tempo needs work. "
-        }
-        
-        if !speechText.isEmpty {
-            speak(speechText, priority: .normal)
+        // Prefer concise cue based on detected issues if present
+        if !feedback.message.isEmpty {
+            speak(feedback.message, priority: .normal)
+            return
         }
     }
     
@@ -495,7 +482,8 @@ class SpeechManager: NSObject, ObservableObject {
     // MARK: - OpenAI TTS
     private func speakWithOpenAI(_ text: String, priority: SpeechPriority) async {
         // Check cache first
-        if let cachedAudio = audioCache[text] {
+        let cachedAudio: Data? = audioCacheQueue.sync { audioCache[text] }
+        if let cachedAudio = cachedAudio {
             print("🎤 Playing cached audio for: \(text)")
             DispatchQueue.main.async {
                 self.playAudioData(cachedAudio)
@@ -507,8 +495,10 @@ class SpeechManager: NSObject, ObservableObject {
             let audioData = try await fetchOpenAITTS(text)
             print("🎤 Received OpenAI TTS audio data: \(audioData.count) bytes")
             
-            // Cache the audio data
-            audioCache[text] = audioData
+            // Cache the audio data (thread-safe)
+            self.audioCacheQueue.async(flags: .barrier) {
+                self.audioCache[text] = audioData
+            }
             
             // Play the audio
             DispatchQueue.main.async {
@@ -622,7 +612,9 @@ class SpeechManager: NSObject, ObservableObject {
         for phrase in commonPhrases {
             do {
                 let audioData = try await fetchOpenAITTS(phrase)
-                audioCache[phrase] = audioData
+                audioCacheQueue.async(flags: .barrier) {
+                    self.audioCache[phrase] = audioData
+                }
                 print("🎤 Cached phrase: \(phrase)")
             } catch {
                 print("🎤 Failed to cache phrase '\(phrase)': \(error)")
@@ -637,16 +629,18 @@ class SpeechManager: NSObject, ObservableObject {
     // MARK: - Cache Management
     func clearAudioCache() {
         print("🎤 Clearing audio cache...")
-        audioCache.removeAll()
+        audioCacheQueue.async(flags: .barrier) {
+            self.audioCache.removeAll()
+        }
     }
     
     func getCacheSize() -> Int {
-        let totalBytes = audioCache.values.reduce(0) { $0 + $1.count }
+        let totalBytes = audioCacheQueue.sync { audioCache.values.reduce(0) { $0 + $1.count } }
         return totalBytes
     }
     
     func getCachedPhrases() -> [String] {
-        return Array(audioCache.keys)
+        return audioCacheQueue.sync { Array(audioCache.keys) }
     }
     
     // MARK: - Cleanup
@@ -718,6 +712,7 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
             self.isSpeaking = false
             // Clean up synthesizer after speech finishes
             self.synthesizer = nil
+            self.playNextFromQueueIfAvailable()
         }
     }
     
@@ -734,6 +729,7 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
             self.isSpeaking = false
             // Clean up synthesizer after speech is cancelled
             self.synthesizer = nil
+            self.playNextFromQueueIfAvailable()
         }
     }
     
@@ -749,6 +745,7 @@ extension SpeechManager: AVAudioPlayerDelegate {
         DispatchQueue.main.async {
             self.isSpeaking = false
             self.audioPlayer = nil
+            self.playNextFromQueueIfAvailable()
         }
     }
     
@@ -757,6 +754,7 @@ extension SpeechManager: AVAudioPlayerDelegate {
         DispatchQueue.main.async {
             self.isSpeaking = false
             self.audioPlayer = nil
+            self.playNextFromQueueIfAvailable()
         }
     }
 } 

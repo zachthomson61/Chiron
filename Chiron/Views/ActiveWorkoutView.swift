@@ -641,10 +641,65 @@ struct ActiveWorkoutView: View {
         restTimeRemaining = 0
     }
     
+    // End-of-set detection state
+    @State private var setInProgress: Bool = false
+    @State private var lastRepCountSeen: Int = 0
+    @State private var lastActivityTime: TimeInterval = Date().timeIntervalSince1970
+    @State private var feedbackCooldownUntil: TimeInterval = 0
+    private let inactivityThresholdSeconds: TimeInterval = 4.0
+    private let feedbackCooldownSeconds: TimeInterval = 6.0
+
     private func startRepCountTimer() {
-        // Update rep count every 0.5 seconds
+        // Update rep count every 0.5 seconds and monitor inactivity
         updateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            currentRepCount = SharedCameraSessionManager.shared.poseManager.getCurrentRepCount()
+            let poseManager = OnDevicePoseManager.shared
+            let now = Date().timeIntervalSince1970
+
+            // Current rep count
+            let reps = SharedCameraSessionManager.shared.poseManager.getCurrentRepCount()
+            currentRepCount = reps
+
+            // Activity based only on rep changes
+            if reps != lastRepCountSeen {
+                print("🔄 Rep count changed: \(lastRepCountSeen) -> \(reps)")
+                lastRepCountSeen = reps
+                lastActivityTime = now
+                if reps > 0 { setInProgress = true }
+            }
+
+            // Detect end of set via inactivity
+            if setInProgress,
+               now - lastActivityTime >= inactivityThresholdSeconds,
+               reps > 0,
+               now >= feedbackCooldownUntil {
+                print("🏁 End-of-set detected. Inactivity: \(now - lastActivityTime)s, reps: \(reps)")
+                setInProgress = false
+                feedbackCooldownUntil = now + feedbackCooldownSeconds
+                handleEndOfSetFeedback()
+            }
+        }
+    }
+
+    private func handleEndOfSetFeedback() {
+        print("🗣️ Triggering end-of-set feedback")
+        // Get latest form analysis snapshot (if available)
+        if let analysis = OnDevicePoseManager.shared.currentFormAnalysis {
+            print("📝 Using current form analysis for feedback")
+            OpenAICoachingManager.shared.getTwoPointFeedback(formAnalysis: analysis) { good, improve in
+                // Speak two concise comments
+                print("🗣️ Speaking feedback - good: \(good), improve: \(improve)")
+                if !good.isEmpty { SpeechManager.shared.speak(good, priority: .high) }
+                if !improve.isEmpty { SpeechManager.shared.speak(improve, priority: .high) }
+            }
+        } else {
+            // Fallback if no analysis available
+            let good = "Nice work staying controlled."
+            let improve = "Try to sit a bit deeper."
+            print("🗣️ Speaking fallback feedback - good: \(good), improve: \(improve)")
+            SpeechManager.shared.speak(good, priority: .high)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                SpeechManager.shared.speak(improve, priority: .high)
+            }
         }
     }
     

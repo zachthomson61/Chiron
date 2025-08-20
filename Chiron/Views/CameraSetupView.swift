@@ -115,15 +115,15 @@ struct CameraSetupView: View {
 
     private func setupCameraForSetupMode() {
         // Ensure shared session exists and is properly configured
-        SharedCameraSessionManager.shared.setupCameraSession()
+        if SharedCameraSessionManager.shared.getCaptureSession() == nil {
+            SharedCameraSessionManager.shared.setupCameraSession()
+        }
         SharedCameraSessionManager.shared.switchToSetupMode()
         
-        // Start running the session if needed so the preview is live
-        if let session = SharedCameraSessionManager.shared.getCaptureSession() {
-            if !session.isRunning {
-                DispatchQueue.global(qos: .userInitiated).async {
-                    session.startRunning()
-                }
+        // Ensure session is running for immediate preview
+        if let session = SharedCameraSessionManager.shared.getCaptureSession(), !session.isRunning {
+            DispatchQueue.global(qos: .userInitiated).async {
+                session.startRunning()
             }
         }
     }
@@ -215,16 +215,14 @@ final class SetupCameraPreviewView: UIView {
     }
 
     private func setup() {
-        // Wait a bit for the shared manager to be ready
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.setupPreviewLayer()
-        }
+        // Set up immediately; will retry quickly if session isn't ready yet
+        setupPreviewLayer()
     }
     
     private func setupPreviewLayer() {
         guard let session = SharedCameraSessionManager.shared.getCaptureSession() else {
-            // Retry if session isn't ready yet
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            // Retry quickly if session isn't ready yet
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
                 self?.setupPreviewLayer()
             }
             return

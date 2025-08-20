@@ -59,7 +59,7 @@ enum SquatType {
 class InactivityDetector {
     private var lastRepTime: Date?
     private var lastValidPoseTime: Date?
-    private let inactivityThreshold: TimeInterval = 8.0
+    private let inactivityThreshold: TimeInterval = 7.0
     private let poseThreshold: TimeInterval = 5.0
     
     func checkInactivity() -> Bool {
@@ -146,6 +146,26 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var poseRequest: VNDetectHumanBodyPoseRequest?
     private var analysisQueue = DispatchQueue(label: "pose.analysis", qos: .userInteractive)
     
+    // Cue speaking state
+    private var lastCueSpokenAt: Date?
+    private var lastCueText: String = ""
+    private let cueCooldownSeconds: TimeInterval = 6.0
+    private let cueByIssue: [String: String] = [
+        "Knee Valgus": "Push your knees out",
+        "Knee Varus": "Keep your knees over your toes",
+        "Forward Lean": "Lift your chest",
+        "Insufficient Depth": "Squat a little deeper"
+    ]
+    
+    // Aggregation for mid-set feedback (collected during the set, spoken between sets)
+    private var issueCounts: [String: Int] = [:]
+    private var positiveCounts: [String: Int] = [:]
+    private let positiveCueByKey: [String: String] = [
+        "Good Depth": "Good depth",
+        "Chest Tall": "Chest tall",
+        "Knees Over Toes": "Knees over toes"
+    ]
+    
     override init() {
         super.init()
         setupPoseDetection()
@@ -178,15 +198,16 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 // Analyze form and update current analysis
                 let formAnalysis = analyzeForm(observation)
                 
-                // Debug: Log depth values periodically
-                if Int.random(in: 0..<30) == 0 {  // Reduced frequency for cleaner logs
-                    print("🎯 Nose-based Depth: \(formAnalysis.depth), Score: \(formAnalysis.overallScore), DeepCycle: \(reachedDeepThisCycle), DeepThresh: \(deepDepthThreshold), ShallowThresh: \(shallowDepthThreshold)")
-                }
+                // (Removed verbose nose/depth debug logging)
                 
                 // IMPORTANT: Ensure this runs on main thread for UI updates
                 DispatchQueue.main.async {
                     self.currentFormAnalysis = formAnalysis
                 }
+                // Real-time cues disabled; feedback will be spoken at set end only
+                
+                // Aggregate issues and positives for between-sets feedback
+                self.aggregateFeedback(from: formAnalysis)
                 
                 // Check for rep detection on background thread
                 if validateRep() {
@@ -252,6 +273,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         let backAngle = calculateBodyweightBackAngle(points)
         let kneeAlignment = calculateBodyweightKneeAlignment(points)
         let overallScore = calculateBodyweightOverallScore(depth: depth, backAngle: backAngle, kneeAlignment: kneeAlignment)
+        let issues = detectBodyweightIssues(depth: depth, backAngle: backAngle, kneeAlignment: kneeAlignment)
         
         // Generate summary with bodyweight-specific feedback
         let summary = generateBodyweightFormSummary(depth: depth, backAngle: backAngle, overallScore: overallScore)
@@ -261,7 +283,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             backAngle: backAngle,
             kneeAlignment: kneeAlignment,
             overallScore: overallScore,
-            issues: [], // Not used in simplified version
+            issues: issues,
             summary: summary,
             repCount: repCount
         )
@@ -367,16 +389,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private func calculateBodyweightDepth(_ points: [String: CGPoint]) -> Float {
         // Use nose position for depth calculation - always visible and reliable
         guard let nose = points["nose"] else {
-            print("⚠️ Nose landmark not found! Available points: \(Array(points.keys))")
             return 0.5
-        }
-        
-        print("✅ Nose landmark found! Position: \(nose)")
-        
-        // Debug: Log nose detection for troubleshooting
-        if Int.random(in: 0..<30) == 0 {
-            print("🔍 NOSE: \(nose)")
-            print("📏 Nose Y: \(nose.y), Calculated Depth: \(nose.y)")
         }
         
         // In Vision coordinates: Y=0 is top, Y=1 is bottom
@@ -462,6 +475,31 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         let overallScore = (depthScore * 0.4 + angleScore * 0.4 + alignmentScore * 0.2)
         
         return min(overallScore, 1.0)
+    }
+
+    // MARK: - Rule-based issue detection for cues
+    private func detectBodyweightIssues(depth: Float, backAngle: Float, kneeAlignment: Float) -> [String] {
+        var issues: [String] = []
+        
+        // Depth
+        if depth < 0.45 { // shallow
+            issues.append("Insufficient Depth")
+        }
+        
+        // Torso angle (forward lean)
+        if backAngle > 35.0 { // large lean
+            issues.append("Forward Lean")
+        }
+        
+        // Knee tracking
+        if kneeAlignment < -0.2 {
+            issues.append("Knee Valgus")
+        } else if kneeAlignment > 0.2 {
+            issues.append("Knee Varus")
+        }
+        
+        // Limit to top two to avoid spamming
+        return Array(issues.prefix(2))
     }
     
     private func generateBodyweightFormSummary(depth: Float, backAngle: Float, overallScore: Float) -> String {
@@ -639,6 +677,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private func handleSetStart() {
         workoutState = .exercising
         setStartTime = Date()
+        // Reset aggregations at the start of a set
+        issueCounts.removeAll()
+        positiveCounts.removeAll()
         print("🎯 Set started automatically with \(repCount) reps")
     }
     
@@ -648,14 +689,17 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         workoutState = .resting
         restStartTime = Date()
         
-        let formScore = currentFormAnalysis?.overallScore ?? 0.0
-        let scorePercentage = Int(formScore * 100)
+        print("🏁 Set ended automatically")
         
-        print("🏁 Set ended automatically: \(repCount) reps, \(scorePercentage)% form score")
+        // Build mid-set aggregated two-point feedback and speak it
+        let (goodCue, improveCue) = aggregatedTwoPointFeedback()
+        if !goodCue.isEmpty { SpeechManager.shared.speak(goodCue, priority: .high) }
+        if !improveCue.isEmpty { SpeechManager.shared.speak(improveCue, priority: .high) }
         
-        // Provide audio feedback with set summary
-        let feedback = "Set complete! \(repCount) reps, form score \(scorePercentage) percent"
-        SpeechManager.shared.speak(feedback, priority: .high)
+        // Optionally: still call OpenAI in background for logging/analytics (no additional speech here)
+        if let analysis = currentFormAnalysis {
+            OpenAICoachingManager.shared.getTwoPointFeedback(formAnalysis: analysis) { _, _ in }
+        }
         
         // Start rest period timer
         DispatchQueue.main.asyncAfter(deadline: .now() + restPeriodDuration) {
@@ -681,5 +725,49 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 handleSetStart()
             }
         }
+    }
+
+    // Public method to allow UI to force end a set and use aggregated feedback
+    func forceEndCurrentSet() {
+        handleSetEnd()
+    }
+
+    // MARK: - Aggregation helpers
+    private func aggregateFeedback(from analysis: FormAnalysis) {
+        // Count issues
+        for issue in analysis.issues {
+            issueCounts[issue, default: 0] += 1
+        }
+        // Positives
+        if analysis.depth >= 0.6 { positiveCounts["Good Depth", default: 0] += 1 }
+        if abs(analysis.backAngle) <= 25 { positiveCounts["Chest Tall", default: 0] += 1 }
+        if abs(analysis.kneeAlignment) <= 0.1 { positiveCounts["Knees Over Toes", default: 0] += 1 }
+    }
+    
+    private func aggregatedTwoPointFeedback() -> (String, String) {
+        // Choose most frequent positive
+        let topPositiveKey = positiveCounts.max(by: { $0.value < $1.value })?.key
+        let good = (topPositiveKey.flatMap { positiveCueByKey[$0] }) ?? {
+            if let analysis = currentFormAnalysis {
+                if analysis.depth >= 0.6 { return "Good depth" }
+                if abs(analysis.backAngle) <= 25 { return "Chest tall" }
+            }
+            return "Controlled tempo"
+        }()
+        
+        // Choose most frequent issue
+        let topIssue = issueCounts.max(by: { $0.value < $1.value })?.key
+        let improve: String = {
+            if let issue = topIssue, let cue = cueByIssue[issue] { return cue }
+            if let analysis = currentFormAnalysis {
+                if analysis.issues.contains("Knee Valgus") { return "Push your knees out" }
+                if analysis.issues.contains("Knee Varus") { return "Keep your knees over your toes" }
+                if analysis.issues.contains("Forward Lean") { return "Lift your chest" }
+                if analysis.depth < 0.45 { return "Squat a little deeper" }
+            }
+            return "Brace your core"
+        }()
+        
+        return (good, improve)
     }
 }
