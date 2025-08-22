@@ -349,8 +349,8 @@ class SpeechManager: NSObject, ObservableObject {
             let audioSession = AVAudioSession.sharedInstance()
             
             // Check if audio session is already active and properly configured
-            if audioSession.category == .playback && audioSession.isOtherAudioPlaying == false {
-                print("🎤 Audio session already properly configured")
+            if audioSession.category == .playback && audioSession.categoryOptions.contains(.mixWithOthers) {
+                print("🎤 Audio session already properly configured (mixing with others)")
                 isAudioSessionActive = true
                 return
             }
@@ -358,15 +358,15 @@ class SpeechManager: NSObject, ObservableObject {
             // Deactivate first to ensure clean state
             try audioSession.setActive(false, options: [])
             
-            // Set category with minimal options to avoid conflicts
-            try audioSession.setCategory(.playback, mode: .default, options: [])
+            // Set category to allow mixing with other audio (e.g., Music/Spotify)
+            try audioSession.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             
             // Add a longer delay before activating to ensure clean state
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 do {
                     try audioSession.setActive(true, options: [])
                     self.isAudioSessionActive = true
-                    print("🎤 Audio session setup successful")
+                    print("🎤 Audio session setup successful (mixing enabled)")
                 } catch {
                     print("❌ Failed to activate audio session: \(error)")
                     self.isAudioSessionActive = false
@@ -386,14 +386,14 @@ class SpeechManager: NSObject, ObservableObject {
         do {
             let audioSession = AVAudioSession.sharedInstance()
             
-            // Try the simplest possible setup
-            try audioSession.setCategory(.playback, mode: .default, options: [])
+            // Try the simplest possible setup with mixing
+            try audioSession.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 do {
                     try audioSession.setActive(true, options: [])
                     self.isAudioSessionActive = true
-                    print("🎤 Audio session fallback setup successful")
+                    print("🎤 Audio session fallback setup successful (mixing enabled)")
                 } catch {
                     print("❌ Audio session fallback also failed: \(error)")
                     self.isAudioSessionActive = false

@@ -99,6 +99,7 @@ struct CameraSetupView: View {
         .preferredColorScheme(.dark)
         .onAppear { 
             setupCameraForSetupMode()
+            segmentationProcessor.stopProcessing()
             segmentationProcessor.setProcessingEnabled(true)
             
             // Add speech feedback for form instructions
@@ -107,6 +108,8 @@ struct CameraSetupView: View {
         .onDisappear { 
             stopRepCounterTimer()
             segmentationProcessor.setProcessingEnabled(false)
+            // Detach any segmentation delegate to avoid stale callbacks when navigating away
+            SharedCameraSessionManager.shared.getVideoDataOutput()?.setSampleBufferDelegate(nil, queue: nil)
         }
         .fullScreenCover(isPresented: $showExerciseSelection) {
             ExerciseSelectionView(viewModel: WorkoutViewModel())

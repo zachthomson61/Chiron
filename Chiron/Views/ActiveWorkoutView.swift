@@ -426,6 +426,9 @@ struct ActiveWorkoutView: View {
     @State private var showPoseVisualization = false
     @State private var restTimeRemaining: TimeInterval = 0
     @State private var restTimer: Timer?
+    // Completed set summaries (rep counts per set)
+    @State private var completedSetReps: [Int] = []
+    @State private var totalRepsAtLastSetEnd: Int = 0
     
     // Callback to navigate back to exercise selection
     var onFinishExercise: (() -> Void)?
@@ -464,7 +467,7 @@ struct ActiveWorkoutView: View {
                     .shadow(color: .black, radius: 2, x: 1, y: 1)
                     Spacer()
                     VStack {
-                        Text("\(currentRepCount)")
+                        Text("\(max(0, currentRepCount - totalRepsAtLastSetEnd))")
                             .font(.largeTitle)
                             .fontWeight(.bold)
                             .foregroundColor(.textPrimary)
@@ -507,6 +510,41 @@ struct ActiveWorkoutView: View {
                         Image(systemName: showPoseVisualization ? "eye.fill" : "eye")
                             .font(.title2)
                             .foregroundColor(showPoseVisualization ? .green : .gray)
+                    }
+                    .shadow(color: .black, radius: 2, x: 1, y: 1)
+                    
+                    // Completed set summaries to the left of the rep counter
+                    if !completedSetReps.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(Array(completedSetReps.enumerated()), id: \.offset) { idx, reps in
+                                    VStack(spacing: 2) {
+                                        Text("\(reps)")
+                                            .font(.headline)
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 6)
+                                            .background(Color.black.opacity(0.6))
+                                            .cornerRadius(12)
+                                        Text("Set \(idx + 1)")
+                                            .font(.caption2)
+                                            .foregroundColor(.gray)
+                                    }
+                                }
+                            }
+                        }
+                        .frame(height: 44)
+                    }
+                    
+                    // Current set rep counter (resets after each set)
+                    VStack {
+                        Text("\(max(0, currentRepCount - totalRepsAtLastSetEnd))")
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                            .foregroundColor(.textPrimary)
+                        Text("reps")
+                            .font(.caption)
+                            .foregroundColor(.textSecondary)
                     }
                     .shadow(color: .black, radius: 2, x: 1, y: 1)
                     
@@ -562,6 +600,8 @@ struct ActiveWorkoutView: View {
         .onAppear {
             // Start automatic pose analysis
             print("🎯 Starting automatic pose analysis")
+            completedSetReps = []
+            totalRepsAtLastSetEnd = 0
             SharedCameraSessionManager.shared.switchToWorkoutMode()
             SharedCameraSessionManager.shared.startPoseAnalysis()
             
@@ -682,6 +722,13 @@ struct ActiveWorkoutView: View {
 
     private func handleEndOfSetFeedback() {
         print("🗣️ Triggering end-of-set feedback")
+        // Append set summary bubble and start rest timer
+        let setReps = max(0, currentRepCount - totalRepsAtLastSetEnd)
+        if setReps > 0 {
+            completedSetReps.append(setReps)
+            totalRepsAtLastSetEnd = currentRepCount
+        }
+        startRestTimer()
         // Get latest form analysis snapshot (if available)
         if let analysis = OnDevicePoseManager.shared.currentFormAnalysis {
             print("📝 Using current form analysis for feedback")
