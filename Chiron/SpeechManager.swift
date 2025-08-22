@@ -139,6 +139,10 @@ class SpeechManager: NSObject, ObservableObject {
         
         isSpeaking = false
         print("🎤 Speech stopped and cleaned up")
+        // Restore background audio volume if idle
+        if speakQueue.isEmpty && !(synthesizer?.isSpeaking ?? false) && audioPlayer == nil {
+            setDuckingEnabled(false)
+        }
     }
     
     // MARK: - Feedback Speech
@@ -349,8 +353,9 @@ class SpeechManager: NSObject, ObservableObject {
             let audioSession = AVAudioSession.sharedInstance()
             
             // Check if audio session is already active and properly configured
-            if audioSession.category == .playback && audioSession.categoryOptions.contains(.mixWithOthers) {
-                print("🎤 Audio session already properly configured (mixing with others)")
+            if audioSession.category == .playback && 
+               audioSession.categoryOptions.contains(.mixWithOthers) {
+                print("🎤 Audio session already properly configured (mixing only)")
                 isAudioSessionActive = true
                 return
             }
@@ -358,7 +363,8 @@ class SpeechManager: NSObject, ObservableObject {
             // Deactivate first to ensure clean state
             try audioSession.setActive(false, options: [])
             
-            // Set category to allow mixing with other audio (e.g., Music/Spotify)
+            // Set category to allow mixing with other audio (no duck by default)
+            // We will enable ducking only while actively speaking
             try audioSession.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             
             // Add a longer delay before activating to ensure clean state
@@ -366,7 +372,7 @@ class SpeechManager: NSObject, ObservableObject {
                 do {
                     try audioSession.setActive(true, options: [])
                     self.isAudioSessionActive = true
-                    print("🎤 Audio session setup successful (mixing enabled)")
+                    print("🎤 Audio session setup successful (mixing enabled, no duck)")
                 } catch {
                     print("❌ Failed to activate audio session: \(error)")
                     self.isAudioSessionActive = false
@@ -386,14 +392,14 @@ class SpeechManager: NSObject, ObservableObject {
         do {
             let audioSession = AVAudioSession.sharedInstance()
             
-            // Try the simplest possible setup with mixing
+            // Try the simplest possible setup with mixing only (no duck)
             try audioSession.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 do {
                     try audioSession.setActive(true, options: [])
                     self.isAudioSessionActive = true
-                    print("🎤 Audio session fallback setup successful (mixing enabled)")
+                    print("🎤 Audio session fallback setup successful (mixing enabled, no duck)")
                 } catch {
                     print("❌ Audio session fallback also failed: \(error)")
                     self.isAudioSessionActive = false
@@ -402,6 +408,28 @@ class SpeechManager: NSObject, ObservableObject {
         } catch {
             print("❌ Audio session fallback setup failed: \(error)")
             isAudioSessionActive = false
+        }
+    }
+
+    // Enable/Disable ducking dynamically around speech playback
+    private func setDuckingEnabled(_ enabled: Bool) {
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            if enabled {
+                // Enable standard ducking while mixing with other audio
+                try audioSession.setCategory(.playback, mode: .default, options: [.mixWithOthers, .duckOthers])
+                if !isAudioSessionActive {
+                    try audioSession.setActive(true, options: [])
+                    isAudioSessionActive = true
+                }
+                print("🎤 Ducking ENABLED")
+            } else {
+                // Switch back to mix-only so other audio returns to normal volume
+                try audioSession.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+                print("🎤 Ducking DISABLED (mixing only)")
+            }
+        } catch {
+            print("❌ Failed to toggle ducking: \(error)")
         }
     }
     
@@ -555,6 +583,9 @@ class SpeechManager: NSObject, ObservableObject {
             // Stop any current audio
             audioPlayer?.stop()
             
+            // Enable ducking just before playback starts
+            setDuckingEnabled(true)
+
             // Create audio player with the received data
             audioPlayer = try AVAudioPlayer(data: data)
             audioPlayer?.delegate = self
@@ -602,6 +633,9 @@ class SpeechManager: NSObject, ObservableObject {
         utterance.preUtteranceDelay = 0.2
         utterance.postUtteranceDelay = 0.1
         
+        // Enable ducking for system TTS as well
+        setDuckingEnabled(true)
+
         synthesizer?.speak(utterance)
         isSpeaking = true
     }
@@ -712,6 +746,10 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
             self.isSpeaking = false
             // Clean up synthesizer after speech finishes
             self.synthesizer = nil
+            // If nothing else is queued or playing, disable ducking
+            if self.speakQueue.isEmpty && self.audioPlayer == nil {
+                self.setDuckingEnabled(false)
+            }
             self.playNextFromQueueIfAvailable()
         }
     }
@@ -729,6 +767,10 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
             self.isSpeaking = false
             // Clean up synthesizer after speech is cancelled
             self.synthesizer = nil
+            // If nothing else is queued or playing, disable ducking
+            if self.speakQueue.isEmpty && self.audioPlayer == nil {
+                self.setDuckingEnabled(false)
+            }
             self.playNextFromQueueIfAvailable()
         }
     }
@@ -745,6 +787,10 @@ extension SpeechManager: AVAudioPlayerDelegate {
         DispatchQueue.main.async {
             self.isSpeaking = false
             self.audioPlayer = nil
+            // If nothing else is queued or speaking, disable ducking
+            if self.speakQueue.isEmpty && !(self.synthesizer?.isSpeaking ?? false) {
+                self.setDuckingEnabled(false)
+            }
             self.playNextFromQueueIfAvailable()
         }
     }
@@ -754,6 +800,9 @@ extension SpeechManager: AVAudioPlayerDelegate {
         DispatchQueue.main.async {
             self.isSpeaking = false
             self.audioPlayer = nil
+            if self.speakQueue.isEmpty && !(self.synthesizer?.isSpeaking ?? false) {
+                self.setDuckingEnabled(false)
+            }
             self.playNextFromQueueIfAvailable()
         }
     }

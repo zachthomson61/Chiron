@@ -39,6 +39,13 @@ struct FormAnalysis {
     let issues: [String]
     let summary: String
     let repCount: Int // Current rep count
+    // Average tempo metrics for current set (milliseconds)
+    let avgEccentricMs: Float?
+    let avgPauseMs: Float?
+    let avgConcentricMs: Float?
+    // ROM metrics for current set
+    let avgBottomDepth: Float?
+    let deepRepRatio: Float?
 }
 
 // MARK: - Workout State Management
@@ -59,7 +66,7 @@ enum SquatType {
 class InactivityDetector {
     private var lastRepTime: Date?
     private var lastValidPoseTime: Date?
-    private let inactivityThreshold: TimeInterval = 7.0
+    private let inactivityThreshold: TimeInterval = 5.0
     private let poseThreshold: TimeInterval = 5.0
     
     func checkInactivity() -> Bool {
@@ -134,8 +141,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var movementThreshold: Float = 0.05  // Very sensitive to movement
     private var poseConfidenceThreshold: Float = 0.15  // Even lower confidence threshold for better detection (MORE SENSITIVE)
     // More sensitive depth thresholds for a squat cycle using nose position (normalized 0-1 depth)
-    private let deepDepthThreshold: Float = 0.60  // Nose Y must be >= 0.60 (lower in frame) - deeper squat (MORE SENSITIVE)
-    private let shallowDepthThreshold: Float = 0.40  // Nose Y must be <= 0.40 (higher in frame) - standing position (MORE SENSITIVE)
+    // Relaxed to improve rep detection across different camera crops/heights
+    private let deepDepthThreshold: Float = 0.58  // deep when nose >= 0.58
+    private let shallowDepthThreshold: Float = 0.48  // top when nose <= 0.48
     // State flag to ensure we saw a deep phase before counting on return to shallow
     private var reachedDeepThisCycle: Bool = false
     
@@ -165,6 +173,24 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         "Chest Tall": "Chest tall",
         "Knees Over Toes": "Knees over toes"
     ]
+    
+    // Tempo tracking for hypertrophy (milliseconds)
+    private var repStartTime: CFTimeInterval?
+    private var bottomTime: CFTimeInterval?
+    private var lastDepth: Float = 0
+    private var sumEccentricMs: Double = 0
+    private var sumPauseMs: Double = 0
+    private var sumConcentricMs: Double = 0
+    private var tempoRepSamples: Int = 0
+    private let bottomDepthThreshold: Float = 0.58 // align with deep threshold
+    private let topDepthThreshold: Float = 0.48    // align with shallow threshold
+
+    // ROM tracking (depth-based)
+    private var sumBottomDepth: Double = 0
+    private var bottomDepthSamples: Int = 0
+    private var deepFrameCount: Int = 0
+    private var totalDepthSamples: Int = 0
+    private var currentRepBottomDepthMax: Float = 0
     
     override init() {
         super.init()
@@ -197,6 +223,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 
                 // Analyze form and update current analysis
                 let formAnalysis = analyzeForm(observation)
+                
+                // Update tempo tracking using current depth
+                self.updateTempoTracking(currentDepth: formAnalysis.depth)
                 
                 // (Removed verbose nose/depth debug logging)
                 
@@ -285,7 +314,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             overallScore: overallScore,
             issues: issues,
             summary: summary,
-            repCount: repCount
+            repCount: repCount,
+            avgEccentricMs: tempoRepSamples > 0 ? Float(sumEccentricMs / Double(tempoRepSamples)) : nil,
+            avgPauseMs: tempoRepSamples > 0 ? Float(sumPauseMs / Double(tempoRepSamples)) : nil,
+            avgConcentricMs: tempoRepSamples > 0 ? Float(sumConcentricMs / Double(tempoRepSamples)) : nil,
+            avgBottomDepth: bottomDepthSamples > 0 ? Float(sumBottomDepth / Double(bottomDepthSamples)) : nil,
+            deepRepRatio: totalDepthSamples > 0 ? Float(deepFrameCount) / Float(totalDepthSamples) : nil
         )
     }
     
@@ -304,7 +338,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             overallScore: overallScore,
             issues: [],
             summary: summary,
-            repCount: repCount
+            repCount: repCount,
+            avgEccentricMs: nil,
+            avgPauseMs: nil,
+            avgConcentricMs: nil,
+            avgBottomDepth: nil,
+            deepRepRatio: nil
         )
     }
     
@@ -575,6 +614,20 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         lastSpokenRep = 0
         reachedDeepThisCycle = false // Reset the cycle state
         inactivityDetector.resetTimer()
+        // Reset tempo tracking
+        repStartTime = nil
+        bottomTime = nil
+        lastDepth = 0
+        sumEccentricMs = 0
+        sumPauseMs = 0
+        sumConcentricMs = 0
+        tempoRepSamples = 0
+        // Reset ROM tracking
+        sumBottomDepth = 0
+        bottomDepthSamples = 0
+        deepFrameCount = 0
+        totalDepthSamples = 0
+        currentRepBottomDepthMax = 0
         print("🔄 Rep count and state reset")
     }
     
@@ -589,6 +642,20 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         reachedDeepThisCycle = false
         workoutState = .waiting
         inactivityDetector.resetTimer()
+        // Reset tempo tracking
+        repStartTime = nil
+        bottomTime = nil
+        lastDepth = 0
+        sumEccentricMs = 0
+        sumPauseMs = 0
+        sumConcentricMs = 0
+        tempoRepSamples = 0
+        // Reset ROM tracking
+        sumBottomDepth = 0
+        bottomDepthSamples = 0
+        deepFrameCount = 0
+        totalDepthSamples = 0
+        currentRepBottomDepthMax = 0
         print("🔄 Rep counting state reset")
     }
     
@@ -651,8 +718,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
         
         // Additional check: if we're in a deep position but haven't marked it yet, mark it
-        if depth >= (deepDepthThreshold - 0.05) && !reachedDeepThisCycle {
-            print("🏋️ Near-deep phase detected: depth=\(depth) (near threshold: \(deepDepthThreshold - 0.05))")
+        if depth >= (deepDepthThreshold - 0.03) && !reachedDeepThisCycle {
+            print("🏋️ Near-deep phase detected: depth=\(depth) (near threshold: \(deepDepthThreshold - 0.03))")
             reachedDeepThisCycle = true
         }
         
@@ -680,6 +747,19 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         // Reset aggregations at the start of a set
         issueCounts.removeAll()
         positiveCounts.removeAll()
+        // Reset tempo/ROM aggregations per set
+        repStartTime = nil
+        bottomTime = nil
+        lastDepth = 0
+        sumEccentricMs = 0
+        sumPauseMs = 0
+        sumConcentricMs = 0
+        tempoRepSamples = 0
+        sumBottomDepth = 0
+        bottomDepthSamples = 0
+        deepFrameCount = 0
+        totalDepthSamples = 0
+        currentRepBottomDepthMax = 0
         print("🎯 Set started automatically with \(repCount) reps")
     }
     
@@ -769,5 +849,52 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }()
         
         return (good, improve)
+    }
+    
+    private func updateTempoTracking(currentDepth: Float) {
+        let now = CACurrentMediaTime()
+        // ROM sampling each frame
+        totalDepthSamples += 1
+        if currentDepth >= bottomDepthThreshold { deepFrameCount += 1 }
+        if currentDepth > currentRepBottomDepthMax { currentRepBottomDepthMax = currentDepth }
+        if repStartTime == nil, currentDepth <= topDepthThreshold {
+            repStartTime = now
+        }
+        // Detect arriving at bottom
+        if lastDepth < bottomDepthThreshold && currentDepth >= bottomDepthThreshold {
+            bottomTime = now
+        }
+        // Detect leaving bottom (start concentric) and compute pause
+        if let bTime = bottomTime, lastDepth >= bottomDepthThreshold && currentDepth < bottomDepthThreshold {
+            let pauseMs = max(0, (now - bTime) * 1000.0)
+            sumPauseMs += pauseMs
+        }
+        // Detect rep completion when returning near top
+        if let start = repStartTime, lastDepth > topDepthThreshold && currentDepth <= topDepthThreshold {
+            let totalMs = (now - start) * 1000.0
+            // Approximate split: eccentric until bottom, concentric from leaving bottom to top
+            // If bottomTime not available, split evenly as fallback
+            var eccMs = totalMs * 0.5
+            var conMs = totalMs * 0.5
+            if let bTime = bottomTime {
+                let ecc = max(0, (bTime - start) * 1000.0)
+                let con = max(0, totalMs - ecc)
+                eccMs = ecc
+                conMs = con
+            }
+            sumEccentricMs += eccMs
+            sumConcentricMs += conMs
+            tempoRepSamples += 1
+            // Record bottom depth for ROM
+            if currentRepBottomDepthMax > 0 {
+                sumBottomDepth += Double(currentRepBottomDepthMax)
+                bottomDepthSamples += 1
+            }
+            // Reset markers for next rep
+            repStartTime = nil
+            bottomTime = nil
+            currentRepBottomDepthMax = 0
+        }
+        lastDepth = currentDepth
     }
 }
