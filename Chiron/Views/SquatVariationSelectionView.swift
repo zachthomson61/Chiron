@@ -35,9 +35,15 @@ struct SquatVariationSelectionView: View {
                             .fontWeight(.semibold)
                             .foregroundColor(.textPrimary)
                         Spacer()
-                        // balance placeholder
-                        Button("") { }
-                            .opacity(0)
+                        // Invisible spacer to balance the back button
+                        Button(action: {}) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "chevron.left")
+                                Text("Back")
+                            }
+                            .foregroundColor(.clear)
+                        }
+                        .disabled(true)
                     }
                     .padding()
                     
@@ -51,9 +57,9 @@ struct SquatVariationSelectionView: View {
                     ScrollView {
                         VStack(spacing: 16) {
                             VariationCard(
-                                leadingIcon: "figure.walk",
+                                leadingIcon: "figure.strengthtraining.functional",
                                 title: "Bodyweight Squats",
-                                subtitle: "No equipment needed - perfect form focus",
+                                subtitle: "No equipment needed -\nperfect form focus",
                                 isSelected: selectedVariation == "Bodyweight Squats",
                                 isLocked: false
                             ) {
@@ -63,7 +69,7 @@ struct SquatVariationSelectionView: View {
                             VariationCard(
                                 leadingIcon: "figure.strengthtraining.traditional",
                                 title: "Barbell Back Squats",
-                                subtitle: "Coming soon - with barbell detection",
+                                subtitle: "Coming soon",
                                 isSelected: selectedVariation == "Barbell Back Squats",
                                 isLocked: true
                             ) {
