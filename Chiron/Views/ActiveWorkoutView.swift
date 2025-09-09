@@ -750,8 +750,8 @@ struct ActiveWorkoutView: View {
             }
         } else {
             // Fallback if no analysis available
-            let good = "Nice work staying controlled."
-            let improve = "Try to sit a bit deeper."
+            let good = "Great job staying controlled"
+            let improve = "On this next set, try to sit a bit deeper"
             print("🗣️ Speaking fallback feedback - good: \(good), improve: \(improve)")
             SpeechManager.shared.speak(good, priority: .high)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {

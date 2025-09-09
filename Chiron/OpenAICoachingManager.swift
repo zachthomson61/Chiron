@@ -208,14 +208,17 @@ class OpenAICoachingManager: ObservableObject {
         }()
 
         let prompt = """
-        You are a concise fitness coach for bodyweight squats.
-        Use the analysis below to output ONLY compact JSON with two short cues:
-        {"good":"<one short, specific thing they did well>", "improve":"<one short, specific thing to improve>"}
+        You are a supportive fitness coach for bodyweight squats.
+        Use the analysis below to output ONLY compact JSON with two encouraging cues:
+        {"good":"<one specific thing they did well, phrased as praise>", "improve":"<one specific thing to improve, phrased as a tip for next set>"}
         Rules:
-        - Be specific and actionable (e.g., "Push your knees out", "Keep chest tall", "Brace your core").
-        - Do NOT mention reps, sets, or scores.
-        - Do NOT output generic phrases like "Completed full set" or "Work on form" or "Keep practicing".
-        - Keep each value under 9 words, no punctuation at the end, no newlines.
+        - GOOD: Start with encouraging words like "Great job", "Nice work", "Excellent", "Good job" followed by specific technique
+        - IMPROVE: Start with "On this next set" or "Next time" followed by specific actionable tip
+        - Be specific and actionable (e.g., "Great job keeping your knees over your toes", "On this next set, try to keep your chest up")
+        - Do NOT mention reps, sets, or scores
+        - Do NOT output generic phrases like "Completed full set" or "Work on form" or "Keep practicing"
+        - Keep each value under 15 words, no punctuation at the end, no newlines
+        - Sound like a real trainer giving encouragement and coaching
 
         ANALYSIS_METRICS_JSON:
         \(analysisJSON)
@@ -227,7 +230,7 @@ class OpenAICoachingManager: ObservableObject {
         print("🤖 TwoPoint: preparing OpenAI request. Summary length=\(summary.count)")
 
         guard let url = URL(string: baseURL) else {
-            completion("Good control.", "Go a bit deeper.")
+            completion("Great job staying controlled", "On this next set, try to go a bit deeper")
             return
         }
 
@@ -257,11 +260,11 @@ class OpenAICoachingManager: ObservableObject {
             }
             if let error = error {
                 print("❌ OpenAI two-point error: \(error)")
-                DispatchQueue.main.async { completion("Good control.", "Go a bit deeper.") }
+                DispatchQueue.main.async { completion("Great job staying controlled", "On this next set, try to go a bit deeper") }
                 return
             }
             guard let data = data else {
-                DispatchQueue.main.async { completion("Good control.", "Go a bit deeper.") }
+                DispatchQueue.main.async { completion("Great job staying controlled", "On this next set, try to go a bit deeper") }
                 return
             }
             do {
@@ -283,8 +286,8 @@ class OpenAICoachingManager: ObservableObject {
                             .replacingOccurrences(of: "\n", with: ". ")
                             .components(separatedBy: ". ")
                             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-                        good = parts.first ?? "Good control"
-                        improve = parts.dropFirst().first ?? "Go a bit deeper"
+                        good = parts.first ?? "Great job staying controlled"
+                        improve = parts.dropFirst().first ?? "On this next set, try to go a bit deeper"
                     }
                     // Filter generic content
                     let genericPatterns = ["completed full set", "work on", "form", "practice", "overall", "good job", "nice work"]
@@ -300,37 +303,37 @@ class OpenAICoachingManager: ObservableObject {
                         DispatchQueue.main.async { completion(good, improve) }
                     }
                 } else {
-                    DispatchQueue.main.async { completion("Good control.", "Go a bit deeper.") }
+                    DispatchQueue.main.async { completion("Great job staying controlled", "On this next set, try to go a bit deeper") }
                 }
             } catch {
                 print("❌ Parse error: \(error)")
-                DispatchQueue.main.async { completion("Good control.", "Go a bit deeper.") }
+                DispatchQueue.main.async { completion("Great job staying controlled", "On this next set, try to go a bit deeper") }
             }
         }.resume()
     }
 
     private static func ruleBasedTwoPoint(from analysis: FormAnalysis) -> (String, String) {
-        // Good
+        // Good - encouraging praise
         let good: String
         if analysis.depth >= 0.6 {
-            good = "Good depth"
+            good = "Great job hitting good depth"
         } else if abs(analysis.backAngle) <= 25 {
-            good = "Chest tall"
+            good = "Excellent job keeping your chest tall"
         } else {
-            good = "Controlled tempo"
+            good = "Nice work maintaining controlled tempo"
         }
-        // Improve
+        // Improve - supportive coaching tip
         let improve: String
         if analysis.issues.contains("Knee Valgus") {
-            improve = "Push your knees out"
+            improve = "On this next set, try to push your knees out"
         } else if analysis.issues.contains("Knee Varus") {
-            improve = "Keep knees over toes"
+            improve = "Next time, focus on keeping your knees over your toes"
         } else if analysis.issues.contains("Forward Lean") {
-            improve = "Lift your chest"
+            improve = "On this next set, try to lift your chest up"
         } else if analysis.issues.contains("Insufficient Depth") || analysis.depth < 0.45 {
-            improve = "Squat a little deeper"
+            improve = "Next time, try to squat a little deeper"
         } else {
-            improve = "Brace your core"
+            improve = "On this next set, focus on bracing your core"
         }
         return (good, improve)
     }
