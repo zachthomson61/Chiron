@@ -484,11 +484,11 @@ struct ActiveWorkoutView: View {
                 .padding()
                 Spacer()
                 
-
-                
-                Spacer()
-                
-
+                // Rest Timer Clock Overlay (Center of Screen)
+                if OnDevicePoseManager.shared.workoutState == .resting {
+                    RestTimerClockView(restTimeRemaining: restTimeRemaining)
+                        .transition(.opacity.combined(with: .scale))
+                }
                 
                 Spacer()
                 
@@ -686,7 +686,7 @@ struct ActiveWorkoutView: View {
     @State private var lastRepCountSeen: Int = 0
     @State private var lastActivityTime: TimeInterval = Date().timeIntervalSince1970
     @State private var feedbackCooldownUntil: TimeInterval = 0
-    private let inactivityThresholdSeconds: TimeInterval = 4.0
+    private let inactivityThresholdSeconds: TimeInterval = 5.0
     private let feedbackCooldownSeconds: TimeInterval = 6.0
 
     private func startRepCountTimer() {
@@ -733,10 +733,20 @@ struct ActiveWorkoutView: View {
         if let analysis = OnDevicePoseManager.shared.currentFormAnalysis {
             print("📝 Using current form analysis for feedback")
             OpenAICoachingManager.shared.getTwoPointFeedback(formAnalysis: analysis) { good, improve in
-                // Speak two concise comments
+                // Speak two concise comments with proper timing
                 print("🗣️ Speaking feedback - good: \(good), improve: \(improve)")
-                if !good.isEmpty { SpeechManager.shared.speak(good, priority: .high) }
-                if !improve.isEmpty { SpeechManager.shared.speak(improve, priority: .high) }
+                if !good.isEmpty { 
+                    SpeechManager.shared.speak(good, priority: .high) 
+                    // Wait for first message to finish before speaking the second
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        if !improve.isEmpty { 
+                            SpeechManager.shared.speak(improve, priority: .high) 
+                        }
+                    }
+                } else if !improve.isEmpty {
+                    // If only improve message exists, speak it immediately
+                    SpeechManager.shared.speak(improve, priority: .high)
+                }
             }
         } else {
             // Fallback if no analysis available
@@ -744,7 +754,7 @@ struct ActiveWorkoutView: View {
             let improve = "Try to sit a bit deeper."
             print("🗣️ Speaking fallback feedback - good: \(good), improve: \(improve)")
             SpeechManager.shared.speak(good, priority: .high)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 SpeechManager.shared.speak(improve, priority: .high)
             }
         }
@@ -890,5 +900,60 @@ struct PoseVisualizationOverlay: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Rest Timer Clock View
+struct RestTimerClockView: View {
+    let restTimeRemaining: TimeInterval
+    
+    var body: some View {
+        ZStack {
+            // Background circle
+            Circle()
+                .stroke(Color.gray.opacity(0.3), lineWidth: 8)
+                .frame(width: 200, height: 200)
+            
+            // Rotating light indicator
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(
+                    LinearGradient(
+                        colors: [.orange, .red],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                )
+                .frame(width: 200, height: 200)
+                .rotationEffect(.degrees(-90)) // Start from top
+                .animation(.linear(duration: 1), value: progress)
+            
+            // Time display
+            VStack(spacing: 4) {
+                Text(timeString)
+                    .font(.system(size: 32, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white)
+                    .shadow(color: .black, radius: 2, x: 1, y: 1)
+                
+                Text("REST")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                    .shadow(color: .black, radius: 1)
+            }
+        }
+        .shadow(color: .black, radius: 4, x: 2, y: 2)
+    }
+    
+    private var timeString: String {
+        let minutes = Int(restTimeRemaining) / 60
+        let seconds = Int(restTimeRemaining) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+    
+    private var progress: Double {
+        let totalRestTime: TimeInterval = 60.0 // 60 seconds rest period
+        let remaining = max(0, restTimeRemaining)
+        return 1.0 - (remaining / totalRestTime)
     }
 }

@@ -114,13 +114,19 @@ class SpeechManager: NSObject, ObservableObject {
         guard !speakQueue.isEmpty else { return }
         let next = speakQueue.removeFirst()
         print("🎤 Dequeued utterance: \(next.text)")
+        
+        // Add a small delay between queued messages to prevent overlap
+        let delay: TimeInterval = isSpeaking ? 0.3 : 0.1
+        
         if !isAudioSessionActive {
             setupAudioSession()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 self.continueSpeaking(next.text, priority: next.priority)
             }
         } else {
-            continueSpeaking(next.text, priority: next.priority)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                self.continueSpeaking(next.text, priority: next.priority)
+            }
         }
     }
     
