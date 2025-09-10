@@ -393,9 +393,51 @@ struct ActiveWorkoutView: View {
                     .shadow(color: .black, radius: 2, x: 1, y: 1)
                     Spacer()
                     
+                    // Completed Sets Display (to the left of rep counter)
+                    if !completedSetReps.isEmpty {
+                        HStack(spacing: 12) {
+                            ForEach(Array(completedSetReps.enumerated()), id: \.offset) { idx, reps in
+                                VStack(spacing: 4) {
+                                    Text("\(reps)")
+                                        .font(.system(size: 42, weight: .bold, design: .rounded))
+                                        .foregroundColor(.white)
+                                    Text("Set \(idx + 1)")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(.white.opacity(0.8))
+                                }
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 16)
+                                .background(
+                                    LinearGradient(
+                                        colors: [Color.green.opacity(0.6), Color.green.opacity(0.4)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 20)
+                                        .stroke(
+                                            LinearGradient(
+                                                colors: [Color.green, Color.green.opacity(0.7)],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            ),
+                                            lineWidth: 2
+                                        )
+                                )
+                                .cornerRadius(20)
+                                .scaleEffect(idx == completedSetReps.count - 1 ? 1.05 : 1.0) // Slightly larger for most recent set
+                                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: completedSetReps.count)
+                            }
+                        }
+                        .transition(.scale.combined(with: .opacity))
+                        .shadow(color: .green.opacity(0.3), radius: 8, x: 0, y: 4)
+                        .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                    }
+                    
                     // Large Rep Counter in Header
                     VStack(spacing: 8) {
-                        Text("\(max(0, currentRepCount - totalRepsAtLastSetEnd))")
+                        Text("\(currentRepCount)")
                             .font(.system(size: 140, weight: .bold, design: .rounded))
                             .fontWeight(.bold)
                             .foregroundColor(.textPrimary)
@@ -441,29 +483,6 @@ struct ActiveWorkoutView: View {
                             .foregroundColor(showPoseVisualization ? .green : .gray)
                     }
                     .shadow(color: .black, radius: 2, x: 1, y: 1)
-                    
-                    // Completed set summaries to the left of the rep counter
-                    if !completedSetReps.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(Array(completedSetReps.enumerated()), id: \.offset) { idx, reps in
-                                    VStack(spacing: 2) {
-                                        Text("\(reps)")
-                                            .font(.headline)
-                                            .foregroundColor(.white)
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 6)
-                                            .background(Color.black.opacity(0.6))
-                                            .cornerRadius(12)
-                                        Text("Set \(idx + 1)")
-                                            .font(.caption2)
-                                            .foregroundColor(.gray)
-                                    }
-                                }
-                            }
-                        }
-                        .frame(height: 44)
-                    }
                     
                     // Automatic Status Display
                     VStack(spacing: 4) {
@@ -517,8 +536,12 @@ struct ActiveWorkoutView: View {
         .onAppear {
             // Start automatic pose analysis
             print("🎯 Starting automatic pose analysis")
+            // Clear any previous workout data
             completedSetReps = []
             totalRepsAtLastSetEnd = 0
+            currentRepCount = 0
+            setInProgress = false
+            lastRepCountSeen = 0
             SharedCameraSessionManager.shared.switchToWorkoutMode()
             SharedCameraSessionManager.shared.startPoseAnalysis()
             
@@ -609,10 +632,10 @@ struct ActiveWorkoutView: View {
     private func startRepCountTimer() {
         // Update rep count every 0.5 seconds and monitor inactivity
         updateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            let poseManager = OnDevicePoseManager.shared
+            _ = OnDevicePoseManager.shared
             let now = Date().timeIntervalSince1970
 
-            // Current rep count
+            // Current rep count (now resets between sets)
             let reps = SharedCameraSessionManager.shared.poseManager.getCurrentRepCount()
             currentRepCount = reps
 
@@ -640,9 +663,9 @@ struct ActiveWorkoutView: View {
     private func handleEndOfSetFeedback() {
         print("🗣️ Triggering end-of-set feedback")
         // Append set summary bubble and start rest timer
-        let setReps = max(0, currentRepCount - totalRepsAtLastSetEnd)
-        if setReps > 0 {
-            completedSetReps.append(setReps)
+        // Use the current rep count as the completed reps for this set
+        if currentRepCount > 0 {
+            completedSetReps.append(currentRepCount)
             totalRepsAtLastSetEnd = currentRepCount
         }
         startRestTimer()
@@ -677,8 +700,8 @@ struct ActiveWorkoutView: View {
         }
         SharedCameraSessionManager.shared.stopCamera()
         
-        // Check if any reps were completed
-        let totalReps = SharedCameraSessionManager.shared.poseManager.getCurrentRepCount()
+        // Check if any reps were completed (sum of all completed sets)
+        let totalReps = completedSetReps.reduce(0, +) + currentRepCount
         print("🏁 Total reps completed: \(totalReps)")
         
         if totalReps == 0 {
@@ -698,5 +721,6 @@ struct ActiveWorkoutView: View {
                 onFinishExercise?()
             }
         }
+
     }
 }

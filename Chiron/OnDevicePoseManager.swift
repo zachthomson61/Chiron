@@ -771,6 +771,14 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         
         print("🏁 Set ended automatically")
         
+        // Reset rep count for next set (but keep total workout state)
+        let completedReps = repCount
+        repCount = 0
+        consecutiveGoodReps = 0
+        reachedDeepThisCycle = false
+        lastRepValidationTime = nil
+        print("🔄 Reset rep count for next set (completed \(completedReps) reps)")
+        
         // Get single natural feedback and speak it once
         if let analysis = currentFormAnalysis {
             OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(formAnalysis: analysis) { naturalFeedback in
