@@ -731,32 +731,16 @@ struct ActiveWorkoutView: View {
         startRestTimer()
         // Get latest form analysis snapshot (if available)
         if let analysis = OnDevicePoseManager.shared.currentFormAnalysis {
-            print("📝 Using current form analysis for feedback")
-            OpenAICoachingManager.shared.getTwoPointFeedback(formAnalysis: analysis) { good, improve in
-                // Speak two concise comments with proper timing
-                print("🗣️ Speaking feedback - good: \(good), improve: \(improve)")
-                if !good.isEmpty { 
-                    SpeechManager.shared.speak(good, priority: .high) 
-                    // Wait for first message to finish before speaking the second
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        if !improve.isEmpty { 
-                            SpeechManager.shared.speak(improve, priority: .high) 
-                        }
-                    }
-                } else if !improve.isEmpty {
-                    // If only improve message exists, speak it immediately
-                    SpeechManager.shared.speak(improve, priority: .high)
-                }
+            print("📝 Using current form analysis for unified natural feedback")
+            // Single, natural message (no interruptions). Speaking handled inside manager.
+            OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(formAnalysis: analysis) { feedback in
+                print("🗣️ Unified feedback spoken: \(feedback)")
             }
         } else {
-            // Fallback if no analysis available
-            let good = "Great job staying controlled"
-            let improve = "On this next set, try to sit a bit deeper"
-            print("🗣️ Speaking fallback feedback - good: \(good), improve: \(improve)")
-            SpeechManager.shared.speak(good, priority: .high)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                SpeechManager.shared.speak(improve, priority: .high)
-            }
+            // Fallback if no analysis available - single natural sentence
+            let fallback = "Nice control there, but let's aim for a little more depth next set."
+            print("🗣️ Speaking fallback unified feedback: \(fallback)")
+            SpeechManager.shared.speakCoachingFeedback(fallback)
         }
     }
     
