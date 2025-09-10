@@ -25,6 +25,7 @@ struct CameraSetupView: View {
             }
 
             VStack {
+                // Top navigation bar with rep counter on the right
                 HStack {
                     Button(action: { dismiss() }) {
                         HStack(spacing: 6) {
@@ -38,22 +39,21 @@ struct CameraSetupView: View {
                         .clipShape(Capsule())
                     }
                     .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                    
                     Spacer()
-
+                    
+                    // Large rep counter in top right
                     if workoutActive {
-                        VStack(spacing: 0) {
+                        VStack(spacing: 8) {
                             Text("\(currentRepCount)")
-                                .font(.largeTitle).fontWeight(.bold)
+                                .font(.system(size: 140, weight: .bold, design: .rounded))
                                 .foregroundColor(.textPrimary)
-                            Text("reps")
-                                .font(.caption)
+                            Text("Reps")
+                                .font(.system(size: 28, weight: .semibold))
                                 .foregroundColor(.textSecondary)
                         }
                         .shadow(color: .black, radius: 2, x: 1, y: 1)
                     }
-
-                    // Spacer to balance layout
-                    Spacer().frame(width: 1)
                 }
                 .padding()
 

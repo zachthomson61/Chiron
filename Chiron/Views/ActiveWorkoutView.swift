@@ -140,238 +140,6 @@ extension SharedCameraSessionManager: AVCaptureVideoDataOutputSampleBufferDelega
     }
 }
 
-// MARK: - Active Workout Camera Manager (Legacy - keeping for compatibility)
-class ActiveWorkoutCameraManager: NSObject, ObservableObject {
-    static let shared = ActiveWorkoutCameraManager()
-    
-    private var captureSession: AVCaptureSession?
-    private var previewLayer: AVCaptureVideoPreviewLayer?
-    private var videoDataOutput: AVCaptureVideoDataOutput?
-    
-    // Pose analysis components
-    let poseManager = OnDevicePoseManager.shared
-    private let coachingManager = OpenAICoachingManager.shared
-    
-    @Published var isAnalyzingPose = false
-    @Published var currentFormAnalysis: FormAnalysis?
-    @Published var coachingFeedback: String = ""
-    
-    private override init() {
-        super.init()
-    }
-    
-    func receiveSession(_ session: AVCaptureSession, videoOutput: AVCaptureVideoDataOutput) {
-        print("📹 ActiveWorkout: Receiving camera session from setup")
-        
-        // Store the transferred session
-        self.captureSession = session
-        self.videoDataOutput = videoOutput
-        
-        // Don't create a new preview layer - the existing one from setup view should continue working
-        // Just ensure our video output delegate is set for pose analysis
-        videoOutput.setSampleBufferDelegate(self, queue: DispatchQueue(label: "activeWorkoutVideoQueue"))
-        
-        // Ensure the session continues running
-        if !session.isRunning {
-            DispatchQueue.global(qos: .userInitiated).async {
-                session.startRunning()
-            }
-        }
-        
-        print("📹 ActiveWorkout: Camera session transfer completed")
-    }
-    
-    private func setupCamera() {
-        // Only setup camera if we don't already have a session
-        guard captureSession == nil else { return }
-        
-        captureSession = AVCaptureSession()
-        guard let captureSession = captureSession else { return }
-        
-        captureSession.sessionPreset = .high
-        
-        // Try to get front camera, fallback to back camera if needed
-        var camera: AVCaptureDevice?
-        
-        // First try front camera
-        if let frontCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) {
-            camera = frontCamera
-            print("📹 Using front camera")
-        } else if let backCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
-            camera = backCamera
-            print("📹 Front camera not available, using back camera")
-        } else {
-            print("❌ No camera available")
-            return
-        }
-        
-        guard let selectedCamera = camera else {
-            print("❌ Failed to get camera device")
-            return
-        }
-        
-        do {
-            let input = try AVCaptureDeviceInput(device: selectedCamera)
-            if captureSession.canAddInput(input) {
-                captureSession.addInput(input)
-                print("📹 Camera input added successfully")
-            } else {
-                print("❌ Failed to add camera input")
-                return
-            }
-        } catch {
-            print("❌ Error setting up camera input: \(error)")
-            return
-        }
-        
-        // Setup video data output for pose analysis
-        videoDataOutput = AVCaptureVideoDataOutput()
-        videoDataOutput?.setSampleBufferDelegate(self, queue: DispatchQueue(label: "activeWorkoutVideoQueue"))
-        if let videoDataOutput = videoDataOutput, captureSession.canAddOutput(videoDataOutput) {
-            captureSession.addOutput(videoDataOutput)
-            print("📹 Video data output added successfully")
-        } else {
-            print("❌ Failed to add video data output")
-            return
-        }
-        
-        // Setup preview layer
-        previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
-        previewLayer?.videoGravity = .resizeAspectFill
-        print("📹 Camera setup completed successfully")
-    }
-    
-    func startCamera() {
-        // If we don't have a session yet, setup a new one
-        if captureSession == nil {
-            setupCamera()
-        }
-        
-        AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-            if granted {
-                DispatchQueue.global(qos: .userInitiated).async {
-                    self?.captureSession?.startRunning()
-                }
-            } else {
-                print("Camera permission denied")
-            }
-        }
-    }
-    
-    func stopCamera() {
-        print("📹 ActiveWorkoutCameraManager: Stopping camera")
-        captureSession?.stopRunning()
-        
-        // Also stop pose analysis when camera stops
-        stopPoseAnalysis()
-        
-        // Clear any cached form analysis
-        DispatchQueue.main.async {
-            self.currentFormAnalysis = nil
-        }
-    }
-    
-    func getPreviewLayer() -> AVCaptureVideoPreviewLayer? {
-        return previewLayer
-    }
-    
-    func startPoseAnalysis() {
-        isAnalyzingPose = true
-        print("🎯 ActiveWorkout: Starting pose analysis")
-        
-        // Reset rep count for new set
-        poseManager.resetRepCount()
-        
-        // Only start camera if it's not already running (e.g., from setup view transfer)
-        if let session = captureSession, !session.isRunning {
-            DispatchQueue.global(qos: .userInitiated).async {
-                session.startRunning()
-            }
-        } else if captureSession?.isRunning == true {
-            print("📹 ActiveWorkout: Camera already running from setup view")
-        }
-    }
-    
-    func stopPoseAnalysis() {
-        isAnalyzingPose = false
-        print("🛑 ActiveWorkout: Stopping pose analysis")
-        
-        // Clear current form analysis
-        DispatchQueue.main.async {
-            self.currentFormAnalysis = nil
-        }
-        
-        // Reset pose manager state
-        poseManager.resetRepCount()
-    }
-    
-    func getCoachingFeedback(completion: @escaping (String) -> Void) {
-        guard let formAnalysis = currentFormAnalysis else {
-            completion("No pose detected. Please ensure you are visible in the camera frame.")
-            return
-        }
-        
-        coachingManager.analyzeAndGetFeedback(formAnalysis: formAnalysis, isDetailed: false) { feedback in
-            DispatchQueue.main.async {
-                self.coachingFeedback = feedback
-                completion(feedback)
-            }
-        }
-    }
-    
-    func getDetailedCoachingFeedback(completion: @escaping (String) -> Void) {
-        guard let formAnalysis = currentFormAnalysis else {
-            completion("No pose detected. Please ensure you are visible in the camera frame.")
-            return
-        }
-        
-        coachingManager.analyzeAndGetFeedback(formAnalysis: formAnalysis, isDetailed: true) { feedback in
-            DispatchQueue.main.async {
-                self.coachingFeedback = feedback
-                completion(feedback)
-            }
-        }
-    }
-    
-    func getCurrentFormSummary() -> String {
-        return currentFormAnalysis?.summary ?? "No pose detected"
-    }
-    
-    func getCurrentFormScore() -> Float {
-        return currentFormAnalysis?.overallScore ?? 0.0
-    }
-}
-
-// MARK: - Video Data Output Delegate
-extension ActiveWorkoutCameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
-    // Static property for frame counting (moved to type level)
-    private static var frameCount = 0
-    
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        // Only analyze pose if pose analysis is active
-        guard isAnalyzingPose else { return }
-        
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        
-        // Analyze pose on device
-        poseManager.analyzeFrame(pixelBuffer)
-        
-        // Update form analysis
-        DispatchQueue.main.async {
-            self.currentFormAnalysis = self.poseManager.currentFormAnalysis
-        }
-        
-        // Debug logging for pose detection (reduced frequency)
-        if poseManager.poseDetected {
-            // Only log every 100 frames to reduce console spam
-            Self.frameCount += 1
-            if Self.frameCount % 100 == 0 {
-                print("🎯 ActiveWorkout: Pose detected - Form score: \(poseManager.currentFormAnalysis?.overallScore ?? 0.0)")
-            }
-        }
-    }
-}
-
 // MARK: - Active Workout Camera View
 struct ActiveWorkoutCameraView: UIViewRepresentable {
     func makeUIView(context: Context) -> ActiveWorkoutCameraPreviewView {
@@ -411,6 +179,164 @@ class ActiveWorkoutCameraPreviewView: UIView {
         if let previewLayer = layer.sublayers?.first as? AVCaptureVideoPreviewLayer {
             previewLayer.frame = bounds
         }
+    }
+}
+
+// MARK: - Pose Visualization Overlay
+struct PoseVisualizationOverlay: View {
+    @ObservedObject private var poseManager = OnDevicePoseManager.shared
+    
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                // Pose detection status
+                VStack {
+                    HStack {
+                        Circle()
+                            .fill(poseManager.poseDetected ? Color.green : Color.red)
+                            .frame(width: 12, height: 12)
+                        Text(poseManager.poseDetected ? "Pose Detected" : "No Pose")
+                            .font(.caption)
+                            .foregroundColor(.white)
+                            .shadow(color: .black, radius: 1)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.black.opacity(0.6))
+                    .cornerRadius(8)
+                    
+                    Spacer()
+                }
+                .padding(.top, 100)
+                .padding(.leading, 20)
+                
+                // Form analysis info
+                VStack {
+                    Spacer()
+                    
+                    if let formAnalysis = poseManager.currentFormAnalysis {
+                        VStack(spacing: 8) {
+                            Text("Form Score: \(Int(formAnalysis.overallScore * 100))%")
+                                .font(.caption)
+                                .foregroundColor(.white)
+                                .shadow(color: .black, radius: 1)
+                            
+                            Text("Depth: \(Int(formAnalysis.depth * 100))%")
+                                .font(.caption)
+                                .foregroundColor(.white)
+                                .shadow(color: .black, radius: 1)
+                            
+                            Text("Back Angle: \(Int(formAnalysis.backAngle))°")
+                                .font(.caption)
+                                .foregroundColor(.white)
+                                .shadow(color: .black, radius: 1)
+                            
+                            Text("Reps: \(poseManager.repCount)")
+                                .font(.caption)
+                                .foregroundColor(.white)
+                                .shadow(color: .black, radius: 1)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.black.opacity(0.6))
+                        .cornerRadius(8)
+                    } else {
+                        // Show when no form analysis is available
+                        VStack(spacing: 8) {
+                            Text("No Form Data")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                                .shadow(color: .black, radius: 1)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.black.opacity(0.6))
+                        .cornerRadius(8)
+                    }
+                }
+                .padding(.bottom, 200)
+                .padding(.trailing, 20)
+                
+                // Center indicator for testing
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        VStack {
+                            Text("Pose Visualization Active")
+                                .font(.caption)
+                                .foregroundColor(.white)
+                                .shadow(color: .black, radius: 1)
+                            Text("Eye icon to toggle")
+                                .font(.caption2)
+                                .foregroundColor(.gray)
+                                .shadow(color: .black, radius: 1)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.blue.opacity(0.6))
+                        .cornerRadius(8)
+                        Spacer()
+                    }
+                    Spacer()
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Rest Timer Clock View
+struct RestTimerClockView: View {
+    let restTimeRemaining: TimeInterval
+    
+    var body: some View {
+        ZStack {
+            // Background circle
+            Circle()
+                .stroke(Color.gray.opacity(0.3), lineWidth: 8)
+                .frame(width: 200, height: 200)
+            
+            // Rotating light indicator
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(
+                    LinearGradient(
+                        colors: [.orange, .red],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                )
+                .frame(width: 200, height: 200)
+                .rotationEffect(.degrees(-90)) // Start from top
+                .animation(.linear(duration: 1), value: progress)
+            
+            // Time display
+            VStack(spacing: 4) {
+                Text(timeString)
+                    .font(.system(size: 32, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white)
+                    .shadow(color: .black, radius: 2, x: 1, y: 1)
+                
+                Text("REST")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                    .shadow(color: .black, radius: 1)
+            }
+        }
+        .shadow(color: .black, radius: 4, x: 2, y: 2)
+    }
+    
+    private var timeString: String {
+        let minutes = Int(restTimeRemaining) / 60
+        let seconds = Int(restTimeRemaining) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+    
+    private var progress: Double {
+        let totalRestTime: TimeInterval = 60.0 // 60 seconds rest period
+        let remaining = max(0, restTimeRemaining)
+        return 1.0 - (remaining / totalRestTime)
     }
 }
 
@@ -466,16 +392,19 @@ struct ActiveWorkoutView: View {
                     }
                     .shadow(color: .black, radius: 2, x: 1, y: 1)
                     Spacer()
-                    VStack {
+                    
+                    // Large Rep Counter in Header
+                    VStack(spacing: 8) {
                         Text("\(max(0, currentRepCount - totalRepsAtLastSetEnd))")
-                            .font(.largeTitle)
+                            .font(.system(size: 140, weight: .bold, design: .rounded))
                             .fontWeight(.bold)
                             .foregroundColor(.textPrimary)
-                        Text("reps")
-                            .font(.caption)
+                        Text("Reps")
+                            .font(.system(size: 28, weight: .semibold))
                             .foregroundColor(.textSecondary)
                     }
                     .shadow(color: .black, radius: 2, x: 1, y: 1)
+                    
                     Spacer()
                     // Invisible button for balance
                     Button("") { }
@@ -535,18 +464,6 @@ struct ActiveWorkoutView: View {
                         }
                         .frame(height: 44)
                     }
-                    
-                    // Current set rep counter (resets after each set)
-                    VStack {
-                        Text("\(max(0, currentRepCount - totalRepsAtLastSetEnd))")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                            .foregroundColor(.textPrimary)
-                        Text("reps")
-                            .font(.caption)
-                            .foregroundColor(.textSecondary)
-                    }
-                    .shadow(color: .black, radius: 2, x: 1, y: 1)
                     
                     // Automatic Status Display
                     VStack(spacing: 4) {
@@ -781,163 +698,5 @@ struct ActiveWorkoutView: View {
                 onFinishExercise?()
             }
         }
-    }
-}
-
-// MARK: - Pose Visualization Overlay
-struct PoseVisualizationOverlay: View {
-    @ObservedObject private var poseManager = OnDevicePoseManager.shared
-    
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                // Pose detection status
-                VStack {
-                    HStack {
-                        Circle()
-                            .fill(poseManager.poseDetected ? Color.green : Color.red)
-                            .frame(width: 12, height: 12)
-                        Text(poseManager.poseDetected ? "Pose Detected" : "No Pose")
-                            .font(.caption)
-                            .foregroundColor(.white)
-                            .shadow(color: .black, radius: 1)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.black.opacity(0.6))
-                    .cornerRadius(8)
-                    
-                    Spacer()
-                }
-                .padding(.top, 100)
-                .padding(.leading, 20)
-                
-                // Form analysis info
-                VStack {
-                    Spacer()
-                    
-                    if let formAnalysis = poseManager.currentFormAnalysis {
-                        VStack(spacing: 8) {
-                            Text("Form Score: \(Int(formAnalysis.overallScore * 100))%")
-                                .font(.caption)
-                                .foregroundColor(.white)
-                                .shadow(color: .black, radius: 1)
-                            
-                            Text("Depth: \(Int(formAnalysis.depth * 100))%")
-                                .font(.caption)
-                                .foregroundColor(.white)
-                                .shadow(color: .black, radius: 1)
-                            
-                            Text("Back Angle: \(Int(formAnalysis.backAngle))°")
-                                .font(.caption)
-                                .foregroundColor(.white)
-                                .shadow(color: .black, radius: 1)
-                            
-                            Text("Reps: \(poseManager.repCount)")
-                                .font(.caption)
-                                .foregroundColor(.white)
-                                .shadow(color: .black, radius: 1)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.black.opacity(0.6))
-                        .cornerRadius(8)
-                    } else {
-                        // Show when no form analysis is available
-                        VStack(spacing: 8) {
-                            Text("No Form Data")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                                .shadow(color: .black, radius: 1)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.black.opacity(0.6))
-                        .cornerRadius(8)
-                    }
-                }
-                .padding(.bottom, 200)
-                .padding(.trailing, 20)
-                
-                // Center indicator for testing
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        VStack {
-                            Text("Pose Visualization Active")
-                                .font(.caption)
-                                .foregroundColor(.white)
-                                .shadow(color: .black, radius: 1)
-                            Text("Eye icon to toggle")
-                                .font(.caption2)
-                                .foregroundColor(.gray)
-                                .shadow(color: .black, radius: 1)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.blue.opacity(0.6))
-                        .cornerRadius(8)
-                        Spacer()
-                    }
-                    Spacer()
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Rest Timer Clock View
-struct RestTimerClockView: View {
-    let restTimeRemaining: TimeInterval
-    
-    var body: some View {
-        ZStack {
-            // Background circle
-            Circle()
-                .stroke(Color.gray.opacity(0.3), lineWidth: 8)
-                .frame(width: 200, height: 200)
-            
-            // Rotating light indicator
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(
-                    LinearGradient(
-                        colors: [.orange, .red],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    style: StrokeStyle(lineWidth: 8, lineCap: .round)
-                )
-                .frame(width: 200, height: 200)
-                .rotationEffect(.degrees(-90)) // Start from top
-                .animation(.linear(duration: 1), value: progress)
-            
-            // Time display
-            VStack(spacing: 4) {
-                Text(timeString)
-                    .font(.system(size: 32, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white)
-                    .shadow(color: .black, radius: 2, x: 1, y: 1)
-                
-                Text("REST")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .shadow(color: .black, radius: 1)
-            }
-        }
-        .shadow(color: .black, radius: 4, x: 2, y: 2)
-    }
-    
-    private var timeString: String {
-        let minutes = Int(restTimeRemaining) / 60
-        let seconds = Int(restTimeRemaining) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
-    }
-    
-    private var progress: Double {
-        let totalRestTime: TimeInterval = 60.0 // 60 seconds rest period
-        let remaining = max(0, restTimeRemaining)
-        return 1.0 - (remaining / totalRestTime)
     }
 }
