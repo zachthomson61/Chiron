@@ -34,26 +34,27 @@ class OpenAICoachingManager: ObservableObject {
         }()
 
         let prompt = """
-        You are an encouraging athletic trainer coaching someone through bodyweight squats. Reply with ONE natural, conversational coaching message.
-
-        Style and structure (very important):
-        - Two clauses or two short sentences: PRAISE first, then a COACHING TIP
-        - Praise can include natural enthusiasm (e.g., an exclamation)
-        - The tip should start with: "Focus on...", "Try...", "Make sure...", or "On the next set, ..."
-        - Be specific about technique (depth, knees over toes, chest up, tempo, bracing)
-        - Sound human and supportive; avoid robotic lists or filler
-        - Length target: 14–28 words
-
-        Examples:
-        - "Nice control on the way down! Focus on keeping your back straight on the next set."
-        - "Great depth there, loved the tempo—try keeping your knees tracking over your toes next set."
-        - "Good rhythm today! On the next round, keep your chest up and brace your core."
+        You're an encouraging gym trainer giving real-time feedback. Based on this squat analysis, give ONE flowing response that sounds natural:
 
         ANALYSIS_METRICS:
         \(analysisJSON)
 
         MOVEMENT_SUMMARY:
         \(summary)
+
+        Respond like you're standing right there coaching a beginner. Use simple, everyday language - no technical terms.
+
+        Start with quick acknowledgment: "There we go" / "Alright" / "Much better"
+        Add specific observation: "good depth" / "nice control" / "solid tempo"
+        Transition naturally: "now" / "just" / "but let's"
+        Give one specific cue using simple language: "sit back more" / "chest up" / "push your knees out"
+
+        Examples:
+        "There we go, good depth - now drive through those heels"
+        "Alright, nice control, just keep that chest proud"
+        "Much better, I see that depth - now push those knees out"
+
+        Keep it 12-18 words, conversational, specific. Avoid technical terms like valgus, varus, eccentric, concentric.
         """
 
         print("🤖 Natural: preparing OpenAI request for unified feedback")
@@ -71,7 +72,7 @@ class OpenAICoachingManager: ObservableObject {
         let body: [String: Any] = [
             "model": "gpt-4",
             "messages": [
-                ["role": "system", "content": "You are a natural, encouraging athletic trainer. Speak conversationally as if you're right there coaching. Be specific and supportive."],
+                ["role": "system", "content": "You are a natural, encouraging athletic trainer coaching beginners. Use simple everyday language, no technical jargon. Speak conversationally as if you're right there helping a friend. Be specific and supportive."],
                 ["role": "user", "content": prompt]
             ],
             "max_tokens": 40,
@@ -143,23 +144,23 @@ class OpenAICoachingManager: ObservableObject {
     
     // MARK: - Natural Fallback Feedback
     private func generateFallbackFeedback(from analysis: FormAnalysis) -> String {
-        // Natural, two-part phrasing with specific technique cues
+        // Natural, flowing trainer speech with specific technique cues
         if analysis.issues.contains("Insufficient Depth") || analysis.depth < 0.45 {
-            return "Nice control on the way down! Try sitting a little deeper on the next set."
+            return "There we go, nice control - now sit back a little deeper"
         }
         if analysis.issues.contains("Forward Lean") || abs(analysis.backAngle) > 30 {
-            return "Good tempo there! Focus on keeping your back straight and chest up next set."
+            return "Alright, good tempo - just keep that chest proud"
         }
-        if analysis.issues.contains("Knee Valgus") {
-            return "Great effort! Make sure you push your knees out over your toes next set."
+        if analysis.issues.contains("Knees Caving In") {
+            return "Much better, solid effort - now push those knees out"
         }
-        if analysis.issues.contains("Knee Varus") {
-            return "Nice work staying steady! Keep your knees tracking straight over your toes next set."
+        if analysis.issues.contains("Knees Bowing Out") {
+            return "Nice work staying steady - keep those knees tracking straight"
         }
         if analysis.depth >= 0.6 {
-            return "Great depth there! Keep that smooth tempo and stay tall on the next set."
+            return "Great depth there - now drive through those heels"
         }
-        return "Nice control there! Focus on bracing your core throughout the next set."
+        return "Nice control there - just brace that core throughout"
     }
     
     // MARK: - Generic Response Detection

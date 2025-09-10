@@ -192,14 +192,14 @@ def calculate_pose_metrics(landmarks, frame_shape):
     # Back angle (angle between shoulder-hip-ankle)
     back_angle = calculate_angle(shoulder_center, hip_center, ankle_center)
     
-    # Knee valgus (horizontal knee deviation)
-    knee_valgus = abs(left_knee[0] - right_knee[0]) - abs(left_ankle[0] - right_ankle[0])
-    knee_valgus_normalized = knee_valgus / width
+    # Knee alignment (horizontal knee deviation)
+    knee_deviation = abs(left_knee[0] - right_knee[0]) - abs(left_ankle[0] - right_ankle[0])
+    knee_deviation_normalized = knee_deviation / width
     
     return {
         "depth_percentage": depth_percentage,
         "back_angle": back_angle,
-        "knee_valgus": knee_valgus_normalized,
+        "knee_alignment": knee_deviation_normalized,  # Positive = knees caving in, Negative = knees bowing out
         "hip_y": hip_center[1],
         "knee_y": knee_center[1]
     }
@@ -226,7 +226,7 @@ def summarize_pose(pose_data):
     # Calculate averages
     avg_depth = sum(p["depth_percentage"] for p in pose_data) / len(pose_data)
     avg_back_angle = sum(p["back_angle"] for p in pose_data) / len(pose_data)
-    avg_knee_valgus = sum(p["knee_valgus"] for p in pose_data) / len(pose_data)
+    avg_knee_alignment = sum(p.get("knee_alignment", p.get("knee_valgus", 0)) for p in pose_data) / len(pose_data)
     
     # Determine depth quality
     if avg_depth < 0.3:
@@ -249,8 +249,8 @@ def summarize_pose(pose_data):
         back_desc = "straight"
     
     # Determine knee position
-    if abs(avg_knee_valgus) > 0.1:
-        knee_desc = "caving inward" if avg_knee_valgus > 0 else "spreading outward"
+    if abs(avg_knee_alignment) > 0.1:
+        knee_desc = "caving inward" if avg_knee_alignment > 0 else "bowing outward"
     else:
         knee_desc = "aligned"
     
@@ -278,10 +278,10 @@ def calculate_form_score(pose_data):
             back_score = 0.3
         
         # Knee alignment score (0-1)
-        knee_valgus = abs(pose["knee_valgus"])
-        if knee_valgus < 0.05:
+        knee_alignment = abs(pose.get("knee_alignment", pose.get("knee_valgus", 0)))
+        if knee_alignment < 0.05:
             knee_score = 1.0
-        elif knee_valgus < 0.1:
+        elif knee_alignment < 0.1:
             knee_score = 0.7
         else:
             knee_score = 0.4

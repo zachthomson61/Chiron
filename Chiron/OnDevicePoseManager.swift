@@ -34,15 +34,15 @@ struct PoseLandmark {
 struct FormAnalysis {
     let depth: Float // 0.0 = shallow, 1.0 = deep
     let backAngle: Float // degrees (0-180)
-    let kneeAlignment: Float // -1.0 = valgus, 0.0 = aligned, 1.0 = varus
+    let kneeAlignment: Float // -1.0 = knees caving in, 0.0 = aligned, 1.0 = knees bowing out
     let overallScore: Float // 0.0-1.0
     let issues: [String]
     let summary: String
     let repCount: Int // Current rep count
     // Average tempo metrics for current set (milliseconds)
-    let avgEccentricMs: Float?
-    let avgPauseMs: Float?
-    let avgConcentricMs: Float?
+    let avgEccentricMs: Float?  // Time going down
+    let avgPauseMs: Float?      // Time at bottom
+    let avgConcentricMs: Float? // Time coming up
     // ROM metrics for current set
     let avgBottomDepth: Float?
     let deepRepRatio: Float?
@@ -159,8 +159,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var lastCueText: String = ""
     private let cueCooldownSeconds: TimeInterval = 6.0
     private let cueByIssue: [String: String] = [
-        "Knee Valgus": "Push your knees out",
-        "Knee Varus": "Keep your knees over your toes",
+        "Knees Caving In": "Push your knees out",
+        "Knees Bowing Out": "Keep your knees over your toes",
         "Forward Lean": "Lift your chest",
         "Insufficient Depth": "Squat a little deeper"
     ]
@@ -178,9 +178,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var repStartTime: CFTimeInterval?
     private var bottomTime: CFTimeInterval?
     private var lastDepth: Float = 0
-    private var sumEccentricMs: Double = 0
-    private var sumPauseMs: Double = 0
-    private var sumConcentricMs: Double = 0
+    private var sumEccentricMs: Double = 0  // Total time going down
+    private var sumPauseMs: Double = 0      // Total time paused at bottom
+    private var sumConcentricMs: Double = 0 // Total time coming up
     private var tempoRepSamples: Int = 0
     private let bottomDepthThreshold: Float = 0.58 // align with deep threshold
     private let topDepthThreshold: Float = 0.48    // align with shallow threshold
@@ -532,9 +532,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         
         // Knee tracking
         if kneeAlignment < -0.2 {
-            issues.append("Knee Valgus")
+            issues.append("Knees Caving In")
         } else if kneeAlignment > 0.2 {
-            issues.append("Knee Varus")
+            issues.append("Knees Bowing Out")
         }
         
         // Limit to top two to avoid spamming
@@ -771,14 +771,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         
         print("🏁 Set ended automatically")
         
-        // Build mid-set aggregated two-point feedback and speak it
-        let (goodCue, improveCue) = aggregatedTwoPointFeedback()
-        if !goodCue.isEmpty { SpeechManager.shared.speak(goodCue, priority: .high) }
-        if !improveCue.isEmpty { SpeechManager.shared.speak(improveCue, priority: .high) }
-        
-        // Optionally: still call OpenAI in background for logging/analytics (no additional speech here)
+        // Get single natural feedback and speak it once
         if let analysis = currentFormAnalysis {
-            OpenAICoachingManager.shared.getTwoPointFeedback(formAnalysis: analysis) { _, _ in }
+            OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(formAnalysis: analysis) { naturalFeedback in
+                print("🎯 Received natural feedback for set completion: \(naturalFeedback)")
+                // Speech is already handled inside analyzeAndGetNaturalFeedback
+            }
         }
         
         // Start rest period timer
@@ -824,6 +822,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         if abs(analysis.kneeAlignment) <= 0.1 { positiveCounts["Knees Over Toes", default: 0] += 1 }
     }
     
+    // MARK: - Legacy Two-Point Feedback (Deprecated)
+    // This method is no longer used - replaced with single natural feedback
+    @available(*, deprecated, message: "Use OpenAICoachingManager.analyzeAndGetNaturalFeedback instead")
     private func aggregatedTwoPointFeedback() -> (String, String) {
         // Choose most frequent positive
         let topPositiveKey = positiveCounts.max(by: { $0.value < $1.value })?.key
@@ -840,8 +841,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         let improve: String = {
             if let issue = topIssue, let cue = cueByIssue[issue] { return cue }
             if let analysis = currentFormAnalysis {
-                if analysis.issues.contains("Knee Valgus") { return "Push your knees out" }
-                if analysis.issues.contains("Knee Varus") { return "Keep your knees over your toes" }
+                if analysis.issues.contains("Knees Caving In") { return "Push your knees out" }
+                if analysis.issues.contains("Knees Bowing Out") { return "Keep your knees over your toes" }
                 if analysis.issues.contains("Forward Lean") { return "Lift your chest" }
                 if analysis.depth < 0.45 { return "Squat a little deeper" }
             }
