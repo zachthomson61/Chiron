@@ -7,7 +7,9 @@ struct HomeView: View {
     @State private var showWorkoutGoalPicker = false
     @State private var showExerciseSelection = false
     @State private var showFeedback = false
+    @State private var showPlanBuilder = false
     var body: some View {
+        NavigationStack {
         ZStack {
             // Background using soft black
             Color.background
@@ -108,6 +110,22 @@ struct HomeView: View {
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
+                
+                // Build Workout Plan Button
+                Button(action: {
+                    showPlanBuilder = true
+                }) {
+                    Text("Build Workout Plan")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.textPrimary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(Color.secondaryPurple) // Use app's secondary purple
+                        .cornerRadius(28)
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
 
                 // Workout Goal Card
                 HStack {
@@ -164,6 +182,9 @@ struct HomeView: View {
             .padding(.top, 32)
         }
         .preferredColorScheme(.dark)
+        .navigationDestination(isPresented: $showPlanBuilder) {
+            PlanBuilderView()
+        }
         .fullScreenCover(isPresented: $showExerciseSelection) {
             ExerciseSelectionView(viewModel: viewModel)
         }
@@ -173,6 +194,7 @@ struct HomeView: View {
         .sheet(isPresented: $showFeedback) {
             FeedbackView(viewModel: viewModel)
         }
+        } // End NavigationStack
     }
 }
 
