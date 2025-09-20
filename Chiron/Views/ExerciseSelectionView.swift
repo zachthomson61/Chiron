@@ -1,6 +1,8 @@
 import SwiftUI
 import AVFoundation
 
+/// Lists supported exercises and lets the user select one to start.
+/// Designed to be embedded in a tab (no NavigationView), with its own custom header.
 struct ExerciseSelectionView: View {
     @ObservedObject var viewModel: WorkoutViewModel
     @Environment(\.dismiss) private var dismiss
@@ -19,74 +21,72 @@ struct ExerciseSelectionView: View {
     ]
     
     var body: some View {
-        NavigationView {
-            ZStack {
-                Color.background
-                    .ignoresSafeArea()
-                VStack {
-                    // Navigation Header
-                    HStack {
-                        Button(action: {
-                            dismiss()
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "chevron.left")
-                                Text("Back")
-                            }
-                            .foregroundColor(.textPrimary)
-                        }
-                        Spacer()
-                        Text("Select Exercise")
-                            .font(.headline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.textPrimary)
-                        Spacer()
-                        // Invisible button for balance
-                        Button("") { }
-                            .opacity(0)
-                    }
-                    .padding()
-                    
-                    // Exercise Grid
-                    ScrollView {
-                        LazyVGrid(columns: [
-                            GridItem(.flexible()),
-                            GridItem(.flexible())
-                        ], spacing: 16) {
-                            ForEach(exercises) { exercise in
-                                ExerciseCard(
-                                    exercise: exercise,
-                                    isSelected: viewModel.selectedExercise == exercise.name
-                                ) {
-                                    viewModel.selectedExercise = exercise.name
-                                }
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
-                    
-                    Spacer()
-                    
-                    // Start Exercise Button
+        ZStack {
+            Color.background
+                .ignoresSafeArea()
+            VStack {
+                // Custom header row (Back + Title + spacer for balance)
+                HStack {
                     Button(action: {
-                        if viewModel.selectedExercise == "Squat" {
-                            showSquatVariationSelection = true
-                        } else {
-                            showCameraSetup = true
-                        }
+                        dismiss()
                     }) {
-                        Text("Start \(viewModel.selectedExercise)")
-                            .font(.headline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.textPrimary)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 56)
-                            .background(Color.primaryPurple)
-                            .cornerRadius(16)
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("Back")
+                        }
+                        .foregroundColor(.textPrimary)
+                    }
+                    Spacer()
+                    Text("Select Exercise")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.textPrimary)
+                    Spacer()
+                    // Invisible button maintains symmetrical layout
+                    Button("") { }
+                        .opacity(0)
+                }
+                .padding(.horizontal)
+                
+                // Exercise Grid
+                ScrollView {
+                    LazyVGrid(columns: [
+                        GridItem(.flexible()),
+                        GridItem(.flexible())
+                    ], spacing: 16) {
+                        ForEach(exercises) { exercise in
+                            ExerciseCard(
+                                exercise: exercise,
+                                isSelected: viewModel.selectedExercise == exercise.name
+                            ) {
+                                viewModel.selectedExercise = exercise.name
+                            }
+                        }
                     }
                     .padding(.horizontal)
-                    .padding(.bottom, 20)
                 }
+                
+                Spacer()
+                
+                // Primary CTA
+                Button(action: {
+                    if viewModel.selectedExercise == "Squat" {
+                        showSquatVariationSelection = true
+                    } else {
+                        showCameraSetup = true
+                    }
+                }) {
+                    Text("Start \(viewModel.selectedExercise)")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.textPrimary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(Color.primaryPurple)
+                        .cornerRadius(16)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 20)
             }
         }
         .preferredColorScheme(.dark)

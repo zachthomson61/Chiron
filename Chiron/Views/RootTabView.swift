@@ -1,10 +1,11 @@
 import SwiftUI
 
 /// Root tab view that provides the main navigation structure for the app.
-/// Contains three tabs: Home, Plans, and Profile, each with their own NavigationStack.
+/// Tabs (left→right): Home, Plans, Research, Profile.
+/// Each tab is wrapped in its own `NavigationStack` to isolate toolbars and preserve scroll position.
 struct RootTabView: View {
     enum Tab: Hashable { 
-        case home, plans, profile 
+        case home, research, plans, profile 
     }
     
     @State private var selectedTab: Tab = .home
@@ -33,6 +34,17 @@ struct RootTabView: View {
             .tag(Tab.plans)
             .accessibilityLabel("Plans")
 
+            // MARK: - Research Tab
+            NavigationStack {
+                ResearchScreen()
+            }
+            .tabItem {
+                Image(systemName: "magnifyingglass")
+                Text("Research")
+            }
+            .tag(Tab.research)
+            .accessibilityLabel("Research")
+
             // MARK: - Profile Tab
             NavigationStack {
                 ProfileScreen()
@@ -44,21 +56,22 @@ struct RootTabView: View {
             .tag(Tab.profile)
             .accessibilityLabel("Profile")
         }
-        .tint(.primaryPurple)
+        // Brand and appearance
+        .tint(.primaryPurple) // Selected tab tint uses app brand purple
         .toolbarBackground(Color.background, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
         .toolbarColorScheme(.dark, for: .tabBar)
         .preferredColorScheme(.dark)
         .onChange(of: selectedTab) { _ in
             #if os(iOS)
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            UIImpactFeedbackGenerator(style: .light).impactOccurred() // Light haptic on tab switch
             #endif
         }
     }
 }
 
-/// Plans screen that displays workout plans and provides access to plan creation.
-/// Currently shows an empty state with a call-to-action to create new plans.
+/// Plans screen displays saved plans and provides access to plan creation.
+/// Currently an empty state with a primary CTA to build a plan.
 struct PlansScreen: View {
     @State private var showPlanBuilder = false
     
@@ -128,6 +141,17 @@ struct ProfileScreen: View {
             }
         }
         .navigationTitle("Profile")
+    }
+}
+
+/// Research screen hosts exercise selection and experimentation tools.
+/// The navigation bar is hidden so the content sits flush to the top of the tab.
+struct ResearchScreen: View {
+    @StateObject private var viewModel = WorkoutViewModel()
+
+    var body: some View {
+        ExerciseSelectionView(viewModel: viewModel)
+            .navigationBarHidden(true)
     }
 }
 
