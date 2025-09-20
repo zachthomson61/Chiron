@@ -144,16 +144,71 @@ struct ProfileScreen: View {
     }
 }
 
-/// Research screen hosts exercise selection and experimentation tools.
-/// The navigation bar is hidden so the content sits flush to the top of the tab.
+/// Research screen provides exercise selection without navigation controls.
+/// Replicates ExerciseSelectionView layout but removes back button for tab context.
 struct ResearchScreen: View {
     @StateObject private var viewModel = WorkoutViewModel()
+    
+    // Same exercise data as ExerciseSelectionView
+    private let exercises = [
+        Exercise(name: "Squat", icon: "figure.walk", description: "Lower body strength and stability"),
+        Exercise(name: "Deadlift", icon: "figure.strengthtraining.traditional", description: "Full body posterior chain"),
+        Exercise(name: "Bench Press", icon: "figure.arms.open", description: "Upper body pushing strength"),
+        Exercise(name: "Overhead Press", icon: "figure.arms.open", description: "Shoulder and core stability"),
+        Exercise(name: "Pull-ups", icon: "figure.arms.open", description: "Upper body pulling strength"),
+        Exercise(name: "Plank", icon: "figure.core.training", description: "Core stability and endurance")
+    ]
 
     var body: some View {
-        ExerciseSelectionView(viewModel: viewModel)
-            .navigationBarHidden(true)
+        ZStack {
+            Color.background.ignoresSafeArea()
+            
+            VStack {
+                // Centered title (no back button for tab context)
+                Text("Select Exercise")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.textPrimary)
+                    .padding(.horizontal)
+                
+                // Exercise selection grid
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                        ForEach(exercises) { exercise in
+                            ExerciseCard(
+                                exercise: exercise,
+                                isSelected: viewModel.selectedExercise == exercise.name
+                            ) {
+                                viewModel.selectedExercise = exercise.name
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+                
+                Spacer()
+                
+                // Start exercise button
+                Button(action: {
+                    // TODO: Implement exercise start flow
+                }) {
+                    Text("Start \(viewModel.selectedExercise)")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.textPrimary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(Color.primaryPurple)
+                        .cornerRadius(16)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 20)
+            }
+        }
+        .navigationBarHidden(true)
     }
 }
+
 
 // MARK: - Preview
 #Preview {
