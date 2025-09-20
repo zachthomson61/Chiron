@@ -121,7 +121,6 @@ struct PlansScreen: View {
         }
         .padding()
         .background(Color.background)
-        .navigationTitle("Plans")
         .navigationDestination(isPresented: $showPlanBuilder) {
             PlanBuilderView()
         }

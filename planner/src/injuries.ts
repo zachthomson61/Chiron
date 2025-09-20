@@ -56,3 +56,4 @@ export function modifiedSchemePenalty(pattern: Exercise['pattern'], injuries: In
 
 
 
+
