@@ -121,6 +121,18 @@ final class PlannerEngine {
         // Compute variety policy
         let varietyPolicy = VarietyPolicy.from(clampedVarietyContinuum)
         
+        // Debug: Print input values
+        print("DEBUG: Generating plan with input:")
+        print("  - name: '\(input.name)'")
+        print("  - goals: \(input.goals)")
+        print("  - sessionMinutes: \(input.sessionMinutes)")
+        print("  - daysPerWeek: \(input.daysPerWeek)")
+        print("  - programDuration: \(input.programDuration)")
+        print("  - targetMuscles: \(input.targetMuscles)")
+        print("  - split: \(input.split)")
+        print("  - varietyContinuum: \(clampedVarietyContinuum)")
+        print("  - supersets: \(input.supersets)")
+        
         for weekNum in 1...input.programDuration {
             let days = generateWeekDays(
                 weekNumber: weekNum,
@@ -132,14 +144,18 @@ final class PlannerEngine {
                 varietyContinuum: clampedVarietyContinuum,
                 varietyPolicy: varietyPolicy,
                 supersets: input.supersets,
+                sessionMinutes: input.sessionMinutes,
                 totalWeeks: input.programDuration,
                 customSplit: input.customSplit,
                 injuryProfile: injuryProfile
             )
             weeks.append(TrainingWeek(weekNumber: weekNum, days: days))
+            print("DEBUG: Generated week \(weekNum) with \(days.count) days")
         }
         
-        return TrainingPlan(
+        print("DEBUG: Creating TrainingPlan with \(weeks.count) weeks")
+        
+        let plan = TrainingPlan(
             name: input.name.isEmpty ? "Custom Plan" : input.name,
             duration: input.programDuration,
             daysPerWeek: input.daysPerWeek,
@@ -150,6 +166,9 @@ final class PlannerEngine {
             supersets: input.supersets,
             weeks: weeks
         )
+        
+        print("DEBUG: Successfully created TrainingPlan: \(plan.name)")
+        return plan
     }
     
     // MARK: - Private Methods
@@ -164,6 +183,7 @@ final class PlannerEngine {
         varietyContinuum: VarietyContinuum,
         varietyPolicy: VarietyPolicy,
         supersets: Bool,
+        sessionMinutes: Int,
         totalWeeks: Int,
         customSplit: CustomSplit? = nil,
         injuryProfile: InjuryProfile? = nil
@@ -185,10 +205,11 @@ final class PlannerEngine {
                 totalWeeks: totalWeeks,
                 customSplit: customSplit,
                 dayNumber: dayNum,
-                injuryProfile: injuryProfile
+                injuryProfile: injuryProfile,
+                sessionMinutes: sessionMinutes
             )
             
-            let duration = calculateDuration(exerciseCount: exercises.count, supersets: supersets)
+            let duration = estimateSessionDuration(exercises: exercises)
             let difficulty = calculateDifficulty(weekNumber: weekNumber, totalWeeks: totalWeeks)
             
             days.append(TrainingDay(
@@ -234,7 +255,8 @@ final class PlannerEngine {
         totalWeeks: Int,
         customSplit: CustomSplit? = nil,
         dayNumber: Int = 1,
-        injuryProfile: InjuryProfile? = nil
+        injuryProfile: InjuryProfile? = nil,
+        sessionMinutes: Int
     ) -> [WorkoutExercise] {
         var exercises: [WorkoutExercise] = []
         let exerciseCount = getExerciseCount(varietyLevel: varietyLevel, targetMuscles: targetMuscles)
@@ -250,7 +272,7 @@ final class PlannerEngine {
         ))
         
         // Generate main exercises based on split
-        let mainWorkoutExercises = selectMainWorkoutExercises(
+        var mainWorkoutExercises = selectMainWorkoutExercises(
             for: dayName,
             split: split,
             count: exerciseCount,
@@ -263,10 +285,32 @@ final class PlannerEngine {
             dayNumber: dayNumber,
             injuryProfile: injuryProfile
         )
+
+        // Deterministic time boxing: trim isolation work first to fit sessionMinutes
+        let warmupCooldownMin = 10
+        let perExerciseMinutes: (WorkoutExercise) -> Int = { ex in
+            switch ex.category {
+            case .compound: return 8
+            case .isolation: return 5
+            case .cardio: return 8
+            case .mobility: return 5
+            case .plyometric: return 6
+            case .functional: return 7
+            }
+        }
+        func estimatedMainMinutes(_ items: [WorkoutExercise]) -> Int {
+            items.reduce(0) { $0 + perExerciseMinutes($1) }
+        }
+        while warmupCooldownMin + estimatedMainMinutes(mainWorkoutExercises) > sessionMinutes {
+            if let lastIsolationIndex = mainWorkoutExercises.lastIndex(where: { $0.category == .isolation }) {
+                mainWorkoutExercises.remove(at: lastIsolationIndex)
+            } else {
+                break
+            }
+        }
         
-        // Apply supersets if enabled and variety policy allows
-        let shouldUseSupersets = supersets && mainWorkoutExercises.count >= 2 && 
-                                Double.random(in: 0...1) < varietyPolicy.supersetBias
+        // Deterministic supersets: if enabled and short sessions, pair adjacent
+        let shouldUseSupersets = supersets && sessionMinutes < 45 && mainWorkoutExercises.count >= 2
         if shouldUseSupersets {
             exercises.append(contentsOf: createSupersets(from: mainWorkoutExercises))
         } else {
@@ -339,17 +383,18 @@ final class PlannerEngine {
             availableWorkoutExercises = applyInjuryConstraintSubstitutions(exercises: availableWorkoutExercises, constraints: injuryProfile.constraints)
         }
         
-        // Apply variety rotation based on continuum
-        let shouldShuffle = varietyContinuum > 0.5
-        if shouldShuffle {
-            availableWorkoutExercises.shuffle()
-        } else if varietyContinuum < 0.3 {
+        // Deterministic variety policy: sort and round-robin by week number
+        availableWorkoutExercises.sort()
+        if varietyContinuum < 0.33 {
             availableWorkoutExercises = Array(availableWorkoutExercises.prefix(6))
         }
+        let poolCount = availableWorkoutExercises.count
+        let startOffset = poolCount == 0 ? 0 : (max(0, weekNumber - 1) % poolCount)
         
         // Select exercises
         for i in 0..<min(count, availableWorkoutExercises.count) {
-            let exercise = availableWorkoutExercises[i]
+            let index = (startOffset + i) % availableWorkoutExercises.count
+            let exercise = availableWorkoutExercises[index]
             let category: ExerciseCategory = i < 2 ? .compound : .isolation
             let sets = calculateSets(weekNumber: weekNumber, exerciseIndex: i)
             let reps = calculateReps(weekNumber: weekNumber, category: category)
@@ -583,9 +628,19 @@ final class PlannerEngine {
         }
     }
     
-    private func calculateDuration(exerciseCount: Int, supersets: Bool) -> Int {
-        let baseTime = exerciseCount * 8
-        return supersets ? baseTime - 10 : baseTime
+    private func estimateSessionDuration(exercises: [WorkoutExercise]) -> Int {
+        var total = 0
+        for ex in exercises {
+            switch ex.category {
+            case .compound: total += 8
+            case .isolation: total += 5
+            case .cardio: total += 8
+            case .mobility: total += 5
+            case .plyometric: total += 6
+            case .functional: total += 7
+            }
+        }
+        return total
     }
     
     private func calculateDifficulty(weekNumber: Int, totalWeeks: Int) -> DifficultyLevel {

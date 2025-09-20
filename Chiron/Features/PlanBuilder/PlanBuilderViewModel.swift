@@ -29,7 +29,9 @@ final class PlanBuilderViewModel: ObservableObject {
     // MARK: - Computed Properties
     
     var canGeneratePlan: Bool {
-        input.isValid
+        let valid = input.isValid
+        print("DEBUG: canGeneratePlan = \(valid), input.isValid = \(input.isValid)")
+        return valid
     }
     
     var selectedGoalsText: String {
@@ -136,7 +138,17 @@ final class PlanBuilderViewModel: ObservableObject {
     }
     
     func generatePlan() async {
+        print("DEBUG: generatePlan called")
+        print("DEBUG: canGeneratePlan = \(canGeneratePlan)")
+        print("DEBUG: input.isValid = \(input.isValid)")
+        print("DEBUG: input.name = '\(input.name)'")
+        print("DEBUG: input.goals = \(input.goals)")
+        print("DEBUG: input.sessionMinutes = \(input.sessionMinutes)")
+        print("DEBUG: input.daysPerWeek = \(input.daysPerWeek)")
+        print("DEBUG: input.programDuration = \(input.programDuration)")
+        
         guard canGeneratePlan else {
+            print("DEBUG: Validation failed, showing error")
             showValidationError()
             return
         }
@@ -148,17 +160,26 @@ final class PlanBuilderViewModel: ObservableObject {
             // Simulate network delay for better UX
             try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
             
+            print("DEBUG: About to generate plan from input")
             // Generate plan
             let plan = plannerEngine.generatePlan(from: input)
+            print("DEBUG: Successfully generated plan, about to save")
+            
+            // Clear any existing saved plans to avoid decoding issues
+            try await persistence.clearAllPlans()
+            print("DEBUG: Cleared existing plans")
             
             // Save plan
             try await persistence.savePlan(plan)
+            print("DEBUG: Successfully saved plan")
             
             // Update state
             generatedPlan = plan
             navigateToPreview = true
             
         } catch {
+            print("DEBUG: Error in generatePlan: \(error)")
+            print("DEBUG: Error details: \(error.localizedDescription)")
             errorMessage = "Failed to generate plan: \(error.localizedDescription)"
             showError = true
         }
@@ -179,7 +200,9 @@ final class PlanBuilderViewModel: ObservableObject {
     
     private func setupDefaults() {
         input.name = "My Training Plan"
-        input.duration = 45 // minutes
+        input.goals = [.hypertrophy] // Default goal
+        input.targetMuscles = [.chest, .back, .shoulders, .quads, .hamstrings, .glutes] // Default target muscles
+        input.sessionMinutes = 45 // minutes
         input.daysPerWeek = 3
         input.programDuration = 4 // weeks
         input.split = .fullBody
@@ -197,6 +220,13 @@ final class PlanBuilderViewModel: ObservableObject {
     }
     
     private func showValidationError() {
+        print("DEBUG: showValidationError called")
+        print("DEBUG: name.isEmpty = \(input.name.isEmpty)")
+        print("DEBUG: goals.isEmpty = \(input.goals.isEmpty)")
+        print("DEBUG: daysPerWeek = \(input.daysPerWeek)")
+        print("DEBUG: programDuration = \(input.programDuration)")
+        print("DEBUG: sessionMinutes = \(input.sessionMinutes)")
+        
         if input.name.isEmpty {
             errorMessage = "Please enter a plan name"
         } else if input.goals.isEmpty {
@@ -205,9 +235,12 @@ final class PlanBuilderViewModel: ObservableObject {
             errorMessage = "Days per week must be between 1 and 7"
         } else if input.programDuration < 1 {
             errorMessage = "Program duration must be at least 1 week"
+        } else if input.sessionMinutes < 1 {
+            errorMessage = "Session duration must be at least 1 minute"
         } else {
             errorMessage = "Please fill in all required fields"
         }
+        print("DEBUG: Setting error message: \(errorMessage ?? "nil")")
         showError = true
     }
 }

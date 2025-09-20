@@ -49,8 +49,12 @@ struct PlanBuilderView: View {
                 // Generate button pinned to bottom
                 VStack {
                     Button(action: {
+                        print("DEBUG: Create Training Plan button pressed")
+                        print("DEBUG: Button state - canGeneratePlan: \(viewModel.canGeneratePlan), isGenerating: \(viewModel.isGenerating)")
                         Task {
+                            print("DEBUG: About to call generatePlan")
                             await viewModel.generatePlan()
+                            print("DEBUG: generatePlan call completed")
                         }
                     }) {
                         if viewModel.isGenerating {
@@ -63,6 +67,9 @@ struct PlanBuilderView: View {
                     .buttonStyle(PlanButtonStyle(isPrimary: true))
                     .disabled(!viewModel.canGeneratePlan || viewModel.isGenerating)
                     .opacity(viewModel.canGeneratePlan ? 1.0 : 0.6)
+                    .onAppear {
+                        print("DEBUG: Button appeared - canGeneratePlan: \(viewModel.canGeneratePlan), isGenerating: \(viewModel.isGenerating)")
+                    }
                     .padding(.horizontal)
                     .padding(.bottom, 20)
                 }
@@ -150,8 +157,8 @@ struct PlanBuilderView: View {
             PlanSlider(
                 title: "Session Duration",
                 value: Binding(
-                    get: { Double(viewModel.input.duration) },
-                    set: { viewModel.input.duration = Int($0) }
+                    get: { Double(viewModel.input.sessionMinutes) },
+                    set: { viewModel.input.sessionMinutes = Int($0) }
                 ),
                 range: 30...90,
                 step: 15,

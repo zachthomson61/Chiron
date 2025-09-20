@@ -22,7 +22,7 @@ final class PlannerEngineTests: XCTestCase {
         var input = PlanBuilderInput()
         input.name = "Test Plan"
         input.goals = [.strength]
-        input.duration = 45
+        input.sessionMinutes = 45
         input.daysPerWeek = 3
         input.programDuration = 4
         input.split = .fullBody
@@ -243,7 +243,7 @@ final class PlannerEngineTests: XCTestCase {
         // Given
         var input = PlanBuilderInput()
         input.goals = [.strength]
-        input.duration = 60
+        input.sessionMinutes = 60
         input.daysPerWeek = 3
         input.programDuration = 1
         

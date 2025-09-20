@@ -33,6 +33,46 @@ struct TrainingPlan: Codable, Identifiable {
         self.createdAt = Date()
     }
     
+    // Custom decoding for backward compatibility
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        // Don't decode id - use the default value from the struct
+        name = try container.decode(String.self, forKey: .name)
+        duration = try container.decode(Int.self, forKey: .duration)
+        daysPerWeek = try container.decode(Int.self, forKey: .daysPerWeek)
+        targetMuscles = try container.decodeIfPresent([MuscleGroup].self, forKey: .targetMuscles) ?? []
+        split = try container.decode(WorkoutSplit.self, forKey: .split)
+        injuries = try container.decodeIfPresent([Injury].self, forKey: .injuries) ?? []
+        varietyContinuum = try container.decodeIfPresent(VarietyContinuum.self, forKey: .varietyContinuum) ?? 0.5
+        varietyLevel = try container.decodeIfPresent(VarietyLevel.self, forKey: .varietyLevel) ?? .medium
+        supersets = try container.decodeIfPresent(Bool.self, forKey: .supersets) ?? false
+        weeks = try container.decode([TrainingWeek].self, forKey: .weeks)
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        
+        // Don't encode id - it's generated automatically
+        try container.encode(name, forKey: .name)
+        try container.encode(duration, forKey: .duration)
+        try container.encode(daysPerWeek, forKey: .daysPerWeek)
+        try container.encode(targetMuscles, forKey: .targetMuscles)
+        try container.encode(split, forKey: .split)
+        try container.encode(injuries, forKey: .injuries)
+        try container.encode(varietyContinuum, forKey: .varietyContinuum)
+        try container.encode(varietyLevel, forKey: .varietyLevel)
+        try container.encode(supersets, forKey: .supersets)
+        try container.encode(weeks, forKey: .weeks)
+        try container.encode(createdAt, forKey: .createdAt)
+    }
+    
+    private enum CodingKeys: String, CodingKey {
+        case name, duration, daysPerWeek, targetMuscles, split, injuries
+        case varietyContinuum, varietyLevel, supersets, weeks, createdAt
+    }
+    
     // Legacy initializer for backward compatibility
     init(name: String, duration: Int, daysPerWeek: Int, targetMuscles: [MuscleGroup], 
          split: WorkoutSplit, injuries: [Injury], varietyLevel: VarietyLevel, 
@@ -455,7 +495,7 @@ struct CustomSplit: Codable, Equatable {
 struct PlanBuilderInput: Codable {
     var name: String = ""
     var goals: [FocusArea] = []
-    var duration: Int = 4 // weeks
+    var sessionMinutes: Int = 45 // minutes per session
     var daysPerWeek: Int = 3
     var programDuration: Int = 8 // weeks
     var targetMuscles: [MuscleGroup] = []
@@ -469,19 +509,22 @@ struct PlanBuilderInput: Codable {
     var customSplit: CustomSplit?
     
     var isValid: Bool {
-        !name.isEmpty && 
-        !goals.isEmpty && 
-        duration > 0 && 
-        daysPerWeek > 0 && 
-        daysPerWeek <= 7 &&
-        programDuration > 0
+        let nameValid = !name.isEmpty
+        let goalsValid = !goals.isEmpty
+        let sessionValid = sessionMinutes > 0
+        let daysValid = daysPerWeek > 0 && daysPerWeek <= 7
+        let durationValid = programDuration > 0
+        
+        print("DEBUG: isValid check - name: \(nameValid), goals: \(goalsValid), session: \(sessionValid), days: \(daysValid), duration: \(durationValid)")
+        
+        return nameValid && goalsValid && sessionValid && daysValid && durationValid
     }
     
     // Default initializer
     init() {
         self.name = ""
         self.goals = []
-        self.duration = 4
+        self.sessionMinutes = 45
         self.daysPerWeek = 3
         self.programDuration = 8
         self.targetMuscles = []
@@ -501,7 +544,9 @@ struct PlanBuilderInput: Codable {
         
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
         goals = try container.decodeIfPresent([FocusArea].self, forKey: .goals) ?? []
-        duration = try container.decodeIfPresent(Int.self, forKey: .duration) ?? 4
+        // Backward compatibility: older saves used `duration` to represent minutes
+        let legacyDuration = try container.decodeIfPresent(Int.self, forKey: .duration)
+        sessionMinutes = try container.decodeIfPresent(Int.self, forKey: .sessionMinutes) ?? legacyDuration ?? 45
         daysPerWeek = try container.decodeIfPresent(Int.self, forKey: .daysPerWeek) ?? 3
         programDuration = try container.decodeIfPresent(Int.self, forKey: .programDuration) ?? 8
         targetMuscles = try container.decodeIfPresent([MuscleGroup].self, forKey: .targetMuscles) ?? []
@@ -525,9 +570,29 @@ struct PlanBuilderInput: Codable {
         }
     }
     
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(goals, forKey: .goals)
+        try container.encode(sessionMinutes, forKey: .sessionMinutes)
+        try container.encode(daysPerWeek, forKey: .daysPerWeek)
+        try container.encode(programDuration, forKey: .programDuration)
+        try container.encode(targetMuscles, forKey: .targetMuscles)
+        try container.encode(split, forKey: .split)
+        try container.encode(injuries, forKey: .injuries)
+        try container.encode(injuryNotes, forKey: .injuryNotes)
+        try container.encodeIfPresent(injuryProfile, forKey: .injuryProfile)
+        try container.encode(varietyContinuum, forKey: .varietyContinuum)
+        try container.encode(varietyLevel, forKey: .varietyLevel)
+        try container.encode(supersets, forKey: .supersets)
+        try container.encodeIfPresent(customSplit, forKey: .customSplit)
+    }
+    
     private enum CodingKeys: String, CodingKey {
-        case name, goals, duration, daysPerWeek, programDuration
+        case name, goals, daysPerWeek, programDuration
         case targetMuscles, split, injuries, injuryNotes, injuryProfile
         case varietyContinuum, varietyLevel, supersets, customSplit
+        case sessionMinutes
+        case duration // Keep for backward compatibility with decoding
     }
 }

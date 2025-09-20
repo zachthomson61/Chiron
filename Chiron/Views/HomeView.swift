@@ -1,6 +1,13 @@
 import SwiftUI
 import AVFoundation
 
+struct HomeScreenSpacing {
+    static let topInset: CGFloat = 12
+    static let topTitlePad: CGFloat = 8
+    static let sectionSpacing: CGFloat = 20
+    static let bottomInset: CGFloat = 28
+}
+
 struct HomeView: View {
     @StateObject private var viewModel = WorkoutViewModel()
     @State private var showCameraSetup = false
@@ -8,193 +15,204 @@ struct HomeView: View {
     @State private var showExerciseSelection = false
     @State private var showFeedback = false
     @State private var showPlanBuilder = false
+    @State private var contentHeight: CGFloat = 0
+    
     var body: some View {
         NavigationStack {
-        ZStack {
-            // Background using soft black
-            Color.background
-                .ignoresSafeArea()
-
-            VStack(spacing: 32) {
-                // Header with gear icon in top right
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Chiron")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                            .foregroundColor(.textPrimary)
-                        Text("Your personal form coach")
-                            .font(.subheadline)
-                            .foregroundColor(.textSecondary)
-                    }
-                    Spacer()
-                    HStack(spacing: 16) {
-                        Button(action: {
-                            showFeedback = true
-                        }) {
-                            Image(systemName: "text.bubble")
-                                .font(.title2)
-                                .foregroundColor(.textSecondary)
-                                .padding(.top, 4)
-                        }
-                        
-                        Button(action: {
-                            // TODO: Navigate to settings
-                        }) {
-                            Image(systemName: "gearshape")
-                                .font(.title2)
-                                .foregroundColor(.textSecondary)
-                                .padding(.top, 4)
-                        }
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.top, 8)
-
-                // Stats Cards
-                HStack(spacing: 16) {
-                    StatCard(
-                        title: "Total Reps",
-                        value: "\(viewModel.totalReps)",
-                        icon: "target",
-                        color: .primaryPurple
-                    )
-                    StatCard(
-                        title: "Form Score",
-                        value: "\(viewModel.formScore)%",
-                        icon: "chart.line.uptrend.xyaxis",
-                        color: .green
-                    )
-                }
-                .padding(.horizontal)
-
-                // Play Button
-                Button(action: {
-                    showExerciseSelection = true
-                }) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.primaryPurple)
-                            .frame(width: 80, height: 80)
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 36, weight: .bold))
-                            .foregroundColor(.textPrimary)
-                    }
-                }
-                .padding(.top, 8)
-
-                // Ready to train section
-                VStack(spacing: 8) {
-                    Text("Ready to train?")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.textPrimary)
-                    Text("Let's work on your squat form")
-                        .font(.subheadline)
-                        .foregroundColor(.textSecondary)
-                }
-                .padding(.top, 8)
-
-                // Start Workout Button
-                Button(action: {
-                    showExerciseSelection = true
-                }) {
-                    Text("Start Workout")
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.textPrimary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(Color.primaryPurple)
-                        .cornerRadius(28)
-                }
-                .padding(.horizontal)
-                .padding(.top, 8)
+            GeometryReader { proxy in
+                let h = proxy.size.height
                 
-                // Build Workout Plan Button
-                Button(action: {
-                    showPlanBuilder = true
-                }) {
-                    Text("Build Workout Plan")
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.textPrimary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(Color.secondaryPurple) // Use app's secondary purple
-                        .cornerRadius(28)
-                }
-                .padding(.horizontal)
-                .padding(.top, 8)
+                ScrollView {
+                    VStack(spacing: HomeScreenSpacing.sectionSpacing) {
+                        // HEADER
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Chiron")
+                                .font(.largeTitle)
+                                .fontWeight(.bold)
+                                .foregroundColor(.textPrimary)
+                            Text("Your personal form coach")
+                                .font(.subheadline)
+                                .foregroundColor(.textSecondary)
+                        }
+                        .padding(.top, HomeScreenSpacing.topTitlePad)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                // Workout Goal Card
-                HStack {
-                    Image(systemName: "target")
-                        .foregroundColor(.textSecondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Workout Goal")
-                            .font(.subheadline)
-                            .foregroundColor(.textPrimary)
-                        Text(viewModel.workoutGoal)
-                            .font(.caption)
-                            .foregroundColor(.textSecondary)
-                    }
-                    Spacer()
-                    Button("Change") {
-                        showWorkoutGoalPicker = true
-                    }
-                    .font(.subheadline)
-                    .foregroundColor(.primaryPurple)
-                }
-                .padding()
-                .background(Color.white.opacity(0.08))
-                .cornerRadius(12)
-                .padding(.horizontal)
-                .padding(.top, 8)
+                        // CORE
+                        VStack(spacing: HomeScreenSpacing.sectionSpacing) {
+                            // Stats Cards
+                            HStack(spacing: 16) {
+                                StatCard(
+                                    title: "Total Reps",
+                                    value: "\(viewModel.totalReps)",
+                                    icon: "target",
+                                    color: .primaryPurple
+                                )
+                                StatCard(
+                                    title: "Form Score",
+                                    value: "\(viewModel.formScore)%",
+                                    icon: "chart.line.uptrend.xyaxis",
+                                    color: .green
+                                )
+                            }
+                            
+                            // Play Button
+                            Button(action: {
+                                showExerciseSelection = true
+                            }) {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.primaryPurple)
+                                        .frame(width: 80, height: 80)
+                                    Image(systemName: "play.fill")
+                                        .font(.system(size: 36, weight: .bold))
+                                        .foregroundColor(.textPrimary)
+                                }
+                            }
 
-                // Coaching Style Card
-                HStack {
-                    Image(systemName: "speaker.wave.2")
-                        .foregroundColor(.textSecondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Coaching Style")
-                            .font(.subheadline)
-                            .foregroundColor(.textPrimary)
-                        Text(viewModel.coachingStyle)
-                            .font(.caption)
-                            .foregroundColor(.textSecondary)
-                    }
-                    Spacer()
-                    Button("Change") {
-                        // TODO: Show coaching style picker
-                    }
-                    .font(.subheadline)
-                    .foregroundColor(.primaryPurple)
-                }
-                .padding()
-                .background(Color.white.opacity(0.08))
-                .cornerRadius(12)
-                .padding(.horizontal)
-                .padding(.top, 8)
+                            // Ready to train section
+                            VStack(spacing: 8) {
+                                Text("Ready to train?")
+                                    .font(.title2)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.textPrimary)
+                                Text("Let's work on your squat form")
+                                    .font(.subheadline)
+                                    .foregroundColor(.textSecondary)
+                            }
 
-                Spacer()
+                            // CTA Buttons
+                            VStack(spacing: 8) {
+                                Button(action: {
+                                    showExerciseSelection = true
+                                }) {
+                                    Text("Start Workout")
+                                        .font(.headline)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.textPrimary)
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 56)
+                                        .background(Color.primaryPurple)
+                                        .cornerRadius(28)
+                                }
+                                
+                                Button(action: {
+                                    showPlanBuilder = true
+                                }) {
+                                    Text("Build Workout Plan")
+                                        .font(.headline)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.textPrimary)
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 56)
+                                        .background(Color.secondaryPurple)
+                                        .cornerRadius(28)
+                                }
+                            }
+                        }
+
+                        // FLEX SPACER (shrinks/grows to balance)
+                        Spacer()
+                            .frame(height: max(0, min(40, h - contentHeight)))
+                            .fixedSize()
+
+                        // PREFERENCES
+                        VStack(spacing: 12) {
+                            // Workout Goal Card
+                            HStack {
+                                Image(systemName: "target")
+                                    .foregroundColor(.textSecondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Workout Goal")
+                                        .font(.subheadline)
+                                        .foregroundColor(.textPrimary)
+                                    Text(viewModel.workoutGoal)
+                                        .font(.caption)
+                                        .foregroundColor(.textSecondary)
+                                }
+                                Spacer()
+                                Button("Change") {
+                                    showWorkoutGoalPicker = true
+                                }
+                                .font(.subheadline)
+                                .foregroundColor(.primaryPurple)
+                            }
+                            .padding()
+                            .background(Color.white.opacity(0.08))
+                            .cornerRadius(12)
+
+                            // Coaching Style Card
+                            HStack {
+                                Image(systemName: "speaker.wave.2")
+                                    .foregroundColor(.textSecondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Coaching Style")
+                                        .font(.subheadline)
+                                        .foregroundColor(.textPrimary)
+                                    Text(viewModel.coachingStyle)
+                                        .font(.caption)
+                                        .foregroundColor(.textSecondary)
+                                }
+                                Spacer()
+                                Button("Change") {
+                                    // TODO: Show coaching style picker
+                                }
+                                .font(.subheadline)
+                                .foregroundColor(.primaryPurple)
+                            }
+                            .padding()
+                            .background(Color.white.opacity(0.08))
+                            .cornerRadius(12)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .background(
+                        ViewHeightReader(height: $contentHeight)
+                    )
+                }
+                .scrollIndicators(.hidden)
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollDisabled(contentHeight <= h)
+                .background(Color.background)
             }
-            .padding(.top, 32)
+            .safeAreaInset(edge: .top) { 
+                Color.clear.frame(height: HomeScreenSpacing.topInset) 
+            }
+            .safeAreaInset(edge: .bottom) { 
+                Color.clear.frame(height: HomeScreenSpacing.bottomInset) 
+            }
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button(action: {
+                        showFeedback = true
+                    }) {
+                        Image(systemName: "text.bubble")
+                            .font(.title2)
+                            .foregroundColor(.textSecondary)
+                    }
+                    
+                    Button(action: {
+                        // TODO: Navigate to settings
+                    }) {
+                        Image(systemName: "gearshape")
+                            .font(.title2)
+                            .foregroundColor(.textSecondary)
+                    }
+                }
+            }
+            .preferredColorScheme(.dark)
+            .navigationDestination(isPresented: $showPlanBuilder) {
+                PlanBuilderView()
+            }
+            .fullScreenCover(isPresented: $showExerciseSelection) {
+                ExerciseSelectionView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $showWorkoutGoalPicker) {
+                WorkoutGoalPickerView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $showFeedback) {
+                FeedbackView(viewModel: viewModel)
+            }
         }
-        .preferredColorScheme(.dark)
-        .navigationDestination(isPresented: $showPlanBuilder) {
-            PlanBuilderView()
-        }
-        .fullScreenCover(isPresented: $showExerciseSelection) {
-            ExerciseSelectionView(viewModel: viewModel)
-        }
-        .sheet(isPresented: $showWorkoutGoalPicker) {
-            WorkoutGoalPickerView(viewModel: viewModel)
-        }
-        .sheet(isPresented: $showFeedback) {
-            FeedbackView(viewModel: viewModel)
-        }
-        } // End NavigationStack
     }
 }
 
@@ -247,4 +265,21 @@ struct WorkoutGoalPickerView: View {
         }
         .preferredColorScheme(.dark)
     }
-} 
+}
+
+// Helper to measure the VStack height
+struct ViewHeightReader: View {
+    @Binding var height: CGFloat
+    var body: some View {
+        GeometryReader { gp in
+            Color.clear
+                .preference(key: HeightKey.self, value: gp.size.height)
+        }
+        .onPreferenceChange(HeightKey.self) { height = $0 }
+    }
+}
+
+private struct HeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
