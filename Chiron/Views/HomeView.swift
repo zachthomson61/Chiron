@@ -14,7 +14,6 @@ struct HomeView: View {
     @State private var showWorkoutGoalPicker = false
     @State private var showExerciseSelection = false
     @State private var showFeedback = false
-    @State private var showPlanBuilder = false
     @State private var contentHeight: CGFloat = 0
     
     var body: some View {
@@ -80,33 +79,19 @@ struct HomeView: View {
                                     .foregroundColor(.textSecondary)
                             }
 
-                            // CTA Buttons
-                            VStack(spacing: 8) {
-                                Button(action: {
-                                    showExerciseSelection = true
-                                }) {
-                                    Text("Start Workout")
-                                        .font(.headline)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.textPrimary)
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: 56)
-                                        .background(Color.primaryPurple)
-                                        .cornerRadius(28)
-                                }
-                                
-                                Button(action: {
-                                    showPlanBuilder = true
-                                }) {
-                                    Text("Build Workout Plan")
-                                        .font(.headline)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.textPrimary)
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: 56)
-                                        .background(Color.secondaryPurple)
-                                        .cornerRadius(28)
-                                }
+                            // Primary action button - Start Workout
+                            // Note: "Build Workout Plan" button moved to Plans tab
+                            Button(action: {
+                                showExerciseSelection = true
+                            }) {
+                                Text("Start Workout")
+                                    .font(.headline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.textPrimary)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 56)
+                                    .background(Color.primaryPurple)
+                                    .cornerRadius(28)
                             }
                         }
 
@@ -177,9 +162,6 @@ struct HomeView: View {
             .safeAreaInset(edge: .top) { 
                 Color.clear.frame(height: HomeScreenSpacing.topInset) 
             }
-            .safeAreaInset(edge: .bottom) { 
-                Color.clear.frame(height: HomeScreenSpacing.bottomInset) 
-            }
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button(action: {
@@ -200,9 +182,6 @@ struct HomeView: View {
                 }
             }
             .preferredColorScheme(.dark)
-            .navigationDestination(isPresented: $showPlanBuilder) {
-                PlanBuilderView()
-            }
             .fullScreenCover(isPresented: $showExerciseSelection) {
                 ExerciseSelectionView(viewModel: viewModel)
             }

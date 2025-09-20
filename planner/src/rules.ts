@@ -13,3 +13,4 @@ export const timePerExerciseMinutes = {
 } as const;
 
 
+
