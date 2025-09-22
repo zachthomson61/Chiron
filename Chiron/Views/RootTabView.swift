@@ -74,55 +74,134 @@ struct RootTabView: View {
 /// Currently an empty state with a primary CTA to build a plan.
 struct PlansScreen: View {
     @State private var showPlanBuilder = false
+    @EnvironmentObject private var planStore: PlanStore
+    @State private var selectedPlan: TrainingPlan?
     
     var body: some View {
-        VStack(spacing: 24) {
-            // Header section
-            VStack(spacing: 8) {
-                Text("Plans")
-                    .font(.title.bold())
-                    .foregroundColor(.textPrimary)
-                Text("Create and manage your workout programs")
-                    .font(.subheadline)
-                    .foregroundColor(.textSecondary)
-            }
-            
-            // Empty state
-            VStack(spacing: 16) {
-                Image(systemName: "list.bullet.rectangle")
-                    .font(.system(size: 48))
-                    .foregroundColor(.textSecondary)
+        ScrollView {
+            VStack(spacing: 24) {
+                // Header section
+                VStack(spacing: 8) {
+                    Text("Plans")
+                        .font(.title.bold())
+                        .foregroundColor(.textPrimary)
+                    Text("Create and manage your workout programs")
+                        .font(.subheadline)
+                        .foregroundColor(.textSecondary)
+                }
                 
-                Text("No plans yet")
-                    .font(.headline)
-                    .foregroundColor(.textPrimary)
+                // Primary action button
+                Button(action: {
+                    showPlanBuilder = true
+                }) {
+                    Text("Build Workout Plan")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.textPrimary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(Color.primaryPurple)
+                        .cornerRadius(28)
+                }
+                .padding(.horizontal)
                 
-                Text("Create a program to get started with structured training")
-                    .font(.subheadline)
-                    .foregroundColor(.textSecondary)
-                    .multilineTextAlignment(.center)
+                // Saved Plans Section
+                if !planStore.savedPlans.isEmpty {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Saved Plans")
+                            .font(.headline)
+                            .foregroundColor(.textPrimary)
+                            .padding(.horizontal)
+                        
+                        LazyVStack(spacing: 12) {
+                            ForEach(planStore.savedPlans) { plan in
+                                Button(action: {
+                                    selectedPlan = plan
+                                }) {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(plan.name)
+                                                .font(.subheadline)
+                                                .fontWeight(.medium)
+                                                .foregroundColor(.textPrimary)
+                                            
+                                            HStack(spacing: 8) {
+                                                Text("\(plan.duration) weeks")
+                                                    .font(.caption)
+                                                    .foregroundColor(.textSecondary)
+                                                
+                                                Text("•")
+                                                    .font(.caption)
+                                                    .foregroundColor(.textSecondary)
+                                                
+                                                Text("\(plan.daysPerWeek) days/week")
+                                                    .font(.caption)
+                                                    .foregroundColor(.textSecondary)
+                                                
+                                                Text("•")
+                                                    .font(.caption)
+                                                    .foregroundColor(.textSecondary)
+                                                
+                                                Text(plan.createdAt, style: .date)
+                                                    .font(.caption)
+                                                    .foregroundColor(.textSecondary)
+                                            }
+                                        }
+                                        
+                                        Spacer()
+                                        
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption)
+                                            .foregroundColor(.textSecondary)
+                                    }
+                                    .padding()
+                                    .background(Color.background)
+                                    .cornerRadius(12)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(Color.primaryPurple.opacity(0.3), lineWidth: 1)
+                                    )
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                } else {
+                    // Empty state when no plans
+                    VStack(spacing: 16) {
+                        Image(systemName: "list.bullet.rectangle")
+                            .font(.system(size: 48))
+                            .foregroundColor(.textSecondary)
+                        
+                        Text("No plans yet")
+                            .font(.headline)
+                            .foregroundColor(.textPrimary)
+                        
+                        Text("Create a program to get started with structured training")
+                            .font(.subheadline)
+                            .foregroundColor(.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, 40)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            
-            // Primary action button
-            Button(action: {
-                showPlanBuilder = true
-            }) {
-                Text("Build Workout Plan")
-                    .font(.headline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.textPrimary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(Color.primaryPurple)
-                    .cornerRadius(28)
-            }
-            .padding(.horizontal)
+            .padding()
         }
-        .padding()
         .background(Color.background)
         .navigationDestination(isPresented: $showPlanBuilder) {
             PlanBuilderView()
+        }
+        // Navigate to a simple plan preview when a saved plan is tapped.
+        // This uses the existing `TrainingPlan` model from the builder and
+        // shows details via `PlanPreviewView` without altering Plans UI.
+        .navigationDestination(isPresented: Binding(
+            get: { selectedPlan != nil },
+            set: { if !$0 { selectedPlan = nil } }
+        )) {
+            if let plan = selectedPlan {
+                PlanPreviewView(plan: plan)
+            }
         }
     }
 }
