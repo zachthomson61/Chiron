@@ -11,6 +11,7 @@ import FirebaseCore
 @main
 struct ChironApp: App {
     let persistenceController = PersistenceController.shared
+    @StateObject private var planStore = PlanStore()
     
     init() {
         FirebaseApp.configure()
@@ -20,6 +21,7 @@ struct ChironApp: App {
         WindowGroup {
             ContentView()
                 .environment(\.managedObjectContext, persistenceController.container.viewContext)
+                .environmentObject(planStore)
         }
     }
 }

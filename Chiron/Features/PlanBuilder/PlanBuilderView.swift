@@ -3,6 +3,7 @@ import SwiftUI
 struct PlanBuilderView: View {
     @StateObject private var viewModel = PlanBuilderViewModel()
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var planStore: PlanStore
     @State private var showingPreview = false
     @State private var showingCustomSplit = false
     
@@ -55,6 +56,12 @@ struct PlanBuilderView: View {
                             print("DEBUG: About to call generatePlan")
                             await viewModel.generatePlan()
                             print("DEBUG: generatePlan call completed")
+                            
+                            // Save the plan if generation was successful
+                            if let plan = viewModel.generatedPlan {
+                                print("DEBUG: Saving plan to PlanStore")
+                                planStore.addPlan(plan)
+                            }
                         }
                     }) {
                         if viewModel.isGenerating {
