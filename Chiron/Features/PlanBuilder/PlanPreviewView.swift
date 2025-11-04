@@ -40,6 +40,15 @@ struct PlanPreviewView: View {
         .navigationBarTitleDisplayMode(.large)
         .preferredColorScheme(.dark)
         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: backToPlans) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left")
+                        Text("Plans")
+                    }
+                    .foregroundColor(.planTextPrimary)
+                }
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: shareplan) {
                     Image(systemName: "square.and.arrow.up")
@@ -51,6 +60,15 @@ struct PlanPreviewView: View {
             if let url = exportURL {
                 ShareSheet(activityItems: [url])
             }
+        }
+    }
+    
+    private func backToPlans() {
+        // First dismiss PlanPreviewView
+        dismiss()
+        // Then dismiss the PlanBuilder screen after a tick to reveal Plans home
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            dismiss()
         }
     }
     

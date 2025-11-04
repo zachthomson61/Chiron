@@ -61,9 +61,8 @@ final class SegmentationProcessor: ObservableObject {
             return
         }
 
-        guard
-            let results = request.results as? [VNPixelBufferObservation],
-            let maskObs = results.first
+        guard let observations = request.results,
+              let maskObs = observations.first
         else { return }
 
         // Compute raw quality and smooth it (EMA)

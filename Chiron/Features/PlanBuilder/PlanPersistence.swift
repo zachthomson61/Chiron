@@ -37,20 +37,23 @@ final class PlanPersistence: PlanPersistenceProtocol, ObservableObject {
     // MARK: - Public Methods
     
     func savePlan(_ plan: TrainingPlan) async throws {
-        var plans = try await loadPlans()
+        let loadedPlans = try await loadPlans()
+        var updatedPlans = loadedPlans
         
         // Check if plan already exists and update it
-        if let index = plans.firstIndex(where: { $0.id == plan.id }) {
-            plans[index] = plan
+        if let index = updatedPlans.firstIndex(where: { $0.id == plan.id }) {
+            updatedPlans[index] = plan
         } else {
-            plans.append(plan)
+            updatedPlans.append(plan)
         }
         
-        let data = try encoder.encode(plans)
+        let data = try encoder.encode(updatedPlans)
         userDefaults.set(data, forKey: plansKey)
         
+        // Capture immutable copy for async closure
+        let finalPlans = updatedPlans
         await MainActor.run {
-            self.savedPlans = plans
+            self.savedPlans = finalPlans
         }
     }
     
@@ -73,14 +76,17 @@ final class PlanPersistence: PlanPersistenceProtocol, ObservableObject {
     }
     
     func deletePlan(withId id: UUID) async throws {
-        var plans = try await loadPlans()
-        plans.removeAll { $0.id == id }
+        let loadedPlans = try await loadPlans()
+        var updatedPlans = loadedPlans
+        updatedPlans.removeAll { $0.id == id }
         
-        let data = try encoder.encode(plans)
+        let data = try encoder.encode(updatedPlans)
         userDefaults.set(data, forKey: plansKey)
         
+        // Capture immutable copy for async closure
+        let finalPlans = updatedPlans
         await MainActor.run {
-            self.savedPlans = plans
+            self.savedPlans = finalPlans
         }
     }
     

@@ -100,6 +100,10 @@ struct TrainingWeek: Codable, Identifiable {
         self.weekNumber = weekNumber
         self.days = days
     }
+    
+    private enum CodingKeys: String, CodingKey {
+        case weekNumber, days
+    }
 }
 
 struct TrainingDay: Codable, Identifiable {
@@ -116,6 +120,10 @@ struct TrainingDay: Codable, Identifiable {
         self.exercises = exercises
         self.duration = duration
         self.difficulty = difficulty
+    }
+    
+    private enum CodingKeys: String, CodingKey {
+        case dayNumber, name, exercises, duration, difficulty
     }
 }
 
@@ -140,6 +148,10 @@ struct WorkoutExercise: Codable, Identifiable {
         self.notes = notes
         self.isSuperset = isSuperset
         self.supersetGroup = supersetGroup
+    }
+    
+    private enum CodingKeys: String, CodingKey {
+        case name, category, sets, reps, restTime, notes, isSuperset, supersetGroup
     }
 }
 
@@ -204,21 +216,21 @@ enum MuscleGroup: String, CaseIterable, Codable {
     
     var imageName: String {
         switch self {
-        case .chest: return "Chest_Icon"
-        case .back: return "Back_Icon"
-        case .shoulders: return "Front_Deltoid_Icon"
-        case .biceps: return "Bicep_Icon"
-        case .triceps: return "Tricep_Icon"
-        case .trapezius: return "Trapezius_Icon"
-        case .forearms: return "Forearms_Icon"
-        case .quads: return "Quads_Icon"
-        case .hamstrings: return "Hamstrings_Icon"
-        case .glutes: return "Glutes_Icon"
-        case .calves: return "Calves_Icon"
-        case .abductors: return "Abductors_Icon"
-        case .adductors: return "Adductors_Icon"
-        case .abs: return "Abs_Icon"
-        case .lowerBack: return "Lower_Back_Icon"
+        case .chest: return "Chest Icon"
+        case .back: return "Back Icon"
+        case .shoulders: return "Front Deltoid Icon"
+        case .biceps: return "Bicep Icon"
+        case .triceps: return "Tricep Icon"
+        case .trapezius: return "Trapezius Icon"
+        case .forearms: return "Forearms Icon"
+        case .quads: return "Quads Icon"
+        case .hamstrings: return "Hamstrings Icon"
+        case .glutes: return "Glutes Icon"
+        case .calves: return "Calves Icon"
+        case .abductors: return "Abductors Icon"
+        case .adductors: return "Adductors Icon"
+        case .abs: return "Abs Icon"
+        case .lowerBack: return "Lower Back Icon"
         }
     }
 }
@@ -247,6 +259,10 @@ struct InjuryNote: Codable, Equatable, Identifiable {
     
     init(raw: String) {
         self.raw = raw
+    }
+    
+    private enum CodingKeys: String, CodingKey {
+        case raw
     }
 }
 

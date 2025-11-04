@@ -2,12 +2,33 @@ import SwiftUI
 
 struct PlanBuilderView: View {
     @StateObject private var viewModel = PlanBuilderViewModel()
+    @StateObject private var oqfViewModel = OQFViewModel()
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var planStore: PlanStore
     @State private var showingPreview = false
-    @State private var showingCustomSplit = false
+    @AppStorage("planBuilderOQFEnabled") private var isOQFEnabled = true  // Enable One Question Flow
+    
+    // Custom Split State
+    @State private var customSplitSelectedDayIndex: Int = 0
+    @State private var customSplitIntents: [DayIntent] = []
+    @State private var customSplitSpecs: [Int: CustomDaySpec] = [:]
     
     var body: some View {
+        // Feature flag: Show One Question Flow if enabled
+        if isOQFEnabled {
+            OneQuestionShellView(viewModel: oqfViewModel)
+                .environmentObject(planStore)
+                .onAppear {
+                    oqfViewModel.reset()
+                }
+        } else {
+            legacyPlanBuilderView
+        }
+    }
+    
+    // MARK: - Legacy Plan Builder View
+    
+    private var legacyPlanBuilderView: some View {
         ZStack {
             // Background
             Color.planBackground
@@ -97,12 +118,6 @@ struct PlanBuilderView: View {
         .navigationDestination(isPresented: $viewModel.navigateToPreview) {
             if let plan = viewModel.generatedPlan {
                 PlanPreviewView(plan: plan)
-            }
-        }
-        .navigationDestination(isPresented: $showingCustomSplit) {
-            CustomSplitView(input: viewModel.input) { customSplit in
-                viewModel.input.customSplit = customSplit
-                showingCustomSplit = false
             }
         }
     }
@@ -222,7 +237,7 @@ struct PlanBuilderView: View {
                     Button(action: {
                         viewModel.input.split = split
                         if split == .custom {
-                            showingCustomSplit = true
+                            initializeCustomSplit()
                         }
                     }) {
                         HStack {
@@ -250,6 +265,11 @@ struct PlanBuilderView: View {
                         .cornerRadius(12)
                     }
                 }
+            }
+            
+            // Inline Custom Split Configuration
+            if viewModel.input.split == .custom {
+                customSplitConfiguration
             }
         }
         .planSectionStyle()
@@ -361,5 +381,238 @@ struct PlanBuilderView: View {
             .cornerRadius(12)
         }
         .planSectionStyle()
+    }
+    
+    // MARK: - Custom Split Configuration
+    
+    private var customSplitConfiguration: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Divider()
+                .background(Color.planAccent.opacity(0.3))
+                .padding(.vertical, 8)
+            
+            // Instructions
+            Text("Customize each training day")
+                .font(.subheadline)
+                .foregroundColor(.planTextSecondary)
+                .padding(.bottom, 4)
+            
+            // Day Pills - Horizontal scrollable selector
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(0..<viewModel.input.daysPerWeek, id: \.self) { index in
+                        Button(action: {
+                            customSplitSelectedDayIndex = index
+                        }) {
+                            VStack(spacing: 4) {
+                                Text("Day \(index + 1)")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(customSplitSelectedDayIndex == index ? .textPrimary : .planTextPrimary)
+                                
+                                // Show selected intent below day number
+                                if index < customSplitIntents.count {
+                                    Text(customSplitIntents[index].rawValue)
+                                        .font(.caption2)
+                                        .foregroundColor(.planTextSecondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(customSplitSelectedDayIndex == index ? Color.planAccent : Color.planCardBackground)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(customSplitSelectedDayIndex == index ? Color.clear : Color.planAccent.opacity(0.3), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+            }
+            .padding(.bottom, 8)
+            
+            // Intent Selection for Selected Day
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Day \(customSplitSelectedDayIndex + 1) Focus")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.planTextPrimary)
+                
+                Text("What type of workout is this?")
+                    .font(.caption)
+                    .foregroundColor(.planTextSecondary)
+                
+                // Intent Grid
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 12) {
+                    ForEach(DayIntent.allCases, id: \.self) { intent in
+                        Button(action: {
+                            setCurrentDayIntent(intent)
+                        }) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(intent.rawValue)
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.planTextPrimary)
+                                    .multilineTextAlignment(.leading)
+                                
+                                Text(intent.description)
+                                    .font(.caption)
+                                    .foregroundColor(.planTextSecondary)
+                                    .multilineTextAlignment(.leading)
+                                
+                                Spacer()
+                                
+                                if currentDayIntent == intent {
+                                    HStack {
+                                        Spacer()
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.planAccent)
+                                            .font(.title3)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(minHeight: 100)
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(currentDayIntent == intent ? Color.planCardBackgroundSelected : Color.planCardBackground)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(currentDayIntent == intent ? Color.planAccent : Color.clear, lineWidth: 2)
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+            }
+            .padding(.top, 8)
+            
+            // Custom Muscles Selection (if Custom Muscles is selected)
+            if currentDayIntent == .customMuscles {
+                VStack(alignment: .leading, spacing: 16) {
+                    Divider()
+                        .background(Color.planAccent.opacity(0.3))
+                        .padding(.vertical, 8)
+                    
+                    PlanSectionHeader(
+                        title: "Select Muscles",
+                        subtitle: "Choose the muscle groups for this day"
+                    )
+                    
+                    MuscleGroupGrid(
+                        muscles: MuscleGroup.allCases,
+                        selected: currentDayCustomMuscles,
+                        onToggle: toggleCustomMuscle
+                    )
+                }
+                .padding(.top, 8)
+            }
+        }
+        .padding()
+        .background(Color.planCardBackground.opacity(0.5))
+        .cornerRadius(16)
+        .padding(.top, 12)
+    }
+    
+    // MARK: - Custom Split Computed Properties
+    
+    private var currentDayIntent: DayIntent {
+        guard customSplitSelectedDayIndex < customSplitIntents.count else { return .fullBody }
+        return customSplitIntents[customSplitSelectedDayIndex]
+    }
+    
+    private var currentDayCustomMuscles: Set<MuscleGroup> {
+        customSplitSpecs[customSplitSelectedDayIndex]?.muscles ?? []
+    }
+    
+    // MARK: - Custom Split Methods
+    
+    private func initializeCustomSplit() {
+        // Initialize intents array with smart defaults based on days per week
+        let days = viewModel.input.daysPerWeek
+        
+        switch days {
+        case 3:
+            customSplitIntents = [.push, .pull, .legs]
+        case 4:
+            customSplitIntents = [.upper, .lower, .push, .pull]
+        case 5:
+            customSplitIntents = [.push, .pull, .legs, .upper, .lower]
+        case 6:
+            customSplitIntents = [.push, .pull, .legs, .push, .pull, .legs]
+        case 7:
+            customSplitIntents = [.push, .pull, .legs, .upper, .lower, .arms, .fullBody]
+        default:
+            customSplitIntents = Array(repeating: .fullBody, count: days)
+        }
+        
+        // Reset custom specs
+        customSplitSpecs = [:]
+        customSplitSelectedDayIndex = 0
+        
+        // Save to viewModel
+        saveCustomSplit()
+    }
+    
+    private func setCurrentDayIntent(_ intent: DayIntent) {
+        guard customSplitSelectedDayIndex < customSplitIntents.count else { return }
+        customSplitIntents[customSplitSelectedDayIndex] = intent
+        
+        // Clear custom specs if not custom muscles
+        if intent != .customMuscles {
+            customSplitSpecs.removeValue(forKey: customSplitSelectedDayIndex)
+        }
+        
+        // Save to viewModel
+        saveCustomSplit()
+    }
+    
+    private func toggleCustomMuscle(_ muscle: MuscleGroup) {
+        var muscles = currentDayCustomMuscles
+        if muscles.contains(muscle) {
+            muscles.remove(muscle)
+        } else {
+            muscles.insert(muscle)
+        }
+        customSplitSpecs[customSplitSelectedDayIndex] = CustomDaySpec(muscles: muscles)
+        
+        // Save to viewModel
+        saveCustomSplit()
+    }
+    
+    private func saveCustomSplit() {
+        // Convert 0-based indices to 1-based for CustomSplit
+        var oneBasedCustomSpecs: [Int: CustomDaySpec] = [:]
+        for (zeroBasedIndex, spec) in customSplitSpecs {
+            oneBasedCustomSpecs[zeroBasedIndex + 1] = spec
+        }
+        
+        let customSplit = CustomSplit(
+            dayIntents: customSplitIntents,
+            customSpecs: oneBasedCustomSpecs
+        )
+        
+        viewModel.input.customSplit = customSplit
+    }
+    
+    // MARK: - Feature Flag Toggle (for testing)
+    
+    private var featureFlagToggle: some View {
+        Button(action: {
+            isOQFEnabled.toggle()
+        }) {
+            HStack {
+                Image(systemName: isOQFEnabled ? "checkmark.circle.fill" : "circle")
+                Text(isOQFEnabled ? "One Question Flow" : "Legacy Form")
+            }
+            .font(.caption)
+            .foregroundColor(.planTextSecondary)
+        }
     }
 }

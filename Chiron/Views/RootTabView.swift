@@ -62,7 +62,7 @@ struct RootTabView: View {
         .toolbarBackground(.visible, for: .tabBar)
         .toolbarColorScheme(.dark, for: .tabBar)
         .preferredColorScheme(.dark)
-        .onChange(of: selectedTab) { _ in
+        .onChange(of: selectedTab) {
             #if os(iOS)
             UIImpactFeedbackGenerator(style: .light).impactOccurred() // Light haptic on tab switch
             #endif

@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 // MARK: - Plan Builder Theme
 
@@ -206,12 +209,40 @@ struct AnatomicalMuscleView: View {
     let muscle: MuscleGroup
     
     var body: some View {
-        Image(muscle.imageName)
+        // Robust load to support loose PNGs in the bundle (not just asset catalog)
+        loadedImage(for: muscle.imageName)
             .resizable()
             .aspectRatio(contentMode: .fill)
             .frame(width: 80, height: 80)
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+    
+    private func loadedImage(for name: String) -> Image {
+        #if os(iOS)
+        // Try standard UIImage(named:) which searches asset catalogs and bundle images
+        if let ui = UIImage(named: name) {
+            return Image(uiImage: ui).renderingMode(.original)
+        }
+        // Try explicit .png in main bundle
+        if let url = Bundle.main.url(forResource: name, withExtension: "png"),
+           let ui = UIImage(contentsOfFile: url.path) {
+            return Image(uiImage: ui).renderingMode(.original)
+        }
+        // Defensive: also try underscore variant (e.g., "Lower_Back_Icon")
+        let underscored = name.replacingOccurrences(of: " ", with: "_")
+        if let ui = UIImage(named: underscored) {
+            return Image(uiImage: ui).renderingMode(.original)
+        }
+        if let url = Bundle.main.url(forResource: underscored, withExtension: "png"),
+           let ui = UIImage(contentsOfFile: url.path) {
+            return Image(uiImage: ui).renderingMode(.original)
+        }
+        // Fallback placeholder so UI remains stable
+        return Image(systemName: "photo")
+        #else
+        return Image(name)
+        #endif
     }
 }
 

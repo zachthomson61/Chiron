@@ -370,8 +370,6 @@ final class PlannerEngine {
                 dayNumber: dayNumber,
                 dayName: dayName
             )
-        default:
-            availableWorkoutExercises = Array(exerciseDatabase[.compound]!) + Array(exerciseDatabase[.isolation]!)
         }
         
         // Filter out injury-restricted exercises
