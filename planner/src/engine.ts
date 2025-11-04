@@ -1,8 +1,21 @@
-import type { Inputs, ProgramPlan, Exercise, ExerciseSelection, WeekPlan, DayPlan } from './types';
+import type { 
+  Inputs, 
+  ProgramPlan, 
+  Exercise, 
+  ExerciseSelection, 
+  WeekPlan, 
+  DayPlan, 
+  ExerciseCandidate, 
+  TimeConfig,
+  PlannedBlock,
+  TimeBoundedPlan
+} from './types';
 import { TEMPLATES } from './templates';
 import { weeklySetsByGoal, timePerExerciseMinutes } from './rules';
 import { schemeFor } from './schemes';
 import { isAllowed, modifiedSchemePenalty } from './injuries';
+import { fitToTimeBudget, createMinimalPlan } from './fitToBudget';
+import { DEFAULT_CONFIG } from './timeEstimator';
 
 function stableSort<T>(arr: T[], cmp: (a: T, b: T) => number): T[] {
   return arr
@@ -20,6 +33,9 @@ export function generatePlan(input: Inputs, library: Exercise[]): ProgramPlan {
   const template = TEMPLATES.find(t => t.split === input.split) || TEMPLATES[0];
   const scheme = schemeFor(input.goal);
 
+  // Use target_duration_minutes if provided, otherwise use schedule.sessionMinutes
+  const targetDuration = input.target_duration_minutes || schedule.sessionMinutes;
+
   // 3) Weekly volume targets
   const volTarget = weeklySetsByGoal[input.goal];
   const targets = input.targetMuscles.length > 0 ? input.targetMuscles : ['chest','back','delts','quads','hams','glutes','calves','abs'] as Inputs['targetMuscles'];
@@ -31,63 +47,113 @@ export function generatePlan(input: Inputs, library: Exercise[]): ProgramPlan {
       // 4) Select exercises per day
       const allowed = library.filter(ex => isAllowed(ex, input.injuries));
 
-      const scored = allowed.map(ex => {
+      // Convert exercises to candidates for time-bounded planning
+      const candidates: ExerciseCandidate[] = allowed.map((ex, index) => {
         const primaryMatch = ex.primaryMuscles.some(m => targets.includes(m as any)) ? 1 : 0;
         const secondaryMatch = ex.secondaryMuscles.some(m => targets.includes(m as any)) ? 1 : 0;
         const timeEfficiency = ex.flags.includes('time_efficient') ? 1 : 0;
         const patternCoverage = new Set(ex.primaryMuscles.concat(ex.secondaryMuscles)).size > 1 ? 1 : 0;
         const equipmentAvailability = ex.equipment.length > 0 ? 1 : 0;
         const score = 3*primaryMatch + 2*patternCoverage + 1*timeEfficiency + 1*equipmentAvailability + 0.5*secondaryMatch;
-        return { ex, score };
+        
+        // Determine category
+        const category: 'compound' | 'isolation' | 'accessory' = 
+          ex.pattern === 'isolation' ? 'isolation' : 'compound';
+        
+        // Calculate priority (lower = higher priority)
+        const priority = Math.max(1, 10 - Math.floor(score * 2));
+        
+        // Get sets based on scheme and deload
+        const isDeload = [3,7,11].includes(w);
+        const pen = modifiedSchemePenalty(ex.pattern, input.injuries);
+        const setsTarget = Math.max(2, Math.round(scheme.sets - pen - (isDeload ? scheme.sets*0.3 : 0)));
+        const setsMin = Math.max(1, setsTarget - 1);
+        
+        return {
+          id: ex.id,
+          muscle_groups: [...ex.primaryMuscles, ...ex.secondaryMuscles],
+          priority,
+          sets_target: setsTarget,
+          sets_min: setsMin,
+          reps: scheme.reps,
+          rest_seconds: scheme.restSec,
+          superset_with: undefined, // Will be set later if needed
+          category,
+          pattern: ex.pattern,
+        };
       });
 
-      const sorted = stableSort(scored, (a,b)=>{
-        if (b.score !== a.score) return b.score - a.score;
-        return a.ex.id.localeCompare(b.ex.id);
-      }).map(s => s.ex);
+      // Sort by priority for time-bounded planning
+      candidates.sort((a, b) => a.priority - b.priority);
 
-      // take top K per first slot definition
-      const firstSlot = day.slotPlan[0];
-      let chosen = sorted.slice(0, firstSlot.slots);
-
-      // 5) Enforce sessionMinutes by trimming isolation first
-      const estimateMinutes = (items: Exercise[]) => {
-        return items.reduce((sum, e) => sum + (e.pattern === 'isolation' ? timePerExerciseMinutes.isolation : timePerExerciseMinutes.compound), 0);
+      // Prepare time config
+      const timeConfig: TimeConfig = {
+        target_duration_minutes: targetDuration,
+        buffer_minutes: input.target_duration_minutes ? DEFAULT_CONFIG.buffer_minutes : 0,
+        transition_seconds: input.transition_seconds || DEFAULT_CONFIG.transition_seconds,
+        min_rest_accessory: DEFAULT_CONFIG.min_rest_accessory,
+        warmup_max_minutes: input.warmup_policy?.max_minutes || DEFAULT_CONFIG.warmup_max_minutes,
+        default_rest_seconds: input.default_rest_seconds || scheme.restSec,
       };
-      while (estimateMinutes(chosen) > schedule.sessionMinutes) {
-        const idx = chosen.findLastIndex(e => e.pattern === 'isolation');
-        if (idx >= 0) chosen.splice(idx,1); else break;
-      }
 
-      // 6) Variety handling
-      // consistent: keep chosen as-is across weeks; balanced/varied: deterministic rotate
-      if (input.variety !== 'consistent' && chosen.length > 0) {
-        const offset = input.variety === 'balanced' ? (w % chosen.length) : ((w) % chosen.length);
-        chosen = chosen.map((_, i) => chosen[(i + offset) % chosen.length]);
-      }
-
-      // 7) Deload weeks 4,8,12 reduce sets by 30%
-      const isDeload = [3,7,11].includes(w); // zero-indexed weeks 4,8,12
-      const items: ExerciseSelection[] = [];
-      for (let i = 0; i < chosen.length; i++) {
-        const e = chosen[i];
-        const pen = modifiedSchemePenalty(e.pattern, input.injuries);
-        const sets = Math.max(1, Math.round(scheme.sets - pen - (isDeload ? scheme.sets*0.3 : 0)));
-        items.push({
-          exerciseId: e.id,
-          scheme: { ...scheme, sets },
-        });
-      }
-
-      // Supersets deterministic optional pairing for short sessions
-      if (input.supersets && schedule.sessionMinutes < 45) {
-        for (let i = 0; i + 1 < items.length; i += 2) {
-          items[i].supersetWith = items[i+1].exerciseId;
+      // Handle supersets if enabled and session is short
+      if (input.supersets && targetDuration < 45) {
+        // Pair adjacent exercises for supersets
+        for (let i = 0; i < candidates.length - 1; i += 2) {
+          if (candidates[i].category !== 'compound' || candidates[i+1].category !== 'compound') {
+            candidates[i].superset_with = candidates[i+1].id;
+            candidates[i+1].superset_with = candidates[i].id;
+          }
         }
       }
 
-      const estMinutes = estimateMinutes(chosen);
-      days.push({ dayIndex: day.dayIndex, items, estMinutes });
+      // Apply variety policy
+      let finalCandidates = candidates;
+      if (input.variety !== 'consistent' && candidates.length > 0) {
+        const offset = input.variety === 'balanced' ? (w % candidates.length) : ((w) % candidates.length);
+        finalCandidates = candidates.map((_, i) => candidates[(i + offset) % candidates.length]);
+      }
+
+      // Use time-bounded planning
+      let timeBoundedPlan: TimeBoundedPlan;
+      
+      // If time is extremely limited, create minimal plan
+      if (targetDuration <= 20) {
+        timeBoundedPlan = createMinimalPlan(finalCandidates, timeConfig, input.goal);
+      } else {
+        timeBoundedPlan = fitToTimeBudget(finalCandidates, timeConfig, input.goal);
+      }
+
+      // Convert PlannedBlocks back to ExerciseSelections
+      const items: ExerciseSelection[] = timeBoundedPlan.planned_blocks
+        .filter(block => block.estimated_minutes > 0) // Skip superset partner blocks with 0 time
+        .map(block => {
+          const candidate = finalCandidates.find(c => c.id === block.exercise_id);
+          const reps = typeof block.reps === 'string' && block.reps.includes('-') 
+            ? block.reps.split('-').map(Number) as [number, number]
+            : typeof block.reps === 'number' 
+            ? [block.reps, block.reps] as [number, number]
+            : scheme.reps;
+          
+          return {
+            exerciseId: block.exercise_id,
+            scheme: {
+              sets: block.sets,
+              reps: reps,
+              rpeCap: scheme.rpeCap,
+              restSec: block.rest_seconds,
+            },
+            supersetWith: block.superset_with,
+            estimated_minutes: block.estimated_minutes,
+          };
+        });
+
+      days.push({ 
+        dayIndex: day.dayIndex, 
+        items, 
+        estMinutes: timeBoundedPlan.total_planned_minutes,
+        timeBoundedPlan
+      });
     }
     weeks.push({ weekIndex: w+1, days, deload: [4,8,12].includes(w+1) });
   }

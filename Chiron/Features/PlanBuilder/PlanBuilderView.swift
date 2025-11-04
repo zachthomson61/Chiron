@@ -165,10 +165,14 @@ struct PlanBuilderView: View {
                 title: "Session Duration",
                 value: Binding(
                     get: { Double(viewModel.input.sessionMinutes) },
-                    set: { viewModel.input.sessionMinutes = Int($0) }
+                    set: { newValue in
+                        // Round to nearest step (5 minutes)
+                        let rounded = round(newValue / 5.0) * 5.0
+                        viewModel.input.sessionMinutes = Int(rounded)
+                    }
                 ),
-                range: 30...90,
-                step: 15,
+                range: 15...120,
+                step: 5,
                 format: "%d min"
             )
             
@@ -179,8 +183,8 @@ struct PlanBuilderView: View {
                     get: { Double(viewModel.input.programDuration) },
                     set: { viewModel.input.programDuration = Int($0) }
                 ),
-                range: 2...16,
-                step: 2,
+                range: 1...24,
+                step: 1,
                 format: "%d weeks"
             )
         }
