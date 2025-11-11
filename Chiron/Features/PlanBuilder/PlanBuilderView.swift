@@ -1,11 +1,12 @@
 import SwiftUI
 
+/// Full-screen builder flow launched from the Plans tab.
+/// When the user finishes, we dismiss back to the saved-plans list.
 struct PlanBuilderView: View {
     @Binding var isPresented: Bool
     @StateObject private var viewModel = PlanBuilderViewModel()
     @StateObject private var oqfViewModel = OQFViewModel()
     @EnvironmentObject private var planStore: PlanStore
-    @State private var showingPreview = false
     @AppStorage("planBuilderOQFEnabled") private var isOQFEnabled = true  // Enable One Question Flow
     
     // Custom Split State
@@ -18,17 +19,17 @@ struct PlanBuilderView: View {
     }
     
     var body: some View {
-        // Feature flag: Show One Question Flow if enabled
-        if isOQFEnabled {
-            OneQuestionShellView(viewModel: oqfViewModel, onExitToPlans: {
-                isPresented = false
-            })
-                .environmentObject(planStore)
-                .onAppear {
+        Group {
+            if isOQFEnabled {
+                OneQuestionShellView(viewModel: oqfViewModel) {
+                    dismissBuilder()
                     oqfViewModel.reset()
                 }
-        } else {
-            legacyPlanBuilderView
+                .environmentObject(planStore)
+                .onAppear { oqfViewModel.reset() }
+            } else {
+                legacyPlanBuilderView
+            }
         }
     }
     
@@ -622,5 +623,14 @@ struct PlanBuilderView: View {
             .font(.caption)
             .foregroundColor(.planTextSecondary)
         }
+    }
+}
+
+// MARK: - Private Helpers
+
+private extension PlanBuilderView {
+    func dismissBuilder() {
+        viewModel.navigateToPreview = false
+        isPresented = false
     }
 }

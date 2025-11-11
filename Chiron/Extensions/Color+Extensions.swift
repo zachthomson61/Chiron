@@ -32,6 +32,7 @@ extension Color {
     /// Secondary text color (using gray)
     static let textSecondary = Color.gray
     
+    /// Accent color used for pills and badges in the exercise library.
     static var brandAccentPurple: Color {
         #if os(iOS)
         if let uiColor = UIColor(named: "AccentPurple") {

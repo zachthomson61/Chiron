@@ -1,6 +1,8 @@
 import SwiftUI
 
+/// Displays a generated training plan summary and coordinates returning to the saved-plans list.
 struct PlanPreviewView: View {
+    /// Indicates where the preview originated so we can tailor navigation.
     enum Source {
         case builder
         case savedList
@@ -8,6 +10,7 @@ struct PlanPreviewView: View {
     
     let plan: TrainingPlan
     let source: Source
+    /// Optional callback invoked before dismissing when `source == .builder`.
     let onExit: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var planStore: PlanStore
@@ -89,22 +92,17 @@ struct PlanPreviewView: View {
         .alert("Delete Plan?", isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) {
                 planStore.deletePlan(withId: plan.id)
-                backToPlans()
+                handleBackButton()
             }
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("This will permanently remove \(plan.name).")
         }
         .onDisappear {
-            triggerExitIfNeeded()
+            performExitIfNeeded()
         }
     }
     
-    private func backToPlans() {
-        performExitIfNeeded()
-        dismiss()
-    }
-
     private func handleBackButton() {
         performExitIfNeeded()
         dismiss()
@@ -255,10 +253,6 @@ struct PlanPreviewView: View {
 }
 
 private extension PlanPreviewView {
-    func triggerExitIfNeeded() {
-        performExitIfNeeded()
-    }
-    
     func performExitIfNeeded() {
         guard source == .builder, !hasTriggeredExit else { return }
         hasTriggeredExit = true

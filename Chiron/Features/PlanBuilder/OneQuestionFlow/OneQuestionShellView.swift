@@ -2,6 +2,8 @@ import SwiftUI
 
 // MARK: - One Question Shell View
 
+/// Interactive “one question at a time” builder flow.
+/// The optional callback lets the host view collapse the flow once the generated plan preview closes.
 struct OneQuestionShellView: View {
     @ObservedObject var viewModel: OQFViewModel
     let onExitToPlans: (() -> Void)?

@@ -198,6 +198,7 @@ struct ExerciseDetailPlaceholderView: View {
 private struct ExerciseThumbnail: View {
     let imageName: String?
     
+    /// Keeps the right-hand artwork consistent while the left stack compresses.
     var body: some View {
         ZStack {
             if let imageName {
@@ -216,6 +217,7 @@ private struct ExerciseThumbnail: View {
     }
 }
 
+/// Shared styling for the difficulty badge shown in each row.
 private struct Pill: View {
     let text: String
 
@@ -231,6 +233,7 @@ private struct Pill: View {
 }
 
 #if DEBUG
+/// Preview-friendly sample entries so the revamped layout renders in Xcode previews.
 private let sampleExercises: [Exercise] = [
     Exercise(
         name: "Barbell Back Squat",
