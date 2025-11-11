@@ -115,13 +115,20 @@ export function generatePlan(input: Inputs, library: Exercise[]): ProgramPlan {
       }
 
       // Use time-bounded planning
+      // Extract experience level from input (default to intermediate if not provided)
+      const experienceLevel = (input as any).experienceLevel || 'intermediate';
+      const experience: 'beginner' | 'novice' | 'intermediate' | 'advanced' = 
+        ['beginner', 'novice', 'intermediate', 'advanced'].includes(experienceLevel) 
+          ? experienceLevel as 'beginner' | 'novice' | 'intermediate' | 'advanced'
+          : 'intermediate';
+      
       let timeBoundedPlan: TimeBoundedPlan;
       
       // If time is extremely limited, create minimal plan
       if (targetDuration <= 20) {
-        timeBoundedPlan = createMinimalPlan(finalCandidates, timeConfig, input.goal);
+        timeBoundedPlan = createMinimalPlan(finalCandidates, timeConfig, input.goal, experience);
       } else {
-        timeBoundedPlan = fitToTimeBudget(finalCandidates, timeConfig, input.goal);
+        timeBoundedPlan = fitToTimeBudget(finalCandidates, timeConfig, input.goal, experience);
       }
 
       // Convert PlannedBlocks back to ExerciseSelections

@@ -41,6 +41,8 @@ export function OneQuestionShell({
 
   // Reset answer when step changes
   useEffect(() => {
+    // Use currentAnswer if it exists (for saved answers), otherwise undefined
+    // This prevents carrying over values from previous questions
     setAnswer(currentAnswer);
     setError(null);
   }, [step.id, currentAnswer]);
@@ -300,4 +302,5 @@ export function OneQuestionShell({
     </div>
   );
 }
+
 

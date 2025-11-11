@@ -12,12 +12,12 @@ struct ExerciseSelectionView: View {
     @State private var showActiveWorkout = false
     
     private let exercises = [
-        Exercise(name: "Squat", icon: "figure.walk", description: "Lower body strength and stability"),
-        Exercise(name: "Deadlift", icon: "figure.strengthtraining.traditional", description: "Full body posterior chain"),
-        Exercise(name: "Bench Press", icon: "figure.arms.open", description: "Upper body pushing strength"),
-        Exercise(name: "Overhead Press", icon: "figure.arms.open", description: "Shoulder and core stability"),
-        Exercise(name: "Pull-ups", icon: "figure.arms.open", description: "Upper body pulling strength"),
-        Exercise(name: "Plank", icon: "figure.core.training", description: "Core stability and endurance")
+        SelectionExercise(name: "Squat", icon: "figure.walk", description: "Lower body strength and stability"),
+        SelectionExercise(name: "Deadlift", icon: "figure.strengthtraining.traditional", description: "Full body posterior chain"),
+        SelectionExercise(name: "Bench Press", icon: "figure.arms.open", description: "Upper body pushing strength"),
+        SelectionExercise(name: "Overhead Press", icon: "figure.arms.open", description: "Shoulder and core stability"),
+        SelectionExercise(name: "Pull-ups", icon: "figure.arms.open", description: "Upper body pulling strength"),
+        SelectionExercise(name: "Plank", icon: "figure.core.training", description: "Core stability and endurance")
     ]
     
     var body: some View {
@@ -106,7 +106,7 @@ struct ExerciseSelectionView: View {
     
 }
 
-struct Exercise: Identifiable {
+struct SelectionExercise: Identifiable {
     let id = UUID()
     let name: String
     let icon: String
@@ -114,7 +114,7 @@ struct Exercise: Identifiable {
 }
 
 struct ExerciseCard: View {
-    let exercise: Exercise
+    let exercise: SelectionExercise
     let isSelected: Bool
     let action: () -> Void
     

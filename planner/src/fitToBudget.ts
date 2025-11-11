@@ -20,7 +20,8 @@ import {
 export function fitToTimeBudget(
   candidates: ExerciseCandidate[],
   config: TimeConfig,
-  goal: Goal = 'hypertrophy'
+  goal: Goal = 'hypertrophy',
+  experienceLevel: 'beginner' | 'novice' | 'intermediate' | 'advanced' = 'intermediate'
 ): TimeBoundedPlan {
   const debugSteps: string[] = [];
   const targetMinutes = config.target_duration_minutes;
@@ -78,7 +79,7 @@ export function fitToTimeBudget(
       const partner = supersetPairs.get(candidate.id)!;
       if (processedIds.has(partner.id)) continue;
       
-      blockMinutes = estimateSupersetMinutes(candidate, partner, config, goal);
+      blockMinutes = estimateSupersetMinutes(candidate, partner, config, goal, experienceLevel);
       
       if (currentMinutes + blockMinutes <= availableMinutes) {
         block = {
@@ -111,7 +112,7 @@ export function fitToTimeBudget(
       }
     } else {
       // Regular single exercise
-      blockMinutes = estimateBlockMinutes(candidate, config, goal, true);
+      blockMinutes = estimateBlockMinutes(candidate, config, goal, true, experienceLevel);
       
       if (currentMinutes + blockMinutes <= availableMinutes) {
         block = {
@@ -136,7 +137,7 @@ export function fitToTimeBudget(
   
   // If we're over budget, trim the plan
   if (currentMinutes > availableMinutes) {
-    const trimResult = shrinkPlan(plannedBlocks, candidates, availableMinutes, config, goal, debugSteps);
+    const trimResult = shrinkPlan(plannedBlocks, candidates, availableMinutes, config, goal, debugSteps, experienceLevel);
     return createPlanOutput(trimResult.blocks, warmupMinutes, cooldownMinutes, bufferMinutes, transitionSeconds, trimResult.debugSteps);
   }
   
@@ -152,7 +153,8 @@ function shrinkPlan(
   targetMinutes: number,
   config: TimeConfig,
   goal: Goal,
-  debugSteps: string[]
+  debugSteps: string[],
+  experienceLevel: 'beginner' | 'novice' | 'intermediate' | 'advanced' = 'intermediate'
 ): { blocks: PlannedBlock[], debugSteps: string[] } {
   let currentBlocks = [...blocks];
   let currentMinutes = blocks.reduce((sum, b) => sum + b.estimated_minutes, 0);
@@ -183,11 +185,13 @@ function shrinkPlan(
     if (setsToRemove > 0) {
       const oldMinutes = block.estimated_minutes;
       block.sets -= setsToRemove;
-      block.estimated_minutes = estimateBlockMinutes(
-        { ...candidate, sets_target: block.sets },
-        config,
-        goal
-      );
+        block.estimated_minutes = estimateBlockMinutes(
+          { ...candidate, sets_target: block.sets },
+          config,
+          goal,
+          true,
+          experienceLevel
+        );
       const saved = oldMinutes - block.estimated_minutes;
       currentMinutes -= saved;
       
@@ -212,7 +216,9 @@ function shrinkPlan(
         block.estimated_minutes = estimateBlockMinutes(
           { ...candidate, sets_target: block.sets, rest_seconds: block.rest_seconds },
           config,
-          goal
+          goal,
+          true,
+          experienceLevel
         );
         
         const saved = oldMinutes - block.estimated_minutes;
@@ -327,7 +333,8 @@ export function validateTimeBudget(
 export function createMinimalPlan(
   candidates: ExerciseCandidate[],
   config: TimeConfig,
-  goal: Goal = 'hypertrophy'
+  goal: Goal = 'hypertrophy',
+  experienceLevel: 'beginner' | 'novice' | 'intermediate' | 'advanced' = 'intermediate'
 ): TimeBoundedPlan {
   const debugSteps: string[] = ['Creating minimal safe plan due to time constraints'];
   
@@ -343,7 +350,7 @@ export function createMinimalPlan(
       sets: compound.sets_min,
       reps: typeof compound.reps === 'number' ? compound.reps : `${compound.reps[0]}-${compound.reps[1]}`,
       rest_seconds: compound.rest_seconds,
-      estimated_minutes: estimateBlockMinutes({ ...compound, sets_target: compound.sets_min }, config, goal),
+      estimated_minutes: estimateBlockMinutes({ ...compound, sets_target: compound.sets_min }, config, goal, true, experienceLevel),
       notes: 'Minimal cornerstone compound',
     };
     blocks.push(compoundBlock);
@@ -359,7 +366,9 @@ export function createMinimalPlan(
       estimated_minutes: estimateBlockMinutes(
         { ...accessory, sets_target: accessory.sets_min, rest_seconds: 60 },
         config,
-        goal
+        goal,
+        true,
+        experienceLevel
       ),
       notes: 'Minimal accessory',
     };

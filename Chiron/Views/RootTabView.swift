@@ -1,14 +1,17 @@
 import SwiftUI
+import SwiftData
 
 /// Root tab view that provides the main navigation structure for the app.
 /// Tabs (left→right): Home, Plans, Research, Profile.
 /// Each tab is wrapped in its own `NavigationStack` to isolate toolbars and preserve scroll position.
+/// Optimized: Views are lazily loaded only when their tab is first selected.
 struct RootTabView: View {
     enum Tab: Hashable { 
         case home, research, plans, profile 
     }
     
     @State private var selectedTab: Tab = .home
+    @State private var loadedTabs: Set<Tab> = [.home] // Track which tabs have been loaded
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -25,7 +28,11 @@ struct RootTabView: View {
 
             // MARK: - Plans Tab
             NavigationStack {
-                PlansScreen()
+                if loadedTabs.contains(.plans) {
+                    PlansScreen()
+                } else {
+                    Color.clear.onAppear { loadedTabs.insert(.plans) }
+                }
             }
             .tabItem {
                 Image(systemName: "list.bullet.rectangle")
@@ -34,9 +41,13 @@ struct RootTabView: View {
             .tag(Tab.plans)
             .accessibilityLabel("Plans")
 
-            // MARK: - Research Tab
+            // MARK: - Research Tab (Exercise Library)
             NavigationStack {
-                ResearchScreen()
+                if loadedTabs.contains(.research) {
+                    ExerciseLibraryView()
+                } else {
+                    Color.clear.onAppear { loadedTabs.insert(.research) }
+                }
             }
             .tabItem {
                 Image(systemName: "magnifyingglass")
@@ -47,7 +58,11 @@ struct RootTabView: View {
 
             // MARK: - Profile Tab
             NavigationStack {
-                ProfileScreen()
+                if loadedTabs.contains(.profile) {
+                    ProfileScreen()
+                } else {
+                    Color.clear.onAppear { loadedTabs.insert(.profile) }
+                }
             }
             .tabItem {
                 Image(systemName: "person.crop.circle")
@@ -63,6 +78,9 @@ struct RootTabView: View {
         .toolbarColorScheme(.dark, for: .tabBar)
         .preferredColorScheme(.dark)
         .onChange(of: selectedTab) {
+            // Ensure the tab is marked as loaded when selected
+            loadedTabs.insert(selectedTab)
+            
             #if os(iOS)
             UIImpactFeedbackGenerator(style: .light).impactOccurred() // Light haptic on tab switch
             #endif
@@ -189,6 +207,10 @@ struct PlansScreen: View {
             .padding()
         }
         .background(Color.background)
+        .onAppear {
+            // Load plans lazily when view appears
+            planStore.loadPlansIfNeeded()
+        }
         .navigationDestination(isPresented: $showPlanBuilder) {
             PlanBuilderView()
         }
@@ -217,79 +239,19 @@ struct ProfileScreen: View {
             Section(header: Text("Preferences")) {
                 Toggle("Haptics", isOn: .constant(true))
             }
+            Section(header: Text("Training")) {
+                NavigationLink("Training Log") {
+                    ExerciseLibraryView()
+                }
+            }
         }
         .navigationTitle("Profile")
     }
 }
 
-/// Research screen provides exercise selection without navigation controls.
-/// Replicates ExerciseSelectionView layout but removes back button for tab context.
-struct ResearchScreen: View {
-    @StateObject private var viewModel = WorkoutViewModel()
-    
-    // Same exercise data as ExerciseSelectionView
-    private let exercises = [
-        Exercise(name: "Squat", icon: "figure.walk", description: "Lower body strength and stability"),
-        Exercise(name: "Deadlift", icon: "figure.strengthtraining.traditional", description: "Full body posterior chain"),
-        Exercise(name: "Bench Press", icon: "figure.arms.open", description: "Upper body pushing strength"),
-        Exercise(name: "Overhead Press", icon: "figure.arms.open", description: "Shoulder and core stability"),
-        Exercise(name: "Pull-ups", icon: "figure.arms.open", description: "Upper body pulling strength"),
-        Exercise(name: "Plank", icon: "figure.core.training", description: "Core stability and endurance")
-    ]
-
-    var body: some View {
-        ZStack {
-            Color.background.ignoresSafeArea()
-            
-            VStack {
-                // Centered title (no back button for tab context)
-                Text("Select Exercise")
-                    .font(.headline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.textPrimary)
-                    .padding(.horizontal)
-                
-                // Exercise selection grid
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                        ForEach(exercises) { exercise in
-                            ExerciseCard(
-                                exercise: exercise,
-                                isSelected: viewModel.selectedExercise == exercise.name
-                            ) {
-                                viewModel.selectedExercise = exercise.name
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-                
-                Spacer()
-                
-                // Start exercise button
-                Button(action: {
-                    // TODO: Implement exercise start flow
-                }) {
-                    Text("Start \(viewModel.selectedExercise)")
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.textPrimary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(Color.primaryPurple)
-                        .cornerRadius(16)
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 20)
-            }
-        }
-        .navigationBarHidden(true)
-    }
-}
-
-
 // MARK: - Preview
 #Preview {
     RootTabView()
+        .modelContainer(for: Exercise.self, inMemory: true)
         .preferredColorScheme(.dark)
 }

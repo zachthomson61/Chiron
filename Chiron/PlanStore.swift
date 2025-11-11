@@ -6,12 +6,20 @@ final class PlanStore: ObservableObject {
     @Published var savedPlans: [TrainingPlan] = []
     
     private let persistence = PlanPersistence.shared
+    private var hasLoadedPlans = false
     
     init() {
-        loadPlans()
+        // Don't load plans immediately - load them lazily when needed
     }
     
     // MARK: - Public Methods
+    
+    /// Loads plans if not already loaded
+    func loadPlansIfNeeded() {
+        guard !hasLoadedPlans else { return }
+        hasLoadedPlans = true
+        loadPlans()
+    }
     
     func loadPlans() {
         Task {

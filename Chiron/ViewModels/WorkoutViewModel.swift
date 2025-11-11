@@ -1,7 +1,6 @@
 import SwiftUI
 import CoreMedia
 import AVFoundation
-import FirebaseCore
 import Combine
 
 class WorkoutViewModel: ObservableObject {
@@ -34,15 +33,15 @@ class WorkoutViewModel: ObservableObject {
     // Pose detection manager
     // Removed pose detection manager since we simplified the camera setup
     
-    // Video recording and Firebase managers
-    private let videoRecordingManager = VideoRecordingManager.shared
-    private let firebaseManager = FirebaseManager.shared
+    // Video recording and Firebase managers (lazy to avoid init overhead)
+    private lazy var videoRecordingManager = VideoRecordingManager.shared
+    private lazy var firebaseManager = FirebaseManager.shared
     
-    // Feedback manager
-    private let feedbackManager = FeedbackManager.shared
+    // Feedback manager (lazy to avoid init overhead)
+    private lazy var feedbackManager = FeedbackManager.shared
     
-    // Speech manager
-    private let speechManager = SpeechManager.shared
+    // Speech manager (lazy to avoid init overhead)
+    private lazy var speechManager = SpeechManager.shared
     
     // Workout tracking
     private var workoutId: String = ""
@@ -53,8 +52,9 @@ class WorkoutViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     
     init() {
-        setupPoseDetection()
-        setupVideoFrameObserver()
+        // Lightweight init - defer heavy setup until needed
+        // setupPoseDetection() - removed, not needed
+        // setupVideoFrameObserver() - removed, not needed
     }
     
     deinit {

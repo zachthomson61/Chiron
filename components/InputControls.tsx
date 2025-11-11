@@ -82,14 +82,60 @@ export function MultiChoice({
   error 
 }: BaseInputProps & { options: Option[] }) {
   const selected = Array.isArray(value) ? value : [];
+  const [customText, setCustomText] = React.useState('');
+  
+  // Extract custom text from selected values if it exists
+  React.useEffect(() => {
+    const customValue = selected.find(v => typeof v === 'string' && v.startsWith('custom:'));
+    if (customValue) {
+      setCustomText(customValue.replace('custom:', ''));
+    } else if (!selected.includes('custom')) {
+      setCustomText('');
+    }
+  }, [selected]);
 
   const toggleOption = (optionValue: string) => {
-    if (selected.includes(optionValue)) {
-      onChange(selected.filter(v => v !== optionValue));
+    if (optionValue === 'custom') {
+      // Toggle custom option
+      if (selected.includes('custom')) {
+        // Remove custom option and any custom text values
+        const filtered = selected.filter(v => {
+          if (typeof v === 'string' && v.startsWith('custom:')) return false;
+          return v !== 'custom';
+        });
+        onChange(filtered);
+        setCustomText('');
+      } else {
+        // Add custom option
+        onChange([...selected, 'custom']);
+      }
     } else {
-      onChange([...selected, optionValue]);
+      // Regular toggle for other options
+      if (selected.includes(optionValue)) {
+        onChange(selected.filter(v => v !== optionValue));
+      } else {
+        // Remove 'none' if selecting something else
+        const filtered = selected.filter(v => v !== 'none');
+        onChange([...filtered, optionValue]);
+      }
     }
   };
+
+  const handleCustomTextChange = (text: string) => {
+    setCustomText(text);
+    // Remove old custom value if exists
+    const filtered = selected.filter(v => typeof v !== 'string' || !v.startsWith('custom:'));
+    // Add custom value with text if text is not empty
+    if (text.trim()) {
+      onChange([...filtered.filter(v => v !== 'custom'), 'custom', `custom:${text.trim()}`]);
+    } else {
+      // If text is empty, just keep the 'custom' option selected
+      const hasCustom = filtered.includes('custom');
+      onChange(hasCustom ? filtered : [...filtered, 'custom']);
+    }
+  };
+
+  const isCustomSelected = selected.includes('custom');
 
   return (
     <div className="space-y-3" role="group" aria-invalid={!!error}>
@@ -138,9 +184,20 @@ export function MultiChoice({
           />
         </label>
       ))}
-      {selected.length > 0 && (
-        <div className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-          {selected.length} selected
+      
+      {/* Custom text input - shown when "custom" option is selected */}
+      {isCustomSelected && (
+        <div className="mt-3 p-4 rounded-xl border-2 border-blue-500 bg-blue-50 dark:bg-blue-900/20">
+          <label className="block text-sm font-medium text-gray-900 dark:text-white mb-2">
+            Please specify:
+          </label>
+          <input
+            type="text"
+            value={customText}
+            onChange={(e) => handleCustomTextChange(e.target.value)}
+            placeholder="Describe your weakness..."
+            className="w-full px-4 py-2 rounded-lg border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:border-blue-500"
+          />
         </div>
       )}
     </div>
@@ -193,7 +250,7 @@ export function NumberInput({
 
 // Range Slider
 export function RangeSlider({ 
-  value = 50, 
+  value, 
   onChange, 
   min = 0, 
   max = 100, 
@@ -201,7 +258,12 @@ export function RangeSlider({
   unit,
   error 
 }: BaseInputProps & { min: number; max: number; step?: number; unit?: string }) {
-  const numValue = typeof value === 'number' ? value : parseInt(String(value)) || min;
+  // Use the value if it's a valid number within the range for this step
+  // Otherwise, default to min to avoid carrying over values from previous questions
+  // This fixes the bug where days per week value (e.g., 3) was showing as minutes
+  const numValue = (typeof value === 'number' && !isNaN(value) && value >= min && value <= max) 
+    ? value 
+    : min;
   const percentage = ((numValue - min) / (max - min)) * 100;
 
   return (
@@ -449,4 +511,5 @@ export function TextInput({
     </div>
   );
 }
+
 

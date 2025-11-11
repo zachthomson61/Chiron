@@ -6,22 +6,32 @@
 //
 
 import SwiftUI
-import FirebaseCore
+import SwiftData
 
+/// Entry point for the iOS app. Keeps startup work minimal so the first screen appears quickly.
 @main
 struct ChironApp: App {
-    let persistenceController = PersistenceController.shared
-    @StateObject private var planStore = PlanStore()
-    
-    init() {
-        FirebaseApp.configure()
-    }
+    @StateObject private var appState = AppState()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environment(\.managedObjectContext, persistenceController.container.viewContext)
-                .environmentObject(planStore)
+                .environmentObject(appState)
         }
     }
+}
+
+/// Central app state for data dependencies. Heavy services are lazily created on demand.
+@MainActor
+class AppState: ObservableObject {
+    lazy var planStore = PlanStore()
+    lazy var modelContainer: ModelContainer = {
+        do {
+            return try ModelContainer(for: Exercise.self)
+        } catch {
+            fatalError("Failed to initialize ModelContainer: \(error)")
+        }
+    }()
+    
+    init() {}
 }

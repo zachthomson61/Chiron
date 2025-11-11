@@ -144,3 +144,6 @@ model PlanCompletion {
   @@index([variant])
 }
 
+
+
+

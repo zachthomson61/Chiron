@@ -35,7 +35,7 @@ export interface FlowState {
 // Main flow configuration
 export const flow: FlowConfig = {
   start: 'plan_name',
-  estimatedLength: 12,
+  estimatedLength: 18,
   steps: {
     // 1. Plan Name
     plan_name: {
@@ -73,8 +73,43 @@ export const flow: FlowConfig = {
       next: (a) => {
         if (a === 'fat_loss' || a === 'endurance') return 'cardio_preference';
         if (a === 'athletic') return 'sport_type';
+        return 'caloric_tracking';
+      }
+    },
+
+    // 2a. Caloric Tracking
+    caloric_tracking: {
+      id: 'caloric_tracking',
+      prompt: 'Do you currently track your calories or have a nutrition plan?',
+      helper: 'This helps us align your training with your nutrition goals',
+      type: 'single',
+      options: [
+        { value: 'yes_track', label: 'Yes, I track calories' },
+        { value: 'no_healthy', label: 'No, but I eat generally healthy' },
+        { value: 'no_improve', label: 'No, I\'d like to improve my nutrition' },
+        { value: 'specific_plan', label: 'I have a specific diet plan' }
+      ],
+      required: true,
+      next: (a) => {
+        if (a === 'yes_track') return 'diet_phase';
         return 'experience_level';
       }
+    },
+
+    // 2b. Diet Phase (conditional)
+    diet_phase: {
+      id: 'diet_phase',
+      prompt: 'What phase are you currently in?',
+      helper: 'This helps us optimize your training volume and recovery needs',
+      type: 'single',
+      options: [
+        { value: 'cutting', label: 'Cutting (calorie deficit)' },
+        { value: 'bulking', label: 'Bulking (calorie surplus)' },
+        { value: 'maintaining', label: 'Maintaining (maintenance calories)' },
+        { value: 'not_consistent', label: 'Not consistently doing any of the above' }
+      ],
+      required: true,
+      next: () => 'experience_level'
     },
 
     // 3. Cardio Preference (conditional)
@@ -90,7 +125,7 @@ export const flow: FlowConfig = {
         { value: 'minimal', label: 'Minimal Cardio', helper: 'Focus mainly on weights' }
       ],
       required: true,
-      next: () => 'experience_level'
+      next: () => 'caloric_tracking'
     },
 
     // 4. Sport Type (conditional)
@@ -105,7 +140,7 @@ export const flow: FlowConfig = {
         if (!sport) return 'Please enter a sport';
         return null;
       },
-      next: () => 'experience_level'
+      next: () => 'caloric_tracking'
     },
 
     // 5. Experience Level
@@ -121,18 +156,22 @@ export const flow: FlowConfig = {
         { value: 'advanced', label: 'Advanced', helper: '3+ years of serious training' }
       ],
       required: true,
-      next: (a, ctx) => {
-        if (a === 'beginner') return 'tutorial_interest';
-        return 'days_per_week';
-      }
+      next: () => 'current_activity_level'
     },
 
-    // 6. Tutorial Interest (conditional for beginners)
-    tutorial_interest: {
-      id: 'tutorial_interest',
-      prompt: 'Would you like exercise tutorials included?',
-      helper: 'We can add form cues and video links to your plan',
-      type: 'yesno',
+    // 5a. Current Activity Level
+    current_activity_level: {
+      id: 'current_activity_level',
+      prompt: 'How many times per week are you currently exercising?',
+      helper: 'This helps us understand your current training volume and avoid overdoing it',
+      type: 'single',
+      options: [
+        { value: '0', label: '0 times per week (not currently exercising)' },
+        { value: '1-2', label: '1-2 times per week' },
+        { value: '3-4', label: '3-4 times per week' },
+        { value: '5-6', label: '5-6 times per week' },
+        { value: '7+', label: '7+ times per week (very active)' }
+      ],
       required: true,
       next: () => 'days_per_week'
     },
@@ -143,14 +182,14 @@ export const flow: FlowConfig = {
       prompt: 'How many days per week can you train?',
       helper: 'Be realistic about your schedule',
       type: 'range',
-      min: 2,
+      min: 1,
       max: 7,
       step: 1,
       unit: 'days',
       required: true,
       validate: (a) => {
         const days = Number(a);
-        if (days < 2) return 'Minimum 2 days per week for effective training';
+        if (days < 1) return 'Minimum 1 day per week';
         if (days > 7) return 'Maximum 7 days per week';
         return null;
       },
@@ -223,6 +262,27 @@ export const flow: FlowConfig = {
         if (selected.length < 3) return 'Please select at least 3 muscle groups';
         return null;
       },
+      next: () => 'specific_weaknesses'
+    },
+
+    // 10a. Specific Weaknesses
+    specific_weaknesses: {
+      id: 'specific_weaknesses',
+      prompt: 'Are there any specific areas you feel are weak?',
+      helper: 'This could be strength imbalances, mobility issues, or areas you struggle with',
+      type: 'multi',
+      options: [
+        { value: 'upper_body_strength', label: 'Upper body strength' },
+        { value: 'lower_body_strength', label: 'Lower body strength' },
+        { value: 'core_stability', label: 'Core stability' },
+        { value: 'mobility_flexibility', label: 'Mobility/Flexibility' },
+        { value: 'cardiovascular_endurance', label: 'Cardiovascular endurance' },
+        { value: 'balance_coordination', label: 'Balance/Coordination' },
+        { value: 'posture', label: 'Posture' },
+        { value: 'none', label: 'None - I feel balanced' },
+        { value: 'custom', label: 'Other (specify)' }
+      ],
+      required: true,
       next: () => 'workout_split'
     },
 
@@ -282,6 +342,94 @@ export const flow: FlowConfig = {
         if (selected.length === 0) return 'Please select at least one option';
         return null;
       },
+      next: () => 'training_preferences_lifting'
+    },
+
+    // 13a. Training Preferences - Lifting Style
+    training_preferences_lifting: {
+      id: 'training_preferences_lifting',
+      prompt: 'What kinds of movements do you enjoy most?',
+      helper: 'This helps us select exercises that match your preferences',
+      type: 'multi',
+      options: [
+        { value: 'compound', label: 'Big compound movements (squats, deadlifts, presses)' },
+        { value: 'isolation', label: 'Isolation work (targeting specific muscles)' },
+        { value: 'unilateral', label: 'Unilateral movements (one side at a time)' },
+        { value: 'explosive', label: 'Explosive/power movements (jumps, throws)' },
+        { value: 'controlled', label: 'Controlled, slow movements (time under tension)' },
+        { value: 'bodyweight', label: 'Bodyweight movements' },
+        { value: 'mix', label: 'Mix of everything' },
+        { value: 'open', label: 'I\'m open to trying new things' }
+      ],
+      required: true,
+      validate: (a) => {
+        const selected = a as string[];
+        if (selected.length === 0) return 'Please select at least one option';
+        return null;
+      },
+      next: () => 'training_preferences_cardio'
+    },
+
+    // 13b. Training Preferences - Cardio Style
+    training_preferences_cardio: {
+      id: 'training_preferences_cardio',
+      prompt: 'What\'s your preference for cardio training?',
+      helper: 'This helps us structure cardio sessions that you\'ll actually enjoy and stick with',
+      type: 'single',
+      options: [
+        { value: 'love', label: 'I love cardio (bring it on!)' },
+        { value: 'enjoy', label: 'I enjoy some cardio (moderate amounts)' },
+        { value: 'tolerate', label: 'I tolerate cardio (keep it minimal)' },
+        { value: 'dislike', label: 'I really dislike cardio (avoid it if possible)' },
+        { value: 'specific_types', label: 'I prefer specific types' }
+      ],
+      required: true,
+      next: (a) => {
+        if (a === 'specific_types') return 'cardio_type_preference';
+        return 'training_intensity'
+      }
+    },
+
+    // 13c. Cardio Type Preference (conditional)
+    cardio_type_preference: {
+      id: 'cardio_type_preference',
+      prompt: 'Which types of cardio do you enjoy?',
+      helper: 'Select all that apply',
+      type: 'multi',
+      options: [
+        { value: 'running', label: 'Running/Jogging' },
+        { value: 'cycling', label: 'Cycling/Spinning' },
+        { value: 'swimming', label: 'Swimming' },
+        { value: 'rowing', label: 'Rowing' },
+        { value: 'elliptical', label: 'Elliptical/Stair Climber' },
+        { value: 'hiit', label: 'HIIT/Intervals' },
+        { value: 'steady_state', label: 'Steady State' },
+        { value: 'walking', label: 'Walking' },
+        { value: 'dance', label: 'Dance/Zumba' },
+        { value: 'other', label: 'Other' }
+      ],
+      required: true,
+      validate: (a) => {
+        const selected = a as string[];
+        if (selected.length === 0) return 'Please select at least one type';
+        return null;
+      },
+      next: () => 'training_intensity'
+    },
+
+    // 13d. Training Intensity Preference
+    training_intensity: {
+      id: 'training_intensity',
+      prompt: 'How intense do you like your workouts to feel?',
+      helper: 'This helps us set appropriate rest times and volume',
+      type: 'single',
+      options: [
+        { value: 'light', label: 'Light and easy (I prefer steady pace)' },
+        { value: 'moderate', label: 'Moderate (challenging but sustainable)' },
+        { value: 'high', label: 'High intensity (I like to push hard)' },
+        { value: 'varied', label: 'Varied (mix of intensities)' }
+      ],
+      required: true,
       next: () => 'injury_check'
     },
 
@@ -413,4 +561,5 @@ export function calculatePathLength(answers: Record<string, Answer>): number {
   
   return length;
 }
+
 

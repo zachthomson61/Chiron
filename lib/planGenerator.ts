@@ -19,6 +19,15 @@ export interface PlanConfig {
   cardioPreference?: string;
   sport?: string;
   includeTutorials: boolean;
+  // New personalization fields
+  currentActivityLevel?: string;
+  caloricTracking?: string;
+  dietPhase?: string;
+  specificWeaknesses?: string[];
+  trainingPreferencesLifting?: string[];
+  trainingPreferencesCardio?: string;
+  cardioTypePreference?: string[];
+  trainingIntensity?: string;
 }
 
 export interface Exercise {
@@ -108,11 +117,35 @@ async function generatePlanWithAI(config: PlanConfig): Promise<GeneratedPlan> {
 
 // Create prompt for AI
 function createAIPrompt(config: PlanConfig): string {
+  // Build personalization context
+  let personalizationContext = '';
+  if (config.currentActivityLevel) {
+    personalizationContext += `\nCurrent Activity Level: ${config.currentActivityLevel} (adjust volume to avoid overload if already training frequently)`;
+  }
+  if (config.caloricTracking && config.dietPhase) {
+    personalizationContext += `\nDiet Phase: ${config.dietPhase} (cutting: lower volume, preserve strength; bulking: higher volume; maintaining: balanced)`;
+  }
+  if (config.specificWeaknesses && config.specificWeaknesses.length > 0) {
+    personalizationContext += `\nSpecific Weaknesses to Address: ${config.specificWeaknesses.join(', ')} (prioritize exercises targeting these areas)`;
+  }
+  if (config.trainingPreferencesLifting && config.trainingPreferencesLifting.length > 0) {
+    personalizationContext += `\nLifting Preferences: ${config.trainingPreferencesLifting.join(', ')} (select exercises matching these movement types)`;
+  }
+  if (config.trainingPreferencesCardio) {
+    personalizationContext += `\nCardio Preference: ${config.trainingPreferencesCardio} (adjust cardio volume accordingly)`;
+    if (config.cardioTypePreference && config.cardioTypePreference.length > 0) {
+      personalizationContext += `\nPreferred Cardio Types: ${config.cardioTypePreference.join(', ')}`;
+    }
+  }
+  if (config.trainingIntensity) {
+    personalizationContext += `\nTraining Intensity Preference: ${config.trainingIntensity} (light: +30% rest time; moderate: base; high: -10% rest time; varied: mix)`;
+  }
+  
   return `Create a ${config.programDuration}-week training program with the following requirements:
 
 Name: ${config.name}
 Primary Goal: ${config.primaryGoal}
-Experience Level: ${config.experience}
+Experience Level: ${config.experience}${personalizationContext}
 Training Days: ${config.daysPerWeek} days per week
 Session Duration: ${config.sessionMinutes} minutes
 Target Muscles: ${config.targetMuscles.join(', ')}
@@ -622,4 +655,5 @@ function generateProgressionNotes(config: PlanConfig): string {
 
   return notes.join(' ');
 }
+
 

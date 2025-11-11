@@ -47,7 +47,16 @@ export default async function handler(
                  new Date(),
       cardioPreference: answers.cardio_preference,
       sport: answers.sport_type,
-      includeTutorials: answers.tutorial_interest === true
+      includeTutorials: false, // Tutorial question removed from flow
+      // New personalization fields
+      currentActivityLevel: answers.current_activity_level,
+      caloricTracking: answers.caloric_tracking,
+      dietPhase: answers.diet_phase,
+      specificWeaknesses: answers.specific_weaknesses || [],
+      trainingPreferencesLifting: answers.training_preferences_lifting || [],
+      trainingPreferencesCardio: answers.training_preferences_cardio,
+      cardioTypePreference: answers.cardio_type_preference || [],
+      trainingIntensity: answers.training_intensity
     };
 
     // Generate the plan using AI or algorithmic approach
@@ -133,4 +142,5 @@ function getNextMonday(): Date {
   date.setHours(0, 0, 0, 0);
   return date;
 }
+
 

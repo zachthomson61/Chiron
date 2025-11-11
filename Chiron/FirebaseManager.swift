@@ -3,9 +3,30 @@ import FirebaseStorage
 import FirebaseCore
 import UIKit
 
+/// Ensures Firebase is configured once, on the main thread, right before first use.
+private enum FirebaseConfigurator {
+    static func ensureConfigured() {
+        guard FirebaseApp.app() == nil else { return }
+
+        if Thread.isMainThread {
+            FirebaseApp.configure()
+        } else {
+            DispatchQueue.main.sync {
+                if FirebaseApp.app() == nil {
+                    FirebaseApp.configure()
+                }
+            }
+        }
+    }
+}
+
+/// Handles Firebase Storage uploads and related cloud orchestration for workouts.
 class FirebaseManager: ObservableObject {
     static let shared = FirebaseManager()
-    private let storage = Storage.storage()
+    private lazy var storage: Storage = {
+        FirebaseConfigurator.ensureConfigured()
+        return Storage.storage()
+    }()
     
     @Published var isUploading = false
     @Published var uploadProgress: Double = 0.0

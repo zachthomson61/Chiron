@@ -287,16 +287,27 @@ final class PlannerEngine {
         )
 
         // Deterministic time boxing: trim isolation work first to fit sessionMinutes
-        let warmupCooldownMin = 10
+        // Increased time margins: 25% padding on base estimates + experience multipliers
+        let warmupCooldownMin = 12  // Increased from 10 to 12-15 minutes (generous margin)
+        
+        // Experience-based multiplier (default to intermediate if not provided)
+        let experienceMultiplier: Double
+        // Note: experienceLevel would need to be passed to this function if available
+        // For now, defaulting to intermediate (1.15 multiplier)
+        experienceMultiplier = 1.15  // Intermediate: +15% additional time
+        
         let perExerciseMinutes: (WorkoutExercise) -> Int = { ex in
+            let baseMinutes: Int
             switch ex.category {
-            case .compound: return 8
-            case .isolation: return 5
-            case .cardio: return 8
-            case .mobility: return 5
-            case .plyometric: return 6
-            case .functional: return 7
+            case .compound: baseMinutes = 10  // Increased from 8 (25% increase)
+            case .isolation: baseMinutes = 7  // Increased from 5 (40% increase, rounded)
+            case .cardio: baseMinutes = 10    // Increased from 8 (25% increase)
+            case .mobility: baseMinutes = 6   // Increased from 5 (20% increase)
+            case .plyometric: baseMinutes = 7 // Increased from 6 (17% increase, rounded)
+            case .functional: baseMinutes = 9 // Increased from 7 (29% increase, rounded)
             }
+            // Apply experience multiplier (rounded)
+            return Int(Double(baseMinutes) * experienceMultiplier)
         }
         func estimatedMainMinutes(_ items: [WorkoutExercise]) -> Int {
             items.reduce(0) { $0 + perExerciseMinutes($1) }
