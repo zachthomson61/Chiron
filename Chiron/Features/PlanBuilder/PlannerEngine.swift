@@ -159,6 +159,7 @@ final class PlannerEngine {
             name: input.name.isEmpty ? "Custom Plan" : input.name,
             duration: input.programDuration,
             daysPerWeek: input.daysPerWeek,
+            goals: input.goals,
             targetMuscles: input.targetMuscles,
             split: input.split,
             injuries: input.injuries,
@@ -527,15 +528,17 @@ final class PlannerEngine {
             switch muscle {
             case .chest:
                 exercises.append(contentsOf: ["Bench Press", "Incline Press", "Cable Flyes", "Push-ups"])
-            case .back:
+            case .back, .lats:
                 exercises.append(contentsOf: ["Pull-ups", "Rows", "Deadlift", "Lat Pulldowns"])
-            case .shoulders:
-                exercises.append(contentsOf: ["Overhead Press", "Lateral Raises", "Face Pulls", "Shrugs"])
+            case .shoulders, .frontDelts:
+                exercises.append(contentsOf: ["Overhead Press", "Lateral Raises", "Arnold Press", "Push Press"])
+            case .rearDelts:
+                exercises.append(contentsOf: ["Face Pulls", "Reverse Flyes", "Rear Delt Rows"])
             case .biceps:
                 exercises.append(contentsOf: ["Bicep Curls", "Hammer Curls", "Preacher Curls", "Cable Curls"])
             case .triceps:
                 exercises.append(contentsOf: ["Tricep Extensions", "Close-Grip Bench", "Dips", "Overhead Extension"])
-            case .quads:
+            case .quadriceps:
                 exercises.append(contentsOf: ["Barbell Squat", "Front Squat", "Leg Extensions", "Lunges"])
             case .hamstrings:
                 exercises.append(contentsOf: ["Romanian Deadlift", "Leg Curls", "Good Mornings", "Stiff Leg Deadlift"])
@@ -543,13 +546,15 @@ final class PlannerEngine {
                 exercises.append(contentsOf: ["Hip Thrusts", "Glute Bridges", "Bulgarian Split Squats", "Romanian Deadlift"])
             case .calves:
                 exercises.append(contentsOf: ["Calf Raises", "Seated Calf Raises", "Single Leg Calf Raises"])
-            case .abs:
+            case .core, .abs:
                 exercises.append(contentsOf: ["Plank", "Crunches", "Russian Twists", "Mountain Climbers"])
+            case .obliques:
+                exercises.append(contentsOf: ["Russian Twists", "Side Planks", "Pallof Press"])
             case .forearms:
                 exercises.append(contentsOf: ["Wrist Curls", "Reverse Wrist Curls", "Farmer's Walk"])
-            case .trapezius:
+            case .traps:
                 exercises.append(contentsOf: ["Shrugs", "Face Pulls", "Upright Rows"])
-            case .lowerBack:
+            case .erectors, .lowerBack:
                 exercises.append(contentsOf: ["Hyperextensions", "Good Mornings", "Deadlift"])
             case .abductors:
                 exercises.append(contentsOf: ["Clamshells", "Lateral Leg Raises", "Hip Abduction"])

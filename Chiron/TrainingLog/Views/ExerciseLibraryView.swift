@@ -118,52 +118,32 @@ struct ExerciseLibraryView: View {
     
     @ViewBuilder
     private func exerciseCard(for exercise: Exercise) -> some View {
-        HStack(spacing: 16) {
-            // Left side: Text information
-            VStack(alignment: .leading, spacing: 8) {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(exercise.name)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(Color.textPrimary)
-                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
                 
-                if let targetMuscles = exercise.targetMuscles {
-                    Text(targetMuscles)
-                        .font(.subheadline)
-                        .foregroundStyle(Color.textSecondary)
-                }
+                Text(exercise.targetsLine)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 
-                if let difficulty = exercise.difficulty {
-                    Text(difficulty)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color.textPrimary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
-                        .background(difficultyColor(for: difficulty).opacity(0.3))
-                        .cornerRadius(16)
-                }
+                Pill(text: exercise.difficulty.rawValue)
             }
             
-            Spacer()
+            Spacer(minLength: 12)
             
-            // Right side: Exercise image
-            ZStack {
-                if let imageName = exercise.imageName {
-                    Image(systemName: imageName)
-                        .font(.system(size: 48))
-                        .foregroundStyle(Color.white.opacity(0.8))
-                } else {
-                    Image(systemName: "figure.strengthtraining.traditional")
-                        .font(.system(size: 48))
-                        .foregroundStyle(Color.white.opacity(0.5))
-                }
-            }
-            .frame(width: 100, height: 100)
-            .background(Color.white.opacity(0.12))
-            .cornerRadius(12)
+            ExerciseThumbnail(imageName: exercise.imageName)
         }
         .padding(20)
         .background(Color.white.opacity(0.06))
         .cornerRadius(16)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(exercise.accessibilitySummary)
     }
 
     private func addExercise() {
@@ -200,19 +180,6 @@ struct ExerciseLibraryView: View {
         for i in offsets { ctx.delete(filtered[i]) }
         try? ctx.save()
     }
-    
-    private func difficultyColor(for difficulty: String) -> Color {
-        switch difficulty.lowercased() {
-        case "beginner":
-            return Color.green
-        case "intermediate":
-            return Color.primaryPurple
-        case "advanced":
-            return Color.orange
-        default:
-            return Color.textSecondary
-        }
-    }
 }
 
 struct ExerciseDetailPlaceholderView: View {
@@ -228,8 +195,83 @@ struct ExerciseDetailPlaceholderView: View {
     }
 }
 
+private struct ExerciseThumbnail: View {
+    let imageName: String?
+    
+    var body: some View {
+        ZStack {
+            if let imageName {
+                Image(systemName: imageName)
+                    .font(.system(size: 48))
+                    .foregroundStyle(Color.white.opacity(0.8))
+            } else {
+                Image(systemName: "figure.strengthtraining.traditional")
+                    .font(.system(size: 48))
+                    .foregroundStyle(Color.white.opacity(0.5))
+            }
+        }
+        .frame(width: 100, height: 100)
+        .background(Color.white.opacity(0.12))
+        .cornerRadius(12)
+    }
+}
+
+private struct Pill: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption.bold())
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(Color.brandAccentPurple.opacity(0.18))
+            .foregroundStyle(Color.brandAccentPurple)
+            .clipShape(Capsule())
+    }
+}
+
+#if DEBUG
+private let sampleExercises: [Exercise] = [
+    Exercise(
+        name: "Barbell Back Squat",
+        primaryTargets: [.quadriceps, .glutes],
+        secondaryTargets: [.hamstrings, .core],
+        difficulty: .intermediate,
+        imageName: "figure.strengthtraining.traditional"
+    ),
+    Exercise(
+        name: "Barbell Row",
+        primaryTargets: [.back, .lats],
+        secondaryTargets: [.rearDelts, .biceps],
+        difficulty: .intermediate,
+        imageName: "figure.strengthtraining.traditional"
+    ),
+    Exercise(
+        name: "Bench Press",
+        primaryTargets: [.chest],
+        secondaryTargets: [.triceps, .frontDelts],
+        difficulty: .beginner,
+        imageName: "figure.strengthtraining.traditional"
+    )
+]
+#endif
+
 #Preview {
+#if DEBUG
+    do {
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: Exercise.self, configurations: configuration)
+        sampleExercises.forEach { container.mainContext.insert($0) }
+        return ExerciseLibraryView()
+            .modelContainer(container)
+    } catch {
+        return ExerciseLibraryView()
+            .modelContainer(for: Exercise.self, inMemory: true)
+    }
+#else
     ExerciseLibraryView()
         .modelContainer(for: Exercise.self, inMemory: true)
+#endif
 }
+
 

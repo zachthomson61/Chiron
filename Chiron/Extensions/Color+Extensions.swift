@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 extension Color {
     // MARK: - Custom Purple Color Palette
@@ -28,4 +31,13 @@ extension Color {
     
     /// Secondary text color (using gray)
     static let textSecondary = Color.gray
+    
+    static var brandAccentPurple: Color {
+        #if os(iOS)
+        if let uiColor = UIColor(named: "AccentPurple") {
+            return Color(uiColor)
+        }
+        #endif
+        return Color(red: 91/255, green: 70/255, blue: 242/255)
+    }
 } 

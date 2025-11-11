@@ -3,10 +3,11 @@ import Foundation
 // MARK: - Training Plan Models
 
 struct TrainingPlan: Codable, Identifiable {
-    let id = UUID()
+    let id: UUID
     let name: String
     let duration: Int // weeks
     let daysPerWeek: Int
+    let goals: [FocusArea]
     let targetMuscles: [MuscleGroup]
     let split: WorkoutSplit
     let injuries: [Injury]
@@ -17,12 +18,14 @@ struct TrainingPlan: Codable, Identifiable {
     let createdAt: Date
     let version: String = "1.0"
     
-    init(name: String, duration: Int, daysPerWeek: Int, targetMuscles: [MuscleGroup], 
+    init(id: UUID = UUID(), name: String, duration: Int, daysPerWeek: Int, goals: [FocusArea], targetMuscles: [MuscleGroup], 
          split: WorkoutSplit, injuries: [Injury], varietyContinuum: VarietyContinuum, 
          supersets: Bool, weeks: [TrainingWeek]) {
+        self.id = id
         self.name = name
         self.duration = duration
         self.daysPerWeek = daysPerWeek
+        self.goals = goals
         self.targetMuscles = targetMuscles
         self.split = split
         self.injuries = injuries
@@ -37,10 +40,11 @@ struct TrainingPlan: Codable, Identifiable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         
-        // Don't decode id - use the default value from the struct
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try container.decode(String.self, forKey: .name)
         duration = try container.decode(Int.self, forKey: .duration)
         daysPerWeek = try container.decode(Int.self, forKey: .daysPerWeek)
+        goals = try container.decodeIfPresent([FocusArea].self, forKey: .goals) ?? []
         targetMuscles = try container.decodeIfPresent([MuscleGroup].self, forKey: .targetMuscles) ?? []
         split = try container.decode(WorkoutSplit.self, forKey: .split)
         injuries = try container.decodeIfPresent([Injury].self, forKey: .injuries) ?? []
@@ -54,10 +58,11 @@ struct TrainingPlan: Codable, Identifiable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         
-        // Don't encode id - it's generated automatically
+        try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(duration, forKey: .duration)
         try container.encode(daysPerWeek, forKey: .daysPerWeek)
+        try container.encode(goals, forKey: .goals)
         try container.encode(targetMuscles, forKey: .targetMuscles)
         try container.encode(split, forKey: .split)
         try container.encode(injuries, forKey: .injuries)
@@ -70,16 +75,18 @@ struct TrainingPlan: Codable, Identifiable {
     
     private enum CodingKeys: String, CodingKey {
         case name, duration, daysPerWeek, targetMuscles, split, injuries
-        case varietyContinuum, varietyLevel, supersets, weeks, createdAt
+        case id, goals, varietyContinuum, varietyLevel, supersets, weeks, createdAt
     }
     
     // Legacy initializer for backward compatibility
-    init(name: String, duration: Int, daysPerWeek: Int, targetMuscles: [MuscleGroup], 
+    init(id: UUID = UUID(), name: String, duration: Int, daysPerWeek: Int, goals: [FocusArea], targetMuscles: [MuscleGroup], 
          split: WorkoutSplit, injuries: [Injury], varietyLevel: VarietyLevel, 
          supersets: Bool, weeks: [TrainingWeek]) {
+        self.id = id
         self.name = name
         self.duration = duration
         self.daysPerWeek = daysPerWeek
+        self.goals = goals
         self.targetMuscles = targetMuscles
         self.split = split
         self.injuries = injuries
@@ -178,59 +185,86 @@ enum FocusArea: String, CaseIterable, Codable {
 }
 
 enum MuscleGroup: String, CaseIterable, Codable {
-    case chest = "Chest"
-    case back = "Back"
-    case shoulders = "Shoulders"
-    case biceps = "Biceps"
-    case triceps = "Triceps"
-    case trapezius = "Trapezius"
-    case forearms = "Forearms"
-    case quads = "Quads"
-    case hamstrings = "Hamstrings"
-    case glutes = "Glutes"
-    case calves = "Calves"
-    case abductors = "Abductors"
-    case adductors = "Adductors"
-    case abs = "Abs"
-    case lowerBack = "Lower Back"
+    case quadriceps
+    case hamstrings
+    case glutes
+    case calves
+    case chest
+    case back
+    case lats
+    case traps
+    case shoulders
+    case frontDelts
+    case rearDelts
+    case biceps
+    case triceps
+    case forearms
+    case core
+    case obliques
+    case erectors
+    case lowerBack
+    case abs
+    case abductors
+    case adductors
     
     var icon: String {
         switch self {
-        case .chest: return "figure.arms.open"
-        case .back: return "figure.core.training"
-        case .shoulders: return "figure.arms.open"
-        case .biceps: return "figure.arms.open"
-        case .triceps: return "figure.arms.open"
-        case .trapezius: return "figure.core.training"
-        case .forearms: return "figure.arms.open"
-        case .quads: return "figure.walk"
-        case .hamstrings: return "figure.walk"
-        case .glutes: return "figure.walk"
-        case .calves: return "figure.walk"
-        case .abductors: return "figure.walk"
-        case .adductors: return "figure.walk"
-        case .abs: return "figure.core.training"
-        case .lowerBack: return "figure.core.training"
+        case .chest, .shoulders, .frontDelts, .rearDelts, .biceps, .triceps, .forearms:
+            return "figure.arms.open"
+        case .back, .lats, .traps, .erectors, .lowerBack, .core, .obliques, .abs:
+            return "figure.core.training"
+        case .quadriceps, .hamstrings, .glutes, .calves, .abductors, .adductors:
+            return "figure.walk"
         }
     }
     
     var imageName: String {
         switch self {
-        case .chest: return "Chest Icon"
-        case .back: return "Back Icon"
-        case .shoulders: return "Front Deltoid Icon"
-        case .biceps: return "Bicep Icon"
-        case .triceps: return "Tricep Icon"
-        case .trapezius: return "Trapezius Icon"
-        case .forearms: return "Forearms Icon"
-        case .quads: return "Quads Icon"
-        case .hamstrings: return "Hamstrings Icon"
-        case .glutes: return "Glutes Icon"
-        case .calves: return "Calves Icon"
-        case .abductors: return "Abductors Icon"
-        case .adductors: return "Adductors Icon"
-        case .abs: return "Abs Icon"
-        case .lowerBack: return "Lower Back Icon"
+        case .chest:
+            return "Chest Icon"
+        case .back, .lats, .rearDelts:
+            return "Back Icon"
+        case .traps:
+            return "Trapezius Icon"
+        case .shoulders, .frontDelts:
+            return "Front Deltoid Icon"
+        case .biceps:
+            return "Bicep Icon"
+        case .triceps:
+            return "Tricep Icon"
+        case .forearms:
+            return "Forearms Icon"
+        case .quadriceps:
+            return "Quads Icon"
+        case .hamstrings:
+            return "Hamstrings Icon"
+        case .glutes:
+            return "Glutes Icon"
+        case .calves:
+            return "Calves Icon"
+        case .abductors:
+            return "Abductors Icon"
+        case .adductors:
+            return "Adductors Icon"
+        case .core, .obliques, .abs:
+            return "Abs Icon"
+        case .erectors, .lowerBack:
+            return "Lower Back Icon"
+        }
+    }
+    
+    var displayName: String {
+        switch self {
+        case .quadriceps:
+            return "Quadriceps"
+        case .frontDelts:
+            return "Front Delts"
+        case .rearDelts:
+            return "Rear Delts"
+        case .lowerBack:
+            return "Lower Back"
+        default:
+            return rawValue.capitalized
         }
     }
 }

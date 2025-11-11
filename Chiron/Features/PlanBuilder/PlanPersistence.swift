@@ -165,6 +165,7 @@ extension TrainingPlan {
             name: "Sample Plan",
             duration: 4,
             daysPerWeek: 3,
+            goals: [.hypertrophy],
             targetMuscles: [.chest, .back, .shoulders],
             split: .pushPullLegs,
             injuries: [],

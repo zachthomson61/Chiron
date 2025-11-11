@@ -4,11 +4,18 @@ import SwiftUI
 
 struct OneQuestionShellView: View {
     @ObservedObject var viewModel: OQFViewModel
+    let onExitToPlans: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var planStore: PlanStore
     @State private var showExitConfirmation = false
     @State private var showPlanPreview = false
+    @State private var isGeneratingPlan = false
     @State private var generatedPreviewPlan: TrainingPlan?
+    
+    init(viewModel: OQFViewModel, onExitToPlans: (() -> Void)? = nil) {
+        _viewModel = ObservedObject(wrappedValue: viewModel)
+        self.onExitToPlans = onExitToPlans
+    }
     
     var body: some View {
         ZStack {
@@ -100,7 +107,7 @@ struct OneQuestionShellView: View {
         .navigationBarHidden(true)
         .navigationDestination(isPresented: $showPlanPreview) {
             if let plan = generatedPreviewPlan {
-                PlanPreviewView(plan: plan)
+                PlanPreviewView(plan: plan, source: .builder, onExit: onExitToPlans)
             }
         }
         .alert("Leave Plan Builder?", isPresented: $showExitConfirmation) {
@@ -380,20 +387,35 @@ struct QuestionContentView: View {
 // MARK: - Generation & Navigation
 extension OneQuestionShellView {
     private func generateAndNavigateToPreview() {
-        // Avoid duplicate navigation
-        guard !showPlanPreview else { return }
+        // Avoid duplicate navigation and concurrent generation
+        guard !showPlanPreview, !isGeneratingPlan else { return }
+        isGeneratingPlan = true
         Task {
             // Build input from answers
-            guard let input = await viewModel.generatePlan() else { return }
+            guard let input = await viewModel.generatePlan() else {
+                await MainActor.run {
+                    isGeneratingPlan = false
+                }
+                return
+            }
 
             // Use existing PlanBuilderViewModel pipeline to generate plan
             let builderVM = PlanBuilderViewModel()
             builderVM.input = input
             await builderVM.generatePlan()
-            if let plan = builderVM.generatedPlan {
+            guard let plan = builderVM.generatedPlan else {
+                await MainActor.run {
+                    isGeneratingPlan = false
+                }
+                return
+            }
+
+            planStore.addPlan(plan)
+
+            await MainActor.run {
                 generatedPreviewPlan = plan
-                planStore.addPlan(plan)
                 showPlanPreview = true
+                isGeneratingPlan = false
             }
         }
     }

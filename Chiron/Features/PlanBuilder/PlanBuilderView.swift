@@ -1,9 +1,9 @@
 import SwiftUI
 
 struct PlanBuilderView: View {
+    @Binding var isPresented: Bool
     @StateObject private var viewModel = PlanBuilderViewModel()
     @StateObject private var oqfViewModel = OQFViewModel()
-    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var planStore: PlanStore
     @State private var showingPreview = false
     @AppStorage("planBuilderOQFEnabled") private var isOQFEnabled = true  // Enable One Question Flow
@@ -13,10 +13,16 @@ struct PlanBuilderView: View {
     @State private var customSplitIntents: [DayIntent] = []
     @State private var customSplitSpecs: [Int: CustomDaySpec] = [:]
     
+    init(isPresented: Binding<Bool>) {
+        self._isPresented = isPresented
+    }
+    
     var body: some View {
         // Feature flag: Show One Question Flow if enabled
         if isOQFEnabled {
-            OneQuestionShellView(viewModel: oqfViewModel)
+            OneQuestionShellView(viewModel: oqfViewModel, onExitToPlans: {
+                isPresented = false
+            })
                 .environmentObject(planStore)
                 .onAppear {
                     oqfViewModel.reset()
@@ -117,7 +123,9 @@ struct PlanBuilderView: View {
         }
         .navigationDestination(isPresented: $viewModel.navigateToPreview) {
             if let plan = viewModel.generatedPlan {
-                PlanPreviewView(plan: plan)
+                PlanPreviewView(plan: plan, source: .builder) {
+                    isPresented = false
+                }
             }
         }
     }

@@ -299,7 +299,7 @@ struct FlowConfig {
             helper: "Select all that apply (minimum 3)",
             type: .multiChoice,
             options: MuscleGroup.allCases.map {
-                QuestionOption(value: $0.rawValue, label: $0.rawValue)
+                QuestionOption(value: $0.rawValue, label: $0.displayName)
             },
             required: true,
             validate: { answer in

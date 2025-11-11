@@ -1,12 +1,28 @@
 import SwiftUI
 
 struct PlanPreviewView: View {
+    enum Source {
+        case builder
+        case savedList
+    }
+    
     let plan: TrainingPlan
+    let source: Source
+    let onExit: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var planStore: PlanStore
     @State private var selectedWeek: Int = 1
     @State private var expandedDays: Set<UUID> = []
     @State private var showShareSheet = false
     @State private var exportURL: URL?
+    @State private var showDeleteConfirmation = false
+    @State private var hasTriggeredExit = false
+
+    init(plan: TrainingPlan, source: Source, onExit: (() -> Void)? = nil) {
+        self.plan = plan
+        self.source = source
+        self.onExit = onExit
+    }
     
     var body: some View {
         ZStack {
@@ -38,22 +54,31 @@ struct PlanPreviewView: View {
         }
         .navigationTitle(plan.name)
         .navigationBarTitleDisplayMode(.large)
+        .navigationBarBackButtonHidden(source == .builder)
         .preferredColorScheme(.dark)
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button(action: backToPlans) {
-                    HStack(spacing: 6) {
+            if source == .builder {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: handleBackButton) {
                         Image(systemName: "chevron.left")
-                        Text("Plans")
+                            .foregroundColor(.planTextPrimary)
                     }
-                    .foregroundColor(.planTextPrimary)
                 }
             }
-            ToolbarItem(placement: .navigationBarTrailing) {
+            
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
                 Button(action: shareplan) {
                     Image(systemName: "square.and.arrow.up")
                         .foregroundColor(.planAccent)
                 }
+                
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundColor(.red)
+                }
+                .accessibilityLabel("Delete Plan")
             }
         }
         .sheet(isPresented: $showShareSheet) {
@@ -61,15 +86,28 @@ struct PlanPreviewView: View {
                 ShareSheet(activityItems: [url])
             }
         }
+        .alert("Delete Plan?", isPresented: $showDeleteConfirmation) {
+            Button("Delete", role: .destructive) {
+                planStore.deletePlan(withId: plan.id)
+                backToPlans()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will permanently remove \(plan.name).")
+        }
+        .onDisappear {
+            triggerExitIfNeeded()
+        }
     }
     
     private func backToPlans() {
-        // First dismiss PlanPreviewView
+        performExitIfNeeded()
         dismiss()
-        // Then dismiss the PlanBuilder screen after a tick to reveal Plans home
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            dismiss()
-        }
+    }
+
+    private func handleBackButton() {
+        performExitIfNeeded()
+        dismiss()
     }
     
     // MARK: - Section Views
@@ -94,7 +132,7 @@ struct PlanPreviewView: View {
                             HStack(spacing: 4) {
                                 Image(systemName: muscle.icon)
                                     .font(.caption)
-                                Text(muscle.rawValue)
+                                Text(muscle.displayName)
                                     .font(.caption)
                             }
                             .foregroundColor(.textPrimary)
@@ -213,6 +251,18 @@ struct PlanPreviewView: View {
                 print("Export failed: \(error)")
             }
         }
+    }
+}
+
+private extension PlanPreviewView {
+    func triggerExitIfNeeded() {
+        performExitIfNeeded()
+    }
+    
+    func performExitIfNeeded() {
+        guard source == .builder, !hasTriggeredExit else { return }
+        hasTriggeredExit = true
+        onExit?()
     }
 }
 

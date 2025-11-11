@@ -48,7 +48,7 @@ final class PlanBuilderViewModel: ObservableObject {
         if input.targetMuscles.isEmpty {
             return "None selected"
         } else if input.targetMuscles.count == 1 {
-            return input.targetMuscles.first!.rawValue
+            return input.targetMuscles.first!.displayName
         } else {
             return "\(input.targetMuscles.count) selected"
         }
@@ -201,7 +201,7 @@ final class PlanBuilderViewModel: ObservableObject {
     private func setupDefaults() {
         input.name = "My Training Plan"
         input.goals = [.hypertrophy] // Default goal
-        input.targetMuscles = [.chest, .back, .shoulders, .quads, .hamstrings, .glutes] // Default target muscles
+        input.targetMuscles = [.chest, .back, .shoulders, .quadriceps, .hamstrings, .glutes] // Default target muscles
         input.sessionMinutes = 45 // minutes
         input.daysPerWeek = 3
         input.programDuration = 4 // weeks

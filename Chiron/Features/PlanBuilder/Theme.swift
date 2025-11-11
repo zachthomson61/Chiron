@@ -193,7 +193,7 @@ struct MuscleGroupCard: View {
                 .frame(width: 80, height: 80)
                 
                 // Muscle name
-                Text(muscle.rawValue)
+                Text(muscle.displayName)
                     .font(.caption)
                     .fontWeight(.medium)
                     .foregroundColor(.planTextPrimary)

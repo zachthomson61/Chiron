@@ -96,97 +96,114 @@ struct PlansScreen: View {
     @State private var selectedPlan: TrainingPlan?
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // Header section
-                VStack(spacing: 8) {
-                    Text("Plans")
-                        .font(.title.bold())
-                        .foregroundColor(.textPrimary)
-                    Text("Create and manage your workout programs")
-                        .font(.subheadline)
-                        .foregroundColor(.textSecondary)
-                }
-                
-                // Primary action button
-                Button(action: {
-                    showPlanBuilder = true
-                }) {
-                    Text("Build Workout Plan")
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.textPrimary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(Color.primaryPurple)
-                        .cornerRadius(28)
-                }
-                .padding(.horizontal)
-                
-                // Saved Plans Section
-                if !planStore.savedPlans.isEmpty {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Saved Plans")
-                            .font(.headline)
+        List {
+            Section {
+                VStack(spacing: 16) {
+                    VStack(spacing: 8) {
+                        Text("Plans")
+                            .font(.title.bold())
                             .foregroundColor(.textPrimary)
-                            .padding(.horizontal)
-                        
-                        LazyVStack(spacing: 12) {
-                            ForEach(planStore.savedPlans) { plan in
-                                Button(action: {
-                                    selectedPlan = plan
-                                }) {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(plan.name)
-                                                .font(.subheadline)
-                                                .fontWeight(.medium)
-                                                .foregroundColor(.textPrimary)
-                                            
-                                            HStack(spacing: 8) {
-                                                Text("\(plan.duration) weeks")
-                                                    .font(.caption)
-                                                    .foregroundColor(.textSecondary)
-                                                
-                                                Text("•")
-                                                    .font(.caption)
-                                                    .foregroundColor(.textSecondary)
-                                                
-                                                Text("\(plan.daysPerWeek) days/week")
-                                                    .font(.caption)
-                                                    .foregroundColor(.textSecondary)
-                                                
-                                                Text("•")
-                                                    .font(.caption)
-                                                    .foregroundColor(.textSecondary)
-                                                
-                                                Text(plan.createdAt, style: .date)
-                                                    .font(.caption)
-                                                    .foregroundColor(.textSecondary)
-                                            }
-                                        }
+                        Text("Create and manage your workout programs")
+                            .font(.subheadline)
+                            .foregroundColor(.textSecondary)
+                    }
+                    
+                    Button(action: {
+                        showPlanBuilder = true
+                    }) {
+                        Text("Build Workout Plan")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 56)
+                            .background(Color.primaryPurple)
+                            .cornerRadius(28)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            
+            if !planStore.savedPlans.isEmpty {
+                Section {
+                    ForEach(planStore.savedPlans) { plan in
+                        Button(action: {
+                            selectedPlan = plan
+                        }) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(plan.name)
+                                        .font(.title3)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.textPrimary)
+                                    
+                                    if !plan.goals.isEmpty {
+                                        Text(plan.goals.map { $0.rawValue }.joined(separator: ", "))
+                                            .font(.subheadline)
+                                            .foregroundColor(.textSecondary)
+                                    }
+                                    
+                                    HStack(spacing: 8) {
+                                        Text("\(plan.duration) weeks")
+                                            .font(.caption)
+                                            .foregroundColor(.textSecondary)
                                         
-                                        Spacer()
+                                        Text("•")
+                                            .font(.caption)
+                                            .foregroundColor(.textSecondary)
                                         
-                                        Image(systemName: "chevron.right")
+                                        Text("\(plan.daysPerWeek) days/week")
+                                            .font(.caption)
+                                            .foregroundColor(.textSecondary)
+                                        
+                                        Text("•")
+                                            .font(.caption)
+                                            .foregroundColor(.textSecondary)
+                                        
+                                        Text(plan.createdAt, style: .date)
                                             .font(.caption)
                                             .foregroundColor(.textSecondary)
                                     }
-                                    .padding()
-                                    .background(Color.background)
-                                    .cornerRadius(12)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(Color.primaryPurple.opacity(0.3), lineWidth: 1)
-                                    )
                                 }
-                                .buttonStyle(PlainButtonStyle())
+                                
+                                Spacer()
+                                
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.textSecondary)
+                            }
+                            .padding()
+                            .background(Color.background)
+                            .cornerRadius(12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.primaryPurple.opacity(0.5), lineWidth: 2)
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                planStore.deletePlan(withId: plan.id)
+                                if selectedPlan?.id == plan.id {
+                                    selectedPlan = nil
+                                }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
                             }
                         }
-                        .padding(.horizontal)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
-                } else {
-                    // Empty state when no plans
+                } header: {
+                    Text("Saved Plans")
+                        .font(.headline)
+                        .foregroundColor(.textPrimary)
+                        .padding(.bottom, 4)
+                }
+            } else {
+                Section {
                     VStack(spacing: 16) {
                         Image(systemName: "list.bullet.rectangle")
                             .font(.system(size: 48))
@@ -201,18 +218,23 @@ struct PlansScreen: View {
                             .foregroundColor(.textSecondary)
                             .multilineTextAlignment(.center)
                     }
-                    .padding(.top, 40)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 80)
                 }
+                .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
-            .padding()
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .background(Color.background)
         .onAppear {
             // Load plans lazily when view appears
             planStore.loadPlansIfNeeded()
         }
         .navigationDestination(isPresented: $showPlanBuilder) {
-            PlanBuilderView()
+            PlanBuilderView(isPresented: $showPlanBuilder)
         }
         // Navigate to a simple plan preview when a saved plan is tapped.
         // This uses the existing `TrainingPlan` model from the builder and
@@ -222,7 +244,7 @@ struct PlansScreen: View {
             set: { if !$0 { selectedPlan = nil } }
         )) {
             if let plan = selectedPlan {
-                PlanPreviewView(plan: plan)
+                PlanPreviewView(plan: plan, source: .savedList)
             }
         }
     }
