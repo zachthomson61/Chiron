@@ -13,6 +13,7 @@ struct ExerciseSelectionView: View {
     
     private let exercises = [
         SelectionExercise(name: "Squat", icon: "figure.walk", description: "Lower body strength and stability"),
+        SelectionExercise(name: "Bodyweight Squat", icon: "figure.strengthtraining.traditional", description: "Foundation movement for lower body"),
         SelectionExercise(name: "Deadlift", icon: "figure.strengthtraining.traditional", description: "Full body posterior chain"),
         SelectionExercise(name: "Bench Press", icon: "figure.arms.open", description: "Upper body pushing strength"),
         SelectionExercise(name: "Overhead Press", icon: "figure.arms.open", description: "Shoulder and core stability"),
@@ -70,9 +71,12 @@ struct ExerciseSelectionView: View {
                 
                 // Primary CTA
                 Button(action: {
-                    if viewModel.selectedExercise == "Squat" {
+                    switch viewModel.selectedExercise {
+                    case "Squat":
                         showSquatVariationSelection = true
-                    } else {
+                    case "Bodyweight Squat":
+                        showSquatSetup = true
+                    default:
                         showCameraSetup = true
                     }
                 }) {

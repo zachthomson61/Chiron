@@ -17,6 +17,7 @@ class SpeechManager: NSObject, ObservableObject {
     private var currentTask: URLSessionDataTask?
     private let openAIAPIKey: String?
     private let openAITTSURL = "https://api.openai.com/v1/audio/speech"
+    private var didSchedulePrewarm = false
     
     // Common phrases for caching
     private let commonPhrases = [
@@ -57,14 +58,8 @@ class SpeechManager: NSObject, ObservableObject {
         
         super.init()
         
-        // Setup audio session for speech synthesis
-        setupAudioSession()
-        
         // Skip voice asset queries to prevent errors (using OpenAI TTS as primary)
         print("🎤 Skipping voice asset queries - using OpenAI TTS as primary")
-        
-        // Pre-cache common phrases
-        Task { await cacheCommonPhrases() }
         
         // Setup audio session interruption handling
         setupAudioSessionInterruptionHandling()
@@ -178,10 +173,11 @@ class SpeechManager: NSObject, ObservableObject {
     private func startSpeaking(_ text: String, priority: SpeechPriority, context: SpeechContext) {
         currentSpeechContext = context
         lastSpeechTime = Date()
+        prepareForSpeechIfNeeded()
+        
         if !isAudioSessionActive {
             print("🎤 Reactivating audio session")
-            setupAudioSession()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                 self.continueSpeaking(text, priority: priority)
             }
         } else {
@@ -196,6 +192,21 @@ class SpeechManager: NSObject, ObservableObject {
             return
         }
         Task { await speakWithOpenAI(text, priority: priority) }
+    }
+    
+    private func prepareForSpeechIfNeeded() {
+        if !isAudioSessionActive {
+            setupAudioSession()
+        }
+        
+        guard !didSchedulePrewarm else { return }
+        didSchedulePrewarm = true
+        
+        guard let apiKey = openAIAPIKey, !apiKey.isEmpty else { return }
+        
+        Task.detached(priority: .utility) { [weak self] in
+            await self?.cacheCommonPhrases()
+        }
     }
     
     private func shouldInterruptCurrentSpeech(newPriority: SpeechPriority, newContext: SpeechContext) -> Bool {

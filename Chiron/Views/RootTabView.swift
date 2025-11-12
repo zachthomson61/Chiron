@@ -10,8 +10,11 @@ struct RootTabView: View {
         case home, research, plans, profile 
     }
     
+    @EnvironmentObject private var planStore: PlanStore
+    @Environment(\.modelContext) private var modelContext
     @State private var selectedTab: Tab = .home
     @State private var loadedTabs: Set<Tab> = [.home] // Track which tabs have been loaded
+    @State private var hasPreloadedData = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -77,6 +80,18 @@ struct RootTabView: View {
         .toolbarBackground(.visible, for: .tabBar)
         .toolbarColorScheme(.dark, for: .tabBar)
         .preferredColorScheme(.dark)
+        .task {
+            guard !hasPreloadedData else { return }
+            hasPreloadedData = true
+            
+            planStore.loadPlansIfNeeded()
+            
+            do {
+                try ExerciseSeeder.seedIfNeeded(context: modelContext)
+            } catch {
+                print("Exercise seeding failed: \(error)")
+            }
+        }
         .onChange(of: selectedTab) {
             // Ensure the tab is marked as loaded when selected
             loadedTabs.insert(selectedTab)

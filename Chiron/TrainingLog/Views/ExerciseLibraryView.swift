@@ -236,6 +236,13 @@ private struct Pill: View {
 /// Preview-friendly sample entries so the revamped layout renders in Xcode previews.
 private let sampleExercises: [Exercise] = [
     Exercise(
+        name: "Bodyweight Squat",
+        primaryTargets: [.quadriceps, .glutes],
+        secondaryTargets: [.hamstrings, .core],
+        difficulty: .beginner,
+        imageName: "figure.strengthtraining.traditional"
+    ),
+    Exercise(
         name: "Barbell Back Squat",
         primaryTargets: [.quadriceps, .glutes],
         secondaryTargets: [.hamstrings, .core],

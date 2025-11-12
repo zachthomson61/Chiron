@@ -19,6 +19,13 @@ enum ExerciseSeeder {
     /// Lightweight seed data that mirrors the samples used in previews and acceptance criteria.
     static let defaults: [ExerciseData] = [
         ExerciseData(
+            name: "Bodyweight Squat",
+            primaryTargets: [.quadriceps, .glutes],
+            secondaryTargets: [.hamstrings, .core],
+            difficulty: .beginner,
+            imageName: "figure.strengthtraining.traditional"
+        ),
+        ExerciseData(
             name: "Barbell Back Squat",
             primaryTargets: [.quadriceps, .glutes],
             secondaryTargets: [.hamstrings, .core],

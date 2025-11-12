@@ -18,6 +18,9 @@ class WorkoutViewModel: ObservableObject {
     @Published var tempoStatus: FormStatus = .perfect
     @Published var postureStatus: FormStatus = .watch
     
+    // User preferences integration
+    @Published var userPreferences = UserPreferencesManager.shared
+    
     // Feedback storage
     @Published var realTimeFeedback: [FeedbackItem] = []
     @Published var setFeedback: [FeedbackItem] = []
