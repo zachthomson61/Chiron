@@ -1,5 +1,4 @@
 import SwiftUI
-import AVFoundation
 
 struct HomeScreenSpacing {
     static let topInset: CGFloat = 12
@@ -8,7 +7,12 @@ struct HomeScreenSpacing {
     static let bottomInset: CGFloat = 28
 }
 
+/// Landing surface for the Home tab. Emits `onStartWorkout` when the user
+/// taps either primary CTA so callers can decide how to route (e.g., switch
+/// to the Research tab). If the callback is `nil`, the legacy full-screen
+/// exercise selector is still presented locally.
 struct HomeView: View {
+    var onStartWorkout: (() -> Void)? = nil
     @StateObject private var viewModel = WorkoutViewModel()
     @StateObject private var preferencesManager = UserPreferencesManager.shared
     @State private var showGoalSelector = false
@@ -81,9 +85,7 @@ struct HomeView: View {
                         // CORE
                         VStack(spacing: HomeScreenSpacing.sectionSpacing) {
                             // Play Button
-                            Button(action: {
-                                showExerciseSelection = true
-                            }) {
+                            Button(action: handleStartWorkout) {
                                 ZStack {
                                     Circle()
                                         .fill(Color.primaryPurple)
@@ -107,9 +109,7 @@ struct HomeView: View {
 
                             // Primary action button - Start Workout
                             // Note: "Build Workout Plan" button moved to Plans tab
-                            Button(action: {
-                                showExerciseSelection = true
-                            }) {
+                            Button(action: handleStartWorkout) {
                                 Text("Start Workout")
                                     .font(.headline)
                                     .fontWeight(.semibold)
@@ -161,7 +161,7 @@ struct HomeView: View {
             }
             .preferredColorScheme(.dark)
             .fullScreenCover(isPresented: $showExerciseSelection) {
-                ExerciseSelectionView(viewModel: viewModel)
+                ExerciseSelectionView()
             }
             .sheet(isPresented: $showGoalSelector) {
                 GoalSelectorView(preferencesManager: preferencesManager, isPresented: $showGoalSelector)
@@ -169,6 +169,19 @@ struct HomeView: View {
             .sheet(isPresented: $showFeedback) {
                 FeedbackView(viewModel: viewModel)
             }
+        }
+    }
+}
+
+private extension HomeView {
+    /// Centralizes the “Start Workout” action so both buttons stay in sync.
+    /// When a parent provides `onStartWorkout`, we delegate routing upward;
+    /// otherwise we fall back to the on-device overlay for previews/legacy flows.
+    func handleStartWorkout() {
+        if let onStartWorkout {
+            onStartWorkout()
+        } else {
+            showExerciseSelection = true
         }
     }
 }

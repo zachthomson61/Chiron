@@ -16,6 +16,9 @@ struct ExerciseLibraryView: View {
     @State private var newName: String = ""
     @State private var error: String?
     @State private var selectedCategory: String? = nil
+    @StateObject private var bodyweightSquatViewModel = WorkoutViewModel()
+    
+    private let bodyweightSquatName = "Bodyweight Squat"
 
     private var isAddDisabled: Bool {
         newName
@@ -25,9 +28,26 @@ struct ExerciseLibraryView: View {
     
     private let categories = ["Compound", "Push", "Pull", "Bodyweight"]
 
+    private var normalizedQuery: String {
+        search
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+    
+    private var bodyweightSquatExercise: Exercise? {
+        exercises.first(where: isBodyweightSquat(_:))
+    }
+    
+    private var shouldShowBodyweightSquatCard: Bool {
+        guard bodyweightSquatExercise != nil else { return false }
+        let query = normalizedQuery
+        return query.isEmpty || bodyweightSquatName.lowercased().contains(query)
+    }
+    
     var filtered: [Exercise] {
-        let q = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return q.isEmpty ? exercises : exercises.filter { $0.name.lowercased().contains(q) }
+        let query = normalizedQuery
+        let base = query.isEmpty ? exercises : exercises.filter { $0.name.lowercased().contains(query) }
+        return base.filter { !isBodyweightSquat($0) }
     }
 
     var body: some View {
@@ -94,9 +114,18 @@ struct ExerciseLibraryView: View {
                     
                     // Exercise cards
                     LazyVStack(spacing: 12) {
+                        if shouldShowBodyweightSquatCard, let squat = bodyweightSquatExercise {
+                            NavigationLink {
+                                BodyweightSquatOverview(viewModel: bodyweightSquatViewModel)
+                            } label: {
+                                exerciseCard(for: squat)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        
                         ForEach(filtered) { ex in
                             NavigationLink {
-                                ExerciseDetailPlaceholderView(exercise: ex)
+                                destinationView(for: ex)
                             } label: {
                                 exerciseCard(for: ex)
                             }
@@ -108,9 +137,10 @@ struct ExerciseLibraryView: View {
                 }
             }
             .background(Color.background)
-            .task { 
+            .task {
                 // Seed exercises if needed (fast - only runs once on first launch)
-                try? ExerciseSeeder.seedIfNeeded(context: ctx) 
+                try? ExerciseSeeder.seedIfNeeded(context: ctx)
+                ensureBodyweightSquatCard()
             }
         }
         .preferredColorScheme(.dark)
@@ -144,6 +174,30 @@ struct ExerciseLibraryView: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(exercise.accessibilitySummary)
+    }
+    
+    @ViewBuilder
+    private func destinationView(for exercise: Exercise) -> some View {
+        if exercise.name.caseInsensitiveCompare(bodyweightSquatName) == .orderedSame {
+            BodyweightSquatOverview(viewModel: bodyweightSquatViewModel)
+        } else {
+            ExerciseDetailPlaceholderView(exercise: exercise)
+        }
+    }
+    
+    private func ensureBodyweightSquatCard() {
+        guard bodyweightSquatExercise == nil else { return }
+        
+        let squat = Exercise(
+            name: bodyweightSquatName,
+            primaryTargets: [.quadriceps, .glutes],
+            secondaryTargets: [.hamstrings, .core],
+            difficulty: .beginner,
+            imageName: "figure.strengthtraining.traditional"
+        )
+        
+        ctx.insert(squat)
+        try? ctx.save()
     }
 
     private func addExercise() {
@@ -179,6 +233,10 @@ struct ExerciseLibraryView: View {
     private func deleteOffsets(_ offsets: IndexSet) {
         for i in offsets { ctx.delete(filtered[i]) }
         try? ctx.save()
+    }
+    
+    private func isBodyweightSquat(_ exercise: Exercise) -> Bool {
+        exercise.name.caseInsensitiveCompare(bodyweightSquatName) == .orderedSame
     }
 }
 

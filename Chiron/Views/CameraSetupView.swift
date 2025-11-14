@@ -112,7 +112,7 @@ struct CameraSetupView: View {
             SharedCameraSessionManager.shared.getVideoDataOutput()?.setSampleBufferDelegate(nil, queue: nil)
         }
         .fullScreenCover(isPresented: $showExerciseSelection) {
-            ExerciseSelectionView(viewModel: WorkoutViewModel())
+            ExerciseSelectionView()
         }
     }
 

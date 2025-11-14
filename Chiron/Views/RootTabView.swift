@@ -20,7 +20,11 @@ struct RootTabView: View {
         TabView(selection: $selectedTab) {
             // MARK: - Home Tab
             NavigationStack {
-                HomeView()
+                HomeView {
+                    // Keep the tab bar visible by hopping directly to Research,
+                    // which already hosts the shared ExerciseLibrary experience.
+                    selectedTab = .research
+                }
             }
             .tabItem {
                 Image(systemName: "house.fill")
