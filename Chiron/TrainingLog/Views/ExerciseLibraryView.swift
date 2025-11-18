@@ -250,6 +250,7 @@ struct ExerciseDetailPlaceholderView: View {
         }
         .padding()
         .navigationTitle(exercise.name)
+        .toolbar(.hidden, for: .tabBar)
     }
 }
 

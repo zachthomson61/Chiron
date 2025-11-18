@@ -66,7 +66,7 @@ enum SquatType {
 class InactivityDetector {
     private var lastRepTime: Date?
     private var lastValidPoseTime: Date?
-    private let inactivityThreshold: TimeInterval = 5.0
+    private let inactivityThreshold: TimeInterval = 4.0
     private let poseThreshold: TimeInterval = 5.0
     
     func checkInactivity() -> Bool {

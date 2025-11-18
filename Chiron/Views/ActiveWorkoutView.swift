@@ -657,6 +657,7 @@ struct ActiveWorkoutView: View {
                 feedbackCooldownUntil = now + feedbackCooldownSeconds
                 handleEndOfSetFeedback()
             }
+
         }
     }
 
@@ -668,6 +669,14 @@ struct ActiveWorkoutView: View {
             completedSetReps.append(currentRepCount)
             totalRepsAtLastSetEnd = currentRepCount
         }
+        
+        // Reset rep counter to 0 for next set
+        currentRepCount = 0
+        lastRepCountSeen = 0
+        
+        // Reset the pose manager's rep count state
+        OnDevicePoseManager.shared.resetRepCount()
+        
         startRestTimer()
         // Get latest form analysis snapshot (if available)
         if let analysis = OnDevicePoseManager.shared.currentFormAnalysis {
@@ -724,3 +733,4 @@ struct ActiveWorkoutView: View {
 
     }
 }
+
