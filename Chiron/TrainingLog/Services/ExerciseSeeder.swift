@@ -40,16 +40,16 @@ enum ExerciseSeeder {
             imageName: "figure.strengthtraining.traditional"
         ),
         ExerciseData(
-            name: "Bench Press",
-            primaryTargets: [.chest],
-            secondaryTargets: [.triceps, .frontDelts],
-            difficulty: .beginner,
+            name: "Barbell Bench Press",
+            primaryTargets: [.chest, .frontDelts, .triceps],
+            secondaryTargets: [],
+            difficulty: .intermediate,
             imageName: "figure.strengthtraining.traditional"
         ),
         // Deadlift: Expert-level compound movement targeting posterior chain
         ExerciseData(
             name: "Deadlift",
-            primaryTargets: [.hamstrings, .glutes, .back, .erectors],
+            primaryTargets: [.glutes, .hamstrings, .lowerBack],
             secondaryTargets: [],
             difficulty: .expert,
             imageName: "figure.strengthtraining.traditional"

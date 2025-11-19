@@ -21,6 +21,7 @@ struct ExerciseLibraryView: View {
     @StateObject private var bodyweightSquatViewModel = WorkoutViewModel()
     @StateObject private var barbellBackSquatViewModel = WorkoutViewModel()
     @StateObject private var deadliftViewModel = WorkoutViewModel()
+    @StateObject private var barbellBenchPressViewModel = WorkoutViewModel()
     
     // MARK: - Exercise Name Constants
     
@@ -28,6 +29,7 @@ struct ExerciseLibraryView: View {
     private let barbellBackSquatName = "Barbell Back Squat"
     private let backSquatName = "Back Squat" // Legacy name variant
     private let deadliftName = "Deadlift"
+    private let barbellBenchPressName = "Barbell Bench Press"
 
     private var isAddDisabled: Bool {
         newName
@@ -64,6 +66,12 @@ struct ExerciseLibraryView: View {
         exercises.first(where: isDeadlift(_:))
     }
     
+    /// Finds the barbell bench press exercise in the database.
+    /// Returns the exercise if it exists, nil otherwise.
+    private var barbellBenchPressExercise: Exercise? {
+        exercises.first(where: isBarbellBenchPress(_:))
+    }
+    
     private var shouldShowBodyweightSquatCard: Bool {
         guard bodyweightSquatExercise != nil else { return false }
         let query = normalizedQuery
@@ -78,10 +86,18 @@ struct ExerciseLibraryView: View {
         return query.isEmpty || deadliftName.lowercased().contains(query)
     }
     
+    /// Determines if the barbell bench press card should be displayed.
+    /// Returns true if the exercise exists and matches the current search query.
+    private var shouldShowBarbellBenchPressCard: Bool {
+        guard barbellBenchPressExercise != nil else { return false }
+        let query = normalizedQuery
+        return query.isEmpty || barbellBenchPressName.lowercased().contains(query)
+    }
+    
     var filtered: [Exercise] {
         let query = normalizedQuery
         let base = query.isEmpty ? exercises : exercises.filter { $0.name.lowercased().contains(query) }
-        return base.filter { !isBodyweightSquat($0) && !isDeadlift($0) }
+        return base.filter { !isBodyweightSquat($0) && !isDeadlift($0) && !isBarbellBenchPress($0) }
     }
 
     var body: some View {
@@ -166,6 +182,15 @@ struct ExerciseLibraryView: View {
                             .buttonStyle(.plain)
                         }
                         
+                        if shouldShowBarbellBenchPressCard, let benchPress = barbellBenchPressExercise {
+                            NavigationLink {
+                                BarbellBenchPressOverview(viewModel: barbellBenchPressViewModel)
+                            } label: {
+                                exerciseCard(for: benchPress)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        
                         ForEach(filtered) { ex in
                             NavigationLink {
                                 destinationView(for: ex)
@@ -186,6 +211,7 @@ struct ExerciseLibraryView: View {
                 ensureBodyweightSquatCard()
                 ensureBarbellBackSquatCard()
                 ensureDeadliftCard()
+                ensureBarbellBenchPressCard()
             }
         }
         .preferredColorScheme(.dark)
@@ -233,6 +259,8 @@ struct ExerciseLibraryView: View {
             BarbellBackSquatOverview(viewModel: barbellBackSquatViewModel)
         } else if exercise.name.caseInsensitiveCompare(deadliftName) == .orderedSame {
             DeadliftOverview(viewModel: deadliftViewModel)
+        } else if exercise.name.caseInsensitiveCompare(barbellBenchPressName) == .orderedSame {
+            BarbellBenchPressOverview(viewModel: barbellBenchPressViewModel)
         } else {
             ExerciseDetailPlaceholderView(exercise: exercise)
         }
@@ -285,13 +313,13 @@ struct ExerciseLibraryView: View {
     }
     
     /// Ensures deadlift exercise exists with correct primary targets and difficulty.
-    /// Updates existing exercises to match current schema (primary targets: hamstrings, glutes, back, erectors, expert difficulty).
+    /// Updates existing exercises to match current schema (primary targets: glutes, hamstrings, lowerBack, expert difficulty).
     private func ensureDeadliftCard() {
         if let existing = deadliftExercise {
-            let expectedTargets: Set<MuscleGroup> = [.hamstrings, .glutes, .back, .erectors]
+            let expectedTargets: Set<MuscleGroup> = [.glutes, .hamstrings, .lowerBack]
             let currentTargets = Set(existing.primaryTargets)
             if currentTargets != expectedTargets || existing.difficulty != .expert {
-                existing.primaryTargets = [.hamstrings, .glutes, .back, .erectors]
+                existing.primaryTargets = [.glutes, .hamstrings, .lowerBack]
                 existing.secondaryTargets = []
                 existing.difficulty = .expert
                 try? ctx.save()
@@ -302,12 +330,49 @@ struct ExerciseLibraryView: View {
         // Create if it doesn't exist
         let deadlift = Exercise(
             name: deadliftName,
-            primaryTargets: [.hamstrings, .glutes, .back, .erectors],
+            primaryTargets: [.glutes, .hamstrings, .lowerBack],
             secondaryTargets: [],
             difficulty: .expert,
             imageName: "figure.strengthtraining.traditional"
         )
         ctx.insert(deadlift)
+        try? ctx.save()
+    }
+    
+    /// Ensures barbell bench press exercise exists with correct configuration.
+    /// 
+    /// - Updates existing exercises to match current schema:
+    ///   - Primary targets: chest, frontDelts, triceps
+    ///   - Secondary targets: none
+    ///   - Difficulty: intermediate
+    /// - Creates the exercise if it doesn't exist.
+    private func ensureBarbellBenchPressCard() {
+        if let existing = barbellBenchPressExercise {
+            let expectedPrimaryTargets: Set<MuscleGroup> = [.chest, .frontDelts, .triceps]
+            let expectedSecondaryTargets: Set<MuscleGroup> = []
+            let currentPrimaryTargets = Set(existing.primaryTargets)
+            let currentSecondaryTargets = Set(existing.secondaryTargets)
+            
+            if currentPrimaryTargets != expectedPrimaryTargets || 
+               currentSecondaryTargets != expectedSecondaryTargets || 
+               existing.difficulty != .intermediate {
+                existing.primaryTargets = [.chest, .frontDelts, .triceps]
+                existing.secondaryTargets = []
+                existing.difficulty = .intermediate
+                try? ctx.save()
+            }
+            return
+        }
+        
+        // Create if it doesn't exist
+        let benchPress = Exercise(
+            name: barbellBenchPressName,
+            primaryTargets: [.chest, .frontDelts, .triceps],
+            secondaryTargets: [],
+            difficulty: .intermediate,
+            imageName: "figure.strengthtraining.traditional"
+        )
+        ctx.insert(benchPress)
         try? ctx.save()
     }
 
@@ -357,6 +422,12 @@ struct ExerciseLibraryView: View {
     /// Used to filter deadlift from the general exercise list since it has a dedicated card.
     private func isDeadlift(_ exercise: Exercise) -> Bool {
         exercise.name.caseInsensitiveCompare(deadliftName) == .orderedSame
+    }
+    
+    /// Checks if an exercise is a barbell bench press.
+    /// Used to filter it from the general exercise list since it has a dedicated card.
+    private func isBarbellBenchPress(_ exercise: Exercise) -> Bool {
+        exercise.name.caseInsensitiveCompare(barbellBenchPressName) == .orderedSame
     }
     
     /// Normalizes exercise names for display.
@@ -464,10 +535,10 @@ private let sampleExercises: [Exercise] = [
         imageName: "figure.strengthtraining.traditional"
     ),
     Exercise(
-        name: "Bench Press",
-        primaryTargets: [.chest],
-        secondaryTargets: [.triceps, .frontDelts],
-        difficulty: .beginner,
+        name: "Barbell Bench Press",
+        primaryTargets: [.chest, .frontDelts, .triceps],
+        secondaryTargets: [],
+        difficulty: .intermediate,
         imageName: "figure.strengthtraining.traditional"
     )
 ]
