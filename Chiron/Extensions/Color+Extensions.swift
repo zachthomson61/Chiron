@@ -42,8 +42,10 @@ extension Color {
         return Color(red: 91/255, green: 70/255, blue: 242/255)
     }
     
-    /// Yellow/Amber color for intermediate difficulty badges - complements the purple palette
+    /// Yellow/amber color for intermediate difficulty badges.
+    /// Complements the purple palette and provides visual distinction for intermediate exercises.
+    /// Color: #EAB308 (warm yellow/amber)
     static var intermediateYellow: Color {
-        return Color(red: 234/255, green: 179/255, blue: 8/255) // #EAB308 - warm yellow/amber
+        Color(red: 234/255, green: 179/255, blue: 8/255)
     }
 } 

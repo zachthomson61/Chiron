@@ -79,10 +79,11 @@ final class Exercise {
     
     // MARK: - Derived values
     
+    /// Formatted string of primary muscle targets for display in exercise library cards.
+    /// Only shows primary targets (secondary targets are hidden).
+    /// Formats "Quadriceps" as "Quads" for brevity.
     var targetsLine: String {
-        // Only show primary targets in exercise library cards
         let primary = primaryTargets.map { muscle in
-            // Shorten "Quadriceps" to "Quads" for display
             muscle == .quadriceps ? "Quads" : muscle.displayName
         }.joined(separator: " • ")
         

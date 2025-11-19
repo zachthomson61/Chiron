@@ -2,18 +2,18 @@ import SwiftUI
 import AVKit
 import AVFoundation
 
+/// Overview screen for Barbell Back Squat exercise.
+/// Displays video demonstration, setup instructions, dos, and don'ts.
+/// Matches the style and structure of BodyweightSquatOverview.
 struct BarbellBackSquatOverview: View {
     @ObservedObject var viewModel: WorkoutViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var showCameraSetup = false
-    @State private var showAlternativeSetup = false
     @State private var selectedTab = 0
-    @State private var showActiveWorkout = false
     
-    // Callback to navigate back to exercise selection
+    /// Optional callback to navigate back to exercise selection
     var onFinishExercise: (() -> Void)?
     
-    // Initialize with optional callback
     init(viewModel: WorkoutViewModel, onFinishExercise: (() -> Void)? = nil) {
         self.viewModel = viewModel
         self.onFinishExercise = onFinishExercise
@@ -135,6 +135,9 @@ struct BarbellBackSquatOverview: View {
     }
 }
 
+// MARK: - Content Views
+
+/// Setup instructions for barbell back squat (Tab 0)
 struct BarbellSetupContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -155,6 +158,7 @@ struct BarbellSetupContent: View {
     }
 }
 
+/// Dos (best practices) for barbell back squat (Tab 1)
 struct BarbellDosContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -178,6 +182,7 @@ struct BarbellDosContent: View {
     }
 }
 
+/// Don'ts (common mistakes) for barbell back squat (Tab 2)
 struct BarbellDontsContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

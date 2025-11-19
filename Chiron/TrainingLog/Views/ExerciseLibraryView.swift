@@ -16,12 +16,16 @@ struct ExerciseLibraryView: View {
     @State private var newName: String = ""
     @State private var error: String?
     @State private var selectedCategory: String? = nil
+    // MARK: - View Models
+    
     @StateObject private var bodyweightSquatViewModel = WorkoutViewModel()
     @StateObject private var barbellBackSquatViewModel = WorkoutViewModel()
     
+    // MARK: - Exercise Name Constants
+    
     private let bodyweightSquatName = "Bodyweight Squat"
     private let barbellBackSquatName = "Barbell Back Squat"
-    private let backSquatName = "Back Squat"
+    private let backSquatName = "Back Squat" // Legacy name variant
 
     private var isAddDisabled: Bool {
         newName
@@ -37,10 +41,14 @@ struct ExerciseLibraryView: View {
             .lowercased()
     }
     
+    // MARK: - Exercise Queries
+    
+    /// Finds the bodyweight squat exercise in the database
     private var bodyweightSquatExercise: Exercise? {
         exercises.first(where: isBodyweightSquat(_:))
     }
     
+    /// Finds the barbell back squat exercise in the database (handles both "Barbell Back Squat" and legacy "Back Squat" names)
     private var barbellBackSquatExercise: Exercise? {
         exercises.first { exercise in
             exercise.name.caseInsensitiveCompare(barbellBackSquatName) == .orderedSame ||
@@ -187,6 +195,9 @@ struct ExerciseLibraryView: View {
         .accessibilityLabel(exercise.accessibilitySummary)
     }
     
+    // MARK: - Navigation
+    
+    /// Routes to the appropriate detail view based on exercise name
     @ViewBuilder
     private func destinationView(for exercise: Exercise) -> some View {
         if exercise.name.caseInsensitiveCompare(bodyweightSquatName) == .orderedSame {
@@ -199,9 +210,12 @@ struct ExerciseLibraryView: View {
         }
     }
     
+    // MARK: - Exercise Data Migration
+    
+    /// Ensures bodyweight squat exercise exists with correct primary targets.
+    /// Updates existing exercises to match current schema (primary targets only, includes adductors).
     private func ensureBodyweightSquatCard() {
         if let existing = bodyweightSquatExercise {
-            // Update existing exercise if it doesn't have the correct targets
             let expectedTargets: Set<MuscleGroup> = [.quadriceps, .glutes, .adductors]
             let currentTargets = Set(existing.primaryTargets)
             if currentTargets != expectedTargets {
@@ -212,6 +226,7 @@ struct ExerciseLibraryView: View {
             return
         }
         
+        // Create if it doesn't exist
         let squat = Exercise(
             name: bodyweightSquatName,
             primaryTargets: [.quadriceps, .glutes, .adductors],
@@ -219,17 +234,17 @@ struct ExerciseLibraryView: View {
             difficulty: .beginner,
             imageName: "figure.strengthtraining.traditional"
         )
-        
         ctx.insert(squat)
         try? ctx.save()
     }
     
+    /// Ensures barbell back squat exercise exists with correct primary targets and difficulty.
+    /// Updates existing exercises to match current schema (primary targets only, includes adductors, intermediate difficulty).
     private func ensureBarbellBackSquatCard() {
         if let existing = barbellBackSquatExercise {
-            // Update existing exercise if it doesn't have the correct targets
             let expectedTargets: Set<MuscleGroup> = [.quadriceps, .glutes, .adductors]
             let currentTargets = Set(existing.primaryTargets)
-            if currentTargets != expectedTargets {
+            if currentTargets != expectedTargets || existing.difficulty != .intermediate {
                 existing.primaryTargets = [.quadriceps, .glutes, .adductors]
                 existing.secondaryTargets = []
                 existing.difficulty = .intermediate
@@ -238,8 +253,7 @@ struct ExerciseLibraryView: View {
             return
         }
         
-        // If it doesn't exist, it will be created by the ExerciseSeeder
-        // But we can also create it here if needed
+        // If it doesn't exist, ExerciseSeeder will create it on first launch
     }
 
     private func addExercise() {
@@ -277,13 +291,16 @@ struct ExerciseLibraryView: View {
         try? ctx.save()
     }
     
+    // MARK: - Helpers
+    
+    /// Checks if an exercise is a bodyweight squat
     private func isBodyweightSquat(_ exercise: Exercise) -> Bool {
         exercise.name.caseInsensitiveCompare(bodyweightSquatName) == .orderedSame
     }
     
-    /// Returns the display name for an exercise, normalizing certain names
+    /// Normalizes exercise names for display.
+    /// Converts legacy "Back Squat" to "Barbell Back Squat" for consistency.
     private func displayName(for exercise: Exercise) -> String {
-        // Normalize "Back Squat" to "Barbell Back Squat" for display
         if exercise.name.caseInsensitiveCompare(backSquatName) == .orderedSame {
             return barbellBackSquatName
         }
@@ -327,7 +344,8 @@ private struct ExerciseThumbnail: View {
     }
 }
 
-/// Shared styling for the difficulty badge shown in each row.
+/// Difficulty badge component for exercise cards.
+/// Uses color coding: purple for beginner/advanced, yellow for intermediate.
 private struct Pill: View {
     let text: String
     let difficulty: Difficulty
@@ -344,14 +362,15 @@ private struct Pill: View {
             .clipShape(Capsule())
     }
     
+    /// Returns background and foreground colors based on difficulty level.
+    /// - Beginner/Advanced: Purple badge
+    /// - Intermediate: Yellow badge (visual distinction)
     private func colorForDifficulty(_ difficulty: Difficulty) -> (Color, Color) {
         switch difficulty {
-        case .beginner:
+        case .beginner, .advanced:
             return (Color.brandAccentPurple.opacity(0.18), Color.brandAccentPurple)
         case .intermediate:
             return (Color.intermediateYellow.opacity(0.18), Color.intermediateYellow)
-        case .advanced:
-            return (Color.brandAccentPurple.opacity(0.18), Color.brandAccentPurple)
         }
     }
 }
@@ -361,15 +380,15 @@ private struct Pill: View {
 private let sampleExercises: [Exercise] = [
     Exercise(
         name: "Bodyweight Squat",
-        primaryTargets: [.quadriceps, .glutes],
-        secondaryTargets: [.hamstrings, .core],
+        primaryTargets: [.quadriceps, .glutes, .adductors],
+        secondaryTargets: [],
         difficulty: .beginner,
         imageName: "figure.strengthtraining.traditional"
     ),
     Exercise(
         name: "Barbell Back Squat",
-        primaryTargets: [.quadriceps, .glutes],
-        secondaryTargets: [.hamstrings, .core],
+        primaryTargets: [.quadriceps, .glutes, .adductors],
+        secondaryTargets: [],
         difficulty: .intermediate,
         imageName: "figure.strengthtraining.traditional"
     ),
