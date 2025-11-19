@@ -80,18 +80,17 @@ final class Exercise {
     // MARK: - Derived values
     
     var targetsLine: String {
-        let primary = primaryTargets.map(\.displayName).joined(separator: ", ")
-        let secondary = secondaryTargets.map(\.displayName).joined(separator: ", ")
+        // Only show primary targets in exercise library cards
+        let primary = primaryTargets.map { muscle in
+            // Shorten "Quadriceps" to "Quads" for display
+            muscle == .quadriceps ? "Quads" : muscle.displayName
+        }.joined(separator: " • ")
         
-        if primary.isEmpty && secondary.isEmpty {
+        if primary.isEmpty {
             return targetMuscles ?? "Targets coming soon"
         }
         
-        if secondary.isEmpty {
-            return primary
-        }
-        
-        return "\(primary) • \(secondary)"
+        return primary
     }
     
     /// Spoken summary that keeps VoiceOver aligned with the new visual hierarchy.

@@ -17,8 +17,11 @@ struct ExerciseLibraryView: View {
     @State private var error: String?
     @State private var selectedCategory: String? = nil
     @StateObject private var bodyweightSquatViewModel = WorkoutViewModel()
+    @StateObject private var barbellBackSquatViewModel = WorkoutViewModel()
     
     private let bodyweightSquatName = "Bodyweight Squat"
+    private let barbellBackSquatName = "Barbell Back Squat"
+    private let backSquatName = "Back Squat"
 
     private var isAddDisabled: Bool {
         newName
@@ -36,6 +39,13 @@ struct ExerciseLibraryView: View {
     
     private var bodyweightSquatExercise: Exercise? {
         exercises.first(where: isBodyweightSquat(_:))
+    }
+    
+    private var barbellBackSquatExercise: Exercise? {
+        exercises.first { exercise in
+            exercise.name.caseInsensitiveCompare(barbellBackSquatName) == .orderedSame ||
+            exercise.name.caseInsensitiveCompare(backSquatName) == .orderedSame
+        }
     }
     
     private var shouldShowBodyweightSquatCard: Bool {
@@ -141,6 +151,7 @@ struct ExerciseLibraryView: View {
                 // Seed exercises if needed (fast - only runs once on first launch)
                 try? ExerciseSeeder.seedIfNeeded(context: ctx)
                 ensureBodyweightSquatCard()
+                ensureBarbellBackSquatCard()
             }
         }
         .preferredColorScheme(.dark)
@@ -150,7 +161,7 @@ struct ExerciseLibraryView: View {
     private func exerciseCard(for exercise: Exercise) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(exercise.name)
+                Text(displayName(for: exercise))
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(Color.textPrimary)
                     .lineLimit(1)
@@ -161,7 +172,7 @@ struct ExerciseLibraryView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 
-                Pill(text: exercise.difficulty.rawValue)
+                Pill(text: exercise.difficulty.rawValue, difficulty: exercise.difficulty)
             }
             
             Spacer(minLength: 12)
@@ -180,24 +191,55 @@ struct ExerciseLibraryView: View {
     private func destinationView(for exercise: Exercise) -> some View {
         if exercise.name.caseInsensitiveCompare(bodyweightSquatName) == .orderedSame {
             BodyweightSquatOverview(viewModel: bodyweightSquatViewModel)
+        } else if exercise.name.caseInsensitiveCompare(barbellBackSquatName) == .orderedSame || 
+                  exercise.name.caseInsensitiveCompare(backSquatName) == .orderedSame {
+            BarbellBackSquatOverview(viewModel: barbellBackSquatViewModel)
         } else {
             ExerciseDetailPlaceholderView(exercise: exercise)
         }
     }
     
     private func ensureBodyweightSquatCard() {
-        guard bodyweightSquatExercise == nil else { return }
+        if let existing = bodyweightSquatExercise {
+            // Update existing exercise if it doesn't have the correct targets
+            let expectedTargets: Set<MuscleGroup> = [.quadriceps, .glutes, .adductors]
+            let currentTargets = Set(existing.primaryTargets)
+            if currentTargets != expectedTargets {
+                existing.primaryTargets = [.quadriceps, .glutes, .adductors]
+                existing.secondaryTargets = []
+                try? ctx.save()
+            }
+            return
+        }
         
         let squat = Exercise(
             name: bodyweightSquatName,
-            primaryTargets: [.quadriceps, .glutes],
-            secondaryTargets: [.hamstrings, .core],
+            primaryTargets: [.quadriceps, .glutes, .adductors],
+            secondaryTargets: [],
             difficulty: .beginner,
             imageName: "figure.strengthtraining.traditional"
         )
         
         ctx.insert(squat)
         try? ctx.save()
+    }
+    
+    private func ensureBarbellBackSquatCard() {
+        if let existing = barbellBackSquatExercise {
+            // Update existing exercise if it doesn't have the correct targets
+            let expectedTargets: Set<MuscleGroup> = [.quadriceps, .glutes, .adductors]
+            let currentTargets = Set(existing.primaryTargets)
+            if currentTargets != expectedTargets {
+                existing.primaryTargets = [.quadriceps, .glutes, .adductors]
+                existing.secondaryTargets = []
+                existing.difficulty = .intermediate
+                try? ctx.save()
+            }
+            return
+        }
+        
+        // If it doesn't exist, it will be created by the ExerciseSeeder
+        // But we can also create it here if needed
     }
 
     private func addExercise() {
@@ -237,6 +279,15 @@ struct ExerciseLibraryView: View {
     
     private func isBodyweightSquat(_ exercise: Exercise) -> Bool {
         exercise.name.caseInsensitiveCompare(bodyweightSquatName) == .orderedSame
+    }
+    
+    /// Returns the display name for an exercise, normalizing certain names
+    private func displayName(for exercise: Exercise) -> String {
+        // Normalize "Back Squat" to "Barbell Back Squat" for display
+        if exercise.name.caseInsensitiveCompare(backSquatName) == .orderedSame {
+            return barbellBackSquatName
+        }
+        return exercise.name
     }
 }
 
@@ -279,15 +330,29 @@ private struct ExerciseThumbnail: View {
 /// Shared styling for the difficulty badge shown in each row.
 private struct Pill: View {
     let text: String
+    let difficulty: Difficulty
 
     var body: some View {
+        let (backgroundColor, foregroundColor) = colorForDifficulty(difficulty)
+        
         Text(text)
             .font(.caption.bold())
             .padding(.horizontal, 8)
             .frame(height: 22)
-            .background(Color.brandAccentPurple.opacity(0.18))
-            .foregroundStyle(Color.brandAccentPurple)
+            .background(backgroundColor)
+            .foregroundStyle(foregroundColor)
             .clipShape(Capsule())
+    }
+    
+    private func colorForDifficulty(_ difficulty: Difficulty) -> (Color, Color) {
+        switch difficulty {
+        case .beginner:
+            return (Color.brandAccentPurple.opacity(0.18), Color.brandAccentPurple)
+        case .intermediate:
+            return (Color.intermediateYellow.opacity(0.18), Color.intermediateYellow)
+        case .advanced:
+            return (Color.brandAccentPurple.opacity(0.18), Color.brandAccentPurple)
+        }
     }
 }
 

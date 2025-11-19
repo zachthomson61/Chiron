@@ -20,15 +20,15 @@ enum ExerciseSeeder {
     static let defaults: [ExerciseData] = [
         ExerciseData(
             name: "Bodyweight Squat",
-            primaryTargets: [.quadriceps, .glutes],
-            secondaryTargets: [.hamstrings, .core],
+            primaryTargets: [.quadriceps, .glutes, .adductors],
+            secondaryTargets: [],
             difficulty: .beginner,
             imageName: "figure.strengthtraining.traditional"
         ),
         ExerciseData(
             name: "Barbell Back Squat",
-            primaryTargets: [.quadriceps, .glutes],
-            secondaryTargets: [.hamstrings, .core],
+            primaryTargets: [.quadriceps, .glutes, .adductors],
+            secondaryTargets: [],
             difficulty: .intermediate,
             imageName: "figure.strengthtraining.traditional"
         ),
