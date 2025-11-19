@@ -9,10 +9,12 @@ import SwiftData
 import Foundation
 
 /// User-friendly difficulty levels surfaced in the exercise library.
+/// Color coding: Beginner/Advanced = Purple, Intermediate = Yellow, Expert = Red.
 enum Difficulty: String, CaseIterable, Codable {
     case beginner = "Beginner"
     case intermediate = "Intermediate"
     case advanced = "Advanced"
+    case expert = "Expert"
 }
 
 /// SwiftData-backed exercise record. The legacy `targetMuscles` string remains for old UI,

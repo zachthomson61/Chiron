@@ -20,12 +20,14 @@ struct ExerciseLibraryView: View {
     
     @StateObject private var bodyweightSquatViewModel = WorkoutViewModel()
     @StateObject private var barbellBackSquatViewModel = WorkoutViewModel()
+    @StateObject private var deadliftViewModel = WorkoutViewModel()
     
     // MARK: - Exercise Name Constants
     
     private let bodyweightSquatName = "Bodyweight Squat"
     private let barbellBackSquatName = "Barbell Back Squat"
     private let backSquatName = "Back Squat" // Legacy name variant
+    private let deadliftName = "Deadlift"
 
     private var isAddDisabled: Bool {
         newName
@@ -56,16 +58,30 @@ struct ExerciseLibraryView: View {
         }
     }
     
+    /// Finds the deadlift exercise in the database.
+    /// Used to display the deadlift card separately from the general exercise list.
+    private var deadliftExercise: Exercise? {
+        exercises.first(where: isDeadlift(_:))
+    }
+    
     private var shouldShowBodyweightSquatCard: Bool {
         guard bodyweightSquatExercise != nil else { return false }
         let query = normalizedQuery
         return query.isEmpty || bodyweightSquatName.lowercased().contains(query)
     }
     
+    /// Determines if the deadlift card should be displayed.
+    /// Shows the card if the exercise exists and matches the search query (if any).
+    private var shouldShowDeadliftCard: Bool {
+        guard deadliftExercise != nil else { return false }
+        let query = normalizedQuery
+        return query.isEmpty || deadliftName.lowercased().contains(query)
+    }
+    
     var filtered: [Exercise] {
         let query = normalizedQuery
         let base = query.isEmpty ? exercises : exercises.filter { $0.name.lowercased().contains(query) }
-        return base.filter { !isBodyweightSquat($0) }
+        return base.filter { !isBodyweightSquat($0) && !isDeadlift($0) }
     }
 
     var body: some View {
@@ -141,6 +157,15 @@ struct ExerciseLibraryView: View {
                             .buttonStyle(.plain)
                         }
                         
+                        if shouldShowDeadliftCard, let deadlift = deadliftExercise {
+                            NavigationLink {
+                                DeadliftOverview(viewModel: deadliftViewModel)
+                            } label: {
+                                exerciseCard(for: deadlift)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        
                         ForEach(filtered) { ex in
                             NavigationLink {
                                 destinationView(for: ex)
@@ -160,6 +185,7 @@ struct ExerciseLibraryView: View {
                 try? ExerciseSeeder.seedIfNeeded(context: ctx)
                 ensureBodyweightSquatCard()
                 ensureBarbellBackSquatCard()
+                ensureDeadliftCard()
             }
         }
         .preferredColorScheme(.dark)
@@ -205,6 +231,8 @@ struct ExerciseLibraryView: View {
         } else if exercise.name.caseInsensitiveCompare(barbellBackSquatName) == .orderedSame || 
                   exercise.name.caseInsensitiveCompare(backSquatName) == .orderedSame {
             BarbellBackSquatOverview(viewModel: barbellBackSquatViewModel)
+        } else if exercise.name.caseInsensitiveCompare(deadliftName) == .orderedSame {
+            DeadliftOverview(viewModel: deadliftViewModel)
         } else {
             ExerciseDetailPlaceholderView(exercise: exercise)
         }
@@ -255,6 +283,33 @@ struct ExerciseLibraryView: View {
         
         // If it doesn't exist, ExerciseSeeder will create it on first launch
     }
+    
+    /// Ensures deadlift exercise exists with correct primary targets and difficulty.
+    /// Updates existing exercises to match current schema (primary targets: hamstrings, glutes, back, erectors, expert difficulty).
+    private func ensureDeadliftCard() {
+        if let existing = deadliftExercise {
+            let expectedTargets: Set<MuscleGroup> = [.hamstrings, .glutes, .back, .erectors]
+            let currentTargets = Set(existing.primaryTargets)
+            if currentTargets != expectedTargets || existing.difficulty != .expert {
+                existing.primaryTargets = [.hamstrings, .glutes, .back, .erectors]
+                existing.secondaryTargets = []
+                existing.difficulty = .expert
+                try? ctx.save()
+            }
+            return
+        }
+        
+        // Create if it doesn't exist
+        let deadlift = Exercise(
+            name: deadliftName,
+            primaryTargets: [.hamstrings, .glutes, .back, .erectors],
+            secondaryTargets: [],
+            difficulty: .expert,
+            imageName: "figure.strengthtraining.traditional"
+        )
+        ctx.insert(deadlift)
+        try? ctx.save()
+    }
 
     private func addExercise() {
         let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -296,6 +351,12 @@ struct ExerciseLibraryView: View {
     /// Checks if an exercise is a bodyweight squat
     private func isBodyweightSquat(_ exercise: Exercise) -> Bool {
         exercise.name.caseInsensitiveCompare(bodyweightSquatName) == .orderedSame
+    }
+    
+    /// Checks if an exercise is a deadlift.
+    /// Used to filter deadlift from the general exercise list since it has a dedicated card.
+    private func isDeadlift(_ exercise: Exercise) -> Bool {
+        exercise.name.caseInsensitiveCompare(deadliftName) == .orderedSame
     }
     
     /// Normalizes exercise names for display.
@@ -345,7 +406,7 @@ private struct ExerciseThumbnail: View {
 }
 
 /// Difficulty badge component for exercise cards.
-/// Uses color coding: purple for beginner/advanced, yellow for intermediate.
+/// Uses color coding: purple for beginner/advanced, yellow for intermediate, red for expert.
 private struct Pill: View {
     let text: String
     let difficulty: Difficulty
@@ -365,12 +426,15 @@ private struct Pill: View {
     /// Returns background and foreground colors based on difficulty level.
     /// - Beginner/Advanced: Purple badge
     /// - Intermediate: Yellow badge (visual distinction)
+    /// - Expert: Red badge (visual distinction)
     private func colorForDifficulty(_ difficulty: Difficulty) -> (Color, Color) {
         switch difficulty {
         case .beginner, .advanced:
             return (Color.brandAccentPurple.opacity(0.18), Color.brandAccentPurple)
         case .intermediate:
             return (Color.intermediateYellow.opacity(0.18), Color.intermediateYellow)
+        case .expert:
+            return (Color.expertRed.opacity(0.18), Color.expertRed)
         }
     }
 }

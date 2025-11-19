@@ -45,6 +45,14 @@ enum ExerciseSeeder {
             secondaryTargets: [.triceps, .frontDelts],
             difficulty: .beginner,
             imageName: "figure.strengthtraining.traditional"
+        ),
+        // Deadlift: Expert-level compound movement targeting posterior chain
+        ExerciseData(
+            name: "Deadlift",
+            primaryTargets: [.hamstrings, .glutes, .back, .erectors],
+            secondaryTargets: [],
+            difficulty: .expert,
+            imageName: "figure.strengthtraining.traditional"
         )
     ]
 

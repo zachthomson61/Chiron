@@ -48,4 +48,13 @@ extension Color {
     static var intermediateYellow: Color {
         Color(red: 234/255, green: 179/255, blue: 8/255)
     }
+    
+    // MARK: - Difficulty Badge Colors
+    
+    /// Red color for expert difficulty badges in the exercise library.
+    /// Complements the purple palette and provides visual distinction for expert exercises.
+    /// Color: #DC2626 (deep red/crimson) - chosen to match the app's color palette.
+    static var expertRed: Color {
+        Color(red: 220/255, green: 38/255, blue: 38/255)
+    }
 } 
