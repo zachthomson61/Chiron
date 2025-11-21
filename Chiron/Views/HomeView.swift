@@ -20,6 +20,9 @@ struct HomeView: View {
     @State private var showFeedback = false
     @State private var contentHeight: CGFloat = 0
     @State private var pulseGoal = false
+    /// Drives the header animation so we can animate shadow and offset without
+    /// triggering extra layout changes.
+    @State private var animateTitle = false
     
     var body: some View {
         NavigationStack {
@@ -30,10 +33,20 @@ struct HomeView: View {
                     VStack(spacing: HomeScreenSpacing.sectionSpacing) {
                         // HEADER
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Chiron")
+                            Text("LET'S GET IT!")
                                 .font(.largeTitle)
                                 .fontWeight(.bold)
                                 .foregroundColor(.textPrimary)
+                                .shadow(color: Color.primaryPurple.opacity(animateTitle ? 0.55 : 0.25),
+                                        radius: animateTitle ? 18 : 8)
+                                .offset(x: animateTitle ? 1 : -1)
+                                .animation(
+                                    Animation.easeInOut(duration: 0.9).repeatForever(autoreverses: true),
+                                    value: animateTitle
+                                )
+                                .onAppear {
+                                    animateTitle = true
+                                }
                             
                             // My Goal subtitle - tappable
                             Button(action: {
