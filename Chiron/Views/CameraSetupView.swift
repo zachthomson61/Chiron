@@ -189,19 +189,23 @@ private struct SegmentationOverlayView: View {
 
 // MARK: - Camera Preview (Setup)
 struct SetupCameraPreviewRepresentable: UIViewRepresentable {
-    let processor: SegmentationProcessor
+    @ObservedObject var processor: SegmentationProcessor
     func makeUIView(context: Context) -> SetupCameraPreviewView {
         SetupCameraPreviewView(processor: processor)
     }
-    func updateUIView(_ uiView: SetupCameraPreviewView, context: Context) {}
+    func updateUIView(_ uiView: SetupCameraPreviewView, context: Context) {
+        uiView.updateProcessor(processor)
+        uiView.rebindSegmentationDelegate()
+    }
 }
 
 final class SetupCameraPreviewView: UIView {
     private var previewLayer: AVCaptureVideoPreviewLayer?
-    private weak var processor: SegmentationProcessor?
+    private var processor: SegmentationProcessor?
     private var videoDelegate: VideoDelegate?
+    private var segmentationQueue: DispatchQueue?
 
-    init(processor: SegmentationProcessor) {
+    init(processor: SegmentationProcessor? = nil) {
         self.processor = processor
         super.init(frame: .zero)
         setup()
@@ -241,23 +245,7 @@ final class SetupCameraPreviewView: UIView {
         layer.frame = bounds
         
         // Attach video output delegate for segmentation during setup mode
-        if let videoOutput = SharedCameraSessionManager.shared.getVideoDataOutput() {
-            let queue = DispatchQueue(label: "segmentationVideoQueue")
-            let delegate = VideoDelegate(processor: processor)
-            videoOutput.setSampleBufferDelegate(delegate, queue: queue)
-            if let conn = videoOutput.connection(with: .video) {
-                if #available(iOS 17.0, *) {
-                    conn.videoRotationAngle = 90.0
-                } else {
-                    conn.videoOrientation = .portrait
-                }
-                if conn.isVideoMirroringSupported {
-                    // Keep analysis buffers unmirrored; preview handles mirroring
-                    conn.isVideoMirrored = false
-                }
-            }
-            self.videoDelegate = delegate
-        }
+        rebindSegmentationDelegate()
         
         // Ensure session is running
         if !session.isRunning {
@@ -275,6 +263,42 @@ final class SetupCameraPreviewView: UIView {
     deinit {
         // Detach delegate when view goes away
         SharedCameraSessionManager.shared.getVideoDataOutput()?.setSampleBufferDelegate(nil, queue: nil)
+    }
+
+    func updateProcessor(_ processor: SegmentationProcessor) {
+        self.processor = processor
+        videoDelegate?.processor = processor
+    }
+
+    func rebindSegmentationDelegate() {
+        guard let videoOutput = SharedCameraSessionManager.shared.getVideoDataOutput() else { return }
+        bindSegmentationDelegate(to: videoOutput)
+    }
+
+    private func bindSegmentationDelegate(to videoOutput: AVCaptureVideoDataOutput) {
+        if segmentationQueue == nil {
+            segmentationQueue = DispatchQueue(label: "segmentationVideoQueue")
+        }
+        if videoDelegate == nil {
+            videoDelegate = VideoDelegate(processor: processor)
+        } else {
+            videoDelegate?.processor = processor
+        }
+
+        videoOutput.setSampleBufferDelegate(videoDelegate, queue: segmentationQueue)
+        configureVideoConnection(for: videoOutput)
+    }
+
+    private func configureVideoConnection(for output: AVCaptureVideoDataOutput) {
+        guard let connection = output.connection(with: .video) else { return }
+        if #available(iOS 17.0, *) {
+            connection.videoRotationAngle = 90.0
+        } else {
+            connection.videoOrientation = .portrait
+        }
+        if connection.isVideoMirroringSupported {
+            connection.isVideoMirrored = false
+        }
     }
 
     // MARK: - Delegate proxy
