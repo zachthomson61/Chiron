@@ -33,5 +33,9 @@ class AppState: ObservableObject {
         }
     }()
     
-    init() {}
+    init() {
+        // Configure audio session at startup to allow background audio (e.g., Spotify)
+        // to continue playing when navigating through the app
+        _ = AudioSessionManager.shared
+    }
 }
