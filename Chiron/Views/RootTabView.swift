@@ -148,9 +148,11 @@ struct PlansScreen: View {
             if !planStore.savedPlans.isEmpty {
                 Section {
                     ForEach(planStore.savedPlans) { plan in
-                        Button(action: {
-                            selectedPlan = plan
-                        }) {
+                    Button(action: {
+                        // Keep the pinned plan consistent so the home card knows what to show.
+                        planStore.markPlanSelected(plan)
+                        selectedPlan = plan
+                    }) {
                             HStack {
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text(plan.name)

@@ -3,13 +3,25 @@ import SwiftUI
 
 /// Simple store for managing saved training plans
 final class PlanStore: ObservableObject {
-    @Published var savedPlans: [TrainingPlan] = []
+    @Published var savedPlans: [TrainingPlan] = [] {
+        didSet {
+            ensureSelectionStillValid()
+        }
+    }
+    /// A persisted handle to the plan shown in the home plan card.
+    @Published private(set) var lastSelectedPlanID: UUID? {
+        didSet {
+            persistSelectedPlanID()
+        }
+    }
     
     private let persistence = PlanPersistence.shared
+    private let defaults = UserDefaults.standard
+    private let lastSelectedPlanKey = "com.chiron.lastSelectedPlanId"
     private var hasLoadedPlans = false
     
     init() {
-        // Don't load plans immediately - load them lazily when needed
+        loadLastSelectedPlan()
     }
     
     // MARK: - Public Methods
@@ -81,6 +93,50 @@ final class PlanStore: ObservableObject {
             } catch {
                 print("Failed to delete plan: \(error)")
             }
+        }
+    }
+
+    /// Keep track of the training plan that should appear on the home card.
+    func markPlanSelected(_ plan: TrainingPlan) {
+        guard lastSelectedPlanID != plan.id else { return }
+        lastSelectedPlanID = plan.id
+    }
+    
+    /// Remove any persisted home card selection.
+    func clearSelectedPlan() {
+        lastSelectedPlanID = nil
+    }
+
+    /// Returns the cached plan that matches the persisted selection ID.
+    var lastSelectedPlan: TrainingPlan? {
+        guard let id = lastSelectedPlanID else { return nil }
+        return savedPlans.first { $0.id == id }
+    }
+
+    /// Clears the selection if the previously displayed plan was deleted.
+    private func ensureSelectionStillValid() {
+        guard let selectedId = lastSelectedPlanID,
+              !savedPlans.contains(where: { $0.id == selectedId })
+        else { return }
+        
+        lastSelectedPlanID = nil
+    }
+    
+    /// Reads the last selected ID from UserDefaults before plans are loaded.
+    private func loadLastSelectedPlan() {
+        guard let idString = defaults.string(forKey: lastSelectedPlanKey),
+              let uuid = UUID(uuidString: idString)
+        else { return }
+        
+        lastSelectedPlanID = uuid
+    }
+    
+    /// Writes the current selection ID to UserDefaults so the home card can restore.
+    private func persistSelectedPlanID() {
+        if let id = lastSelectedPlanID {
+            defaults.set(id.uuidString, forKey: lastSelectedPlanKey)
+        } else {
+            defaults.removeObject(forKey: lastSelectedPlanKey)
         }
     }
 }

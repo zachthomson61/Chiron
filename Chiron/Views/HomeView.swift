@@ -2,8 +2,9 @@ import SwiftUI
 
 struct HomeScreenSpacing {
     static let topInset: CGFloat = 12
-    static let topTitlePad: CGFloat = 8
-    static let sectionSpacing: CGFloat = 20
+    static let topTitlePad: CGFloat = 24
+    static let headerStackSpacing: CGFloat = 18
+    static let sectionSpacing: CGFloat = 28
     static let bottomInset: CGFloat = 28
 }
 
@@ -20,6 +21,8 @@ struct HomeView: View {
     @State private var showFeedback = false
     @State private var contentHeight: CGFloat = 0
     @State private var pulseGoal = false
+    @State private var homeSelectedPlan: TrainingPlan? = nil
+    @EnvironmentObject private var planStore: PlanStore
     /// Drives the header animation so we can animate shadow and offset without
     /// triggering extra layout changes.
     @State private var animateTitle = false
@@ -28,72 +31,54 @@ struct HomeView: View {
         NavigationStack {
             GeometryReader { proxy in
                 let h = proxy.size.height
+                let goalDisplayName = preferencesManager.primaryGoal?.displayName ?? "Choose one"
+                let goalIsSet = preferencesManager.primaryGoal != nil
+                let shouldShowGoalHint = !goalIsSet && !UserDefaults.standard.bool(forKey: "has_shown_goal_hint")
                 
                 ScrollView {
                     VStack(spacing: HomeScreenSpacing.sectionSpacing) {
                         // HEADER
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("LET'S GET IT!")
-                                .font(.largeTitle)
-                                .fontWeight(.bold)
-                                .foregroundColor(.textPrimary)
-                                .shadow(color: Color.primaryPurple.opacity(animateTitle ? 0.55 : 0.25),
-                                        radius: animateTitle ? 18 : 8)
-                                .offset(x: animateTitle ? 1 : -1)
-                                .animation(
-                                    Animation.easeInOut(duration: 0.9).repeatForever(autoreverses: true),
-                                    value: animateTitle
-                                )
-                                .onAppear {
-                                    animateTitle = true
-                                }
-                            
-                            // My Goal subtitle - tappable
-                            Button(action: {
-                                showGoalSelector = true
-                            }) {
-                                HStack(spacing: 4) {
-                                    Text("My Goal:")
-                                        .font(.subheadline)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.textSecondary)
-                                    
-                                    Text(preferencesManager.primaryGoal?.displayName ?? "Choose one")
-                                        .font(.subheadline)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(preferencesManager.primaryGoal != nil ? .textPrimary : .primaryPurple)
-                                    
-                                    Image(systemName: "chevron.down")
-                                        .font(.caption)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.textSecondary)
-                                        .opacity(0.6)
-                                }
-                                .scaleEffect(pulseGoal ? 1.05 : 1.0)
-                                .animation(
-                                    pulseGoal ? Animation.easeInOut(duration: 0.6).repeatCount(2, autoreverses: true) : nil,
-                                    value: pulseGoal
-                                )
+                        VStack(alignment: .leading, spacing: HomeScreenSpacing.headerStackSpacing) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("LET'S GET IT!")
+                                    .font(.system(size: 38, weight: .heavy, design: .rounded))
+                                    .foregroundColor(.textPrimary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
+                                    .fixedSize()
+                                    .padding(.trailing, 24)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .shadow(color: Color.primaryPurple.opacity(animateTitle ? 0.65 : 0.3),
+                                            radius: animateTitle ? 26 : 10,
+                                            y: animateTitle ? 6 : 0)
+                                    .rotationEffect(.degrees(animateTitle ? 1.75 : -1.75))
+                                    .offset(x: animateTitle ? 3 : -3)
+                                    .scaleEffect(animateTitle ? 1.03 : 1.0)
+                                    .allowsTightening(true)
+                                    .animation(
+                                        Animation.easeInOut(duration: 1.1).repeatForever(autoreverses: true),
+                                        value: animateTitle
+                                    )
+
+                                Text("You've got this 💪")
+                                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.primaryPurple.opacity(0.95))
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
-                            .buttonStyle(PlainButtonStyle())
-                            .accessibilityLabel("My Goal. Currently \(preferencesManager.primaryGoal?.displayName ?? "not set"). Double tap to change")
-                            
-                            // Show hint on first run
-                            if preferencesManager.primaryGoal == nil && !UserDefaults.standard.bool(forKey: "has_shown_goal_hint") {
-                                Text("Tap to set your goal")
-                                    .font(.caption)
-                                    .foregroundColor(.primaryPurple)
-                                    .opacity(0.8)
-                                    .onAppear {
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                            pulseGoal = true
-                                        }
-                                        AnalyticsManager.shared.trackFirstRunGoalPrompt()
-                                    }
-                            }
+
+                            MyGoalCard(
+                                goalName: goalDisplayName,
+                                isGoalSet: goalIsSet,
+                                pulse: pulseGoal,
+                                showHint: shouldShowGoalHint,
+                                onTap: { showGoalSelector = true },
+                                onHintAppear: handleGoalHintAppear
+                            )
                         }
                         .padding(.top, HomeScreenSpacing.topTitlePad)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .onAppear(perform: startTitleAnimationIfNeeded)
+                        .onDisappear(perform: resetTitleAnimation)
 
                         // CORE
                         VStack(spacing: HomeScreenSpacing.sectionSpacing) {
@@ -134,6 +119,8 @@ struct HomeView: View {
                             }
                         }
 
+                        myWorkoutPlanSection
+
                         // FLEX SPACER (shrinks/grows to balance)
                         Spacer()
                             .frame(height: max(0, min(40, h - contentHeight)))
@@ -173,6 +160,14 @@ struct HomeView: View {
                 }
             }
             .preferredColorScheme(.dark)
+            .navigationDestination(isPresented: Binding(
+                get: { homeSelectedPlan != nil },
+                set: { if !$0 { homeSelectedPlan = nil } }
+            )) {
+                if let plan = homeSelectedPlan {
+                    PlanPreviewView(plan: plan, source: .savedList)
+                }
+            }
             .fullScreenCover(isPresented: $showExerciseSelection) {
                 ExerciseSelectionView()
             }
@@ -197,6 +192,123 @@ private extension HomeView {
             showExerciseSelection = true
         }
     }
+    
+    func handleGoalHintAppear() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            pulseGoal = true
+        }
+        AnalyticsManager.shared.trackFirstRunGoalPrompt()
+    }
+    
+    func startTitleAnimationIfNeeded() {
+        guard !animateTitle else { return }
+        animateTitle = true
+    }
+    
+    func resetTitleAnimation() {
+        animateTitle = false
+    }
+
+    /// Shows the pinned training plan with a lightweight active badge and a progress slider.
+    private var myWorkoutPlanSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("My Workout Plan")
+                .font(.title3)
+                .fontWeight(.semibold)
+                .foregroundColor(.textPrimary)
+
+            if let plan = planStore.lastSelectedPlan {
+                let planGoalsText = plan.goals.map { $0.rawValue }.joined(separator: ", ")
+                Button(action: {
+                    homeSelectedPlan = plan
+                }) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(plan.name)
+                                    .font(.title2)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.textPrimary)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+
+                                if !planGoalsText.isEmpty {
+                                    Text(planGoalsText)
+                                        .font(.subheadline)
+                                        .foregroundColor(.planTextSecondary)
+                                        .lineLimit(2)
+                                }
+                            }
+
+                            Spacer()
+
+                            Text("Active")
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.primaryPurple)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 4)
+                                .background(Color.primaryPurple.opacity(0.15))
+                                .clipShape(Capsule())
+                        }
+
+                        HStack(spacing: 6) {
+                            Text("\(plan.duration) weeks")
+                            Text("•")
+                            Text("\(plan.daysPerWeek) days/week")
+                        }
+                        .font(.caption)
+                        .foregroundColor(.planTextSecondary)
+
+                        if let progressValue = planProgress(for: plan) {
+                            ProgressView(value: progressValue)
+                                .progressViewStyle(LinearProgressViewStyle(tint: Color.secondaryPurple))
+                                .frame(height: 6)
+                                .padding(.vertical, 2)
+                                .background(Color.secondaryPurple.opacity(0.15))
+                                .cornerRadius(3)
+
+                            Text("\(Int(progressValue * 100))% complete")
+                                .font(.caption2)
+                                .foregroundColor(.planTextSecondary)
+                        }
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.planCardBackground)
+                    .cornerRadius(20)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20)
+                            .stroke(Color.primaryPurple.opacity(0.2), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("No plan pinned yet")
+                        .font(.headline)
+                        .foregroundColor(.textPrimary)
+                    Text("Select a plan on the Plans tab and it will be shown here for quick access.")
+                        .font(.subheadline)
+                        .foregroundColor(.planTextSecondary)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.planCardBackground)
+                .cornerRadius(16)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    /// Estimates completion by comparing wall time since creation with the target duration.
+    private func planProgress(for plan: TrainingPlan) -> Double? {
+        guard plan.duration > 0 else { return nil }
+        let totalSeconds = Double(plan.duration) * 7 * 24 * 60 * 60
+        guard totalSeconds > 0 else { return nil }
+        let elapsed = min(max(Date().timeIntervalSince(plan.createdAt), 0), totalSeconds)
+        return min(max(elapsed / totalSeconds, 0), 1)
+    }
 }
 
 
@@ -216,3 +328,86 @@ private struct HeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
+
+private struct MyGoalCard: View {
+    let goalName: String
+    let isGoalSet: Bool
+    let pulse: Bool
+    let showHint: Bool
+    let onTap: () -> Void
+    let onHintAppear: () -> Void
+    
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("My Goal")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundColor(.textSecondary.opacity(0.9))
+                
+                HStack(alignment: .top, spacing: 10) {
+                    Text(goalName)
+                        .font(.system(size: 32, weight: .heavy, design: .rounded))
+                        .foregroundColor(.textPrimary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Spacer()
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundColor(.textPrimary.opacity(0.9))
+                }
+                
+                Text("This is why you're here. Every rep gets you closer 🚀")
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .foregroundColor(.textPrimary.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if showHint {
+                    Text("Tap to set your goal")
+                        .font(.footnote)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.textPrimary.opacity(0.95))
+                        .padding(.top, 4)
+                        .onAppear(perform: onHintAppear)
+                } else if !isGoalSet {
+                    Text("Set a goal to get personalized coaching")
+                        .font(.footnote)
+                        .foregroundColor(.textPrimary.opacity(0.8))
+                        .padding(.top, 4)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 26)
+            .padding(.horizontal, 24)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.primaryPurple.opacity(0.85),
+                                Color.secondaryPurple.opacity(0.65),
+                                Color.primaryPurple.opacity(0.6)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                    )
+            )
+            .shadow(color: Color.secondaryPurple.opacity(0.45), radius: 28, y: 14)
+            // Base shadow provides the glow; avoid extra blur layers to keep render fast.
+        }
+        .buttonStyle(.plain)
+        .scaleEffect(pulse ? 1.03 : 1.0)
+        .animation(
+            pulse ? Animation.easeInOut(duration: 0.6).repeatCount(2, autoreverses: true) : nil,
+            value: pulse
+        )
+        .accessibilityLabel("My Goal. Currently \(goalName). Double tap to change")
+    }
+}
+
+
+
