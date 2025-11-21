@@ -23,6 +23,7 @@ struct ExerciseLibraryView: View {
     @StateObject private var deadliftViewModel = WorkoutViewModel()
     @StateObject private var barbellBenchPressViewModel = WorkoutViewModel()
     @StateObject private var romanianDeadliftViewModel = WorkoutViewModel()
+    @StateObject private var barbellRowViewModel = WorkoutViewModel()
     
     // MARK: - Exercise Name Constants
     
@@ -32,6 +33,7 @@ struct ExerciseLibraryView: View {
     private let deadliftName = "Deadlift"
     private let barbellBenchPressName = "Barbell Bench Press"
     private let romanianDeadliftName = "Romanian Deadlift (RDL)"
+    private let barbellRowName = "Barbell Row"
 
     private var isAddDisabled: Bool {
         newName
@@ -80,6 +82,12 @@ struct ExerciseLibraryView: View {
         exercises.first(where: isRomanianDeadlift(_:))
     }
     
+    /// Finds the barbell row exercise in the database.
+    /// Used to display the barbell row card separately from the general exercise list.
+    private var barbellRowExercise: Exercise? {
+        exercises.first(where: isBarbellRow(_:))
+    }
+    
     private var shouldShowBodyweightSquatCard: Bool {
         guard bodyweightSquatExercise != nil else { return false }
         let query = normalizedQuery
@@ -110,12 +118,27 @@ struct ExerciseLibraryView: View {
         return query.isEmpty || romanianDeadliftName.lowercased().contains(query)
     }
     
+    /// Determines if the barbell row card should be displayed.
+    /// Shows the card if the exercise exists and matches the search query (if any).
+    private var shouldShowBarbellRowCard: Bool {
+        guard barbellRowExercise != nil else { return false }
+        let query = normalizedQuery
+        return query.isEmpty || barbellRowName.lowercased().contains(query)
+    }
+    
     /// Filtered exercise list excluding exercises with dedicated cards.
-    /// Romanian Deadlift is excluded since it has its own dedicated card above.
+    /// Exercises with dedicated cards (Bodyweight Squat, Deadlift, Barbell Bench Press,
+    /// Romanian Deadlift, Barbell Row) are excluded since they appear separately above.
     var filtered: [Exercise] {
         let query = normalizedQuery
         let base = query.isEmpty ? exercises : exercises.filter { $0.name.lowercased().contains(query) }
-        return base.filter { !isBodyweightSquat($0) && !isDeadlift($0) && !isBarbellBenchPress($0) && !isRomanianDeadlift($0) }
+        return base.filter { 
+            !isBodyweightSquat($0) && 
+            !isDeadlift($0) && 
+            !isBarbellBenchPress($0) && 
+            !isRomanianDeadlift($0) && 
+            !isBarbellRow($0) 
+        }
     }
 
     var body: some View {
@@ -219,6 +242,16 @@ struct ExerciseLibraryView: View {
                             .buttonStyle(.plain)
                         }
                         
+                        // Barbell Row card - displayed separately from general exercise list
+                        if shouldShowBarbellRowCard, let row = barbellRowExercise {
+                            NavigationLink {
+                                BarbellRowOverview(viewModel: barbellRowViewModel)
+                            } label: {
+                                exerciseCard(for: row)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        
                         ForEach(filtered) { ex in
                             NavigationLink {
                                 destinationView(for: ex)
@@ -241,6 +274,7 @@ struct ExerciseLibraryView: View {
                 ensureDeadliftCard()
                 ensureBarbellBenchPressCard()
                 ensureRomanianDeadliftCard()
+                ensureBarbellRowCard()
             }
         }
         .preferredColorScheme(.dark)
@@ -292,6 +326,8 @@ struct ExerciseLibraryView: View {
             BarbellBenchPressOverview(viewModel: barbellBenchPressViewModel)
         } else if exercise.name.caseInsensitiveCompare(romanianDeadliftName) == .orderedSame {
             RomanianDeadliftOverview(viewModel: romanianDeadliftViewModel)
+        } else if exercise.name.caseInsensitiveCompare(barbellRowName) == .orderedSame {
+            BarbellRowOverview(viewModel: barbellRowViewModel)
         } else {
             ExerciseDetailPlaceholderView(exercise: exercise)
         }
@@ -438,6 +474,45 @@ struct ExerciseLibraryView: View {
         ctx.insert(rdl)
         try? ctx.save()
     }
+    
+    /// Ensures barbell row exercise exists with correct configuration.
+    ///
+    /// Updates existing exercises to match current schema:
+    /// - Primary targets: `.lats, .back` (order matters - Lats displays first)
+    /// - Secondary targets: `.rearDelts, .biceps`
+    /// - Difficulty: `.intermediate`
+    ///
+    /// Creates the exercise if it doesn't exist.
+    private func ensureBarbellRowCard() {
+        if let existing = barbellRowExercise {
+            let expectedPrimaryTargets: [MuscleGroup] = [.lats, .back]
+            let expectedSecondaryTargets: Set<MuscleGroup> = [.rearDelts, .biceps]
+            let currentPrimaryTargets = existing.primaryTargets
+            let currentSecondaryTargets = Set(existing.secondaryTargets)
+            
+            // Array comparison preserves order (ensures Lats appears before Middle Back)
+            if currentPrimaryTargets != expectedPrimaryTargets || 
+               currentSecondaryTargets != expectedSecondaryTargets || 
+               existing.difficulty != .intermediate {
+                existing.primaryTargets = [.lats, .back]
+                existing.secondaryTargets = [.rearDelts, .biceps]
+                existing.difficulty = .intermediate
+                try? ctx.save()
+            }
+            return
+        }
+        
+        // Create if it doesn't exist
+        let row = Exercise(
+            name: barbellRowName,
+            primaryTargets: [.lats, .back],
+            secondaryTargets: [.rearDelts, .biceps],
+            difficulty: .intermediate,
+            imageName: "figure.strengthtraining.traditional"
+        )
+        ctx.insert(row)
+        try? ctx.save()
+    }
 
     private func addExercise() {
         let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -497,6 +572,12 @@ struct ExerciseLibraryView: View {
     /// Used to filter it from the general exercise list since it has a dedicated card.
     private func isRomanianDeadlift(_ exercise: Exercise) -> Bool {
         exercise.name.caseInsensitiveCompare(romanianDeadliftName) == .orderedSame
+    }
+    
+    /// Checks if an exercise is a barbell row.
+    /// Used to filter it from the general exercise list since it has a dedicated card.
+    private func isBarbellRow(_ exercise: Exercise) -> Bool {
+        exercise.name.caseInsensitiveCompare(barbellRowName) == .orderedSame
     }
     
     /// Normalizes exercise names for display.

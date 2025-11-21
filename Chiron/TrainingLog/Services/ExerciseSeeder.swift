@@ -34,7 +34,7 @@ enum ExerciseSeeder {
         ),
         ExerciseData(
             name: "Barbell Row",
-            primaryTargets: [.back, .lats],
+            primaryTargets: [.lats, .back],
             secondaryTargets: [.rearDelts, .biceps],
             difficulty: .intermediate,
             imageName: "figure.strengthtraining.traditional"

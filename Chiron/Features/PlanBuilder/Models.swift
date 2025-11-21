@@ -263,6 +263,10 @@ enum MuscleGroup: String, CaseIterable, Codable {
             return "Rear Delts"
         case .lowerBack:
             return "Lower Back"
+        case .back:
+            return "Middle Back" // Display name for the general back muscle group
+        case .adductors:
+            return "Inner Thighs"
         default:
             return rawValue.capitalized
         }
