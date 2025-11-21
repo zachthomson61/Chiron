@@ -121,7 +121,6 @@ struct FlowConfig {
                 guard let name = answer as? String else { return "Please enter a plan name" }
                 let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.isEmpty { return "Please enter a plan name" }
-                if trimmed.count < 2 { return "Name must be at least 2 characters" }
                 if trimmed.count > 50 { return "Name must be less than 50 characters" }
                 return nil
             },

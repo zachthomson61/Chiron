@@ -136,8 +136,8 @@ describe('Plan Builder Flow - Validation', () => {
       expect(step.validate?.('  ')).toBe('Please enter a plan name');
     });
 
-    it('should reject names that are too short', () => {
-      expect(step.validate?.('A')).toBe('Name must be at least 2 characters');
+    it('should accept single-character names', () => {
+      expect(step.validate?.('A')).toBeNull();
     });
 
     it('should reject names that are too long', () => {

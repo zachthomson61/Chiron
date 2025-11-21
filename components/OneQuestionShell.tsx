@@ -98,6 +98,8 @@ export function OneQuestionShell({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onExit]);
 
+  const isPlanNameStep = step.id === 'plan_name';
+
   // Check if we can submit
   const canSubmit = answer !== undefined || !step.required;
 
@@ -178,14 +180,18 @@ export function OneQuestionShell({
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 z-40">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <button
-            onClick={onBack}
-            disabled={!canGoBack}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label="Go back"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
+          {isPlanNameStep ? (
+            <div className="w-10 h-10" aria-hidden />
+          ) : (
+            <button
+              onClick={onBack}
+              disabled={!canGoBack}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Go back"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+          )}
 
           <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
             {Math.round(progress * 100)}% Complete

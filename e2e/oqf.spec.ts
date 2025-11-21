@@ -68,13 +68,8 @@ test.describe('One Question Flow - Plan Builder', () => {
     await page.click('text=Continue');
     await expect(page.locator('text=This field is required')).toBeVisible();
 
-    // Enter invalid plan name (too short)
+    // Enter single-character plan name (should now pass)
     await page.fill('input[type="text"]', 'A');
-    await page.click('text=Continue');
-    await expect(page.locator('text=Name must be at least 2 characters')).toBeVisible();
-
-    // Enter valid plan name
-    await page.fill('input[type="text"]', 'Valid Plan Name');
     await page.click('text=Continue');
 
     // Should move to next step

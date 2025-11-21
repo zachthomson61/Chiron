@@ -50,20 +50,24 @@ struct OneQuestionShellView: View {
                 
                 // Header
                 HStack {
-                    // Back Button
-                    Button(action: {
-                        viewModel.goBack()
-                    }) {
-                        Image(systemName: "chevron.left")
-                            .font(.headline)
-                            .foregroundColor(.planTextPrimary)
+                    if viewModel.currentStepId == .planName {
+                        Color.clear
                             .frame(width: 44, height: 44)
+                    } else {
+                        Button(action: {
+                            viewModel.goBack()
+                        }) {
+                            Image(systemName: "chevron.left")
+                                .font(.headline)
+                                .foregroundColor(.planTextPrimary)
+                                .frame(width: 44, height: 44)
+                        }
+                        .disabled(!viewModel.canGoBack)
+                        .opacity(viewModel.canGoBack ? 1.0 : 0.3)
                     }
-                    .disabled(!viewModel.canGoBack)
-                    .opacity(viewModel.canGoBack ? 1.0 : 0.3)
-                    
+
                     Spacer()
-                    
+
                     // Exit Button
                     Button(action: {
                         showExitConfirmation = true

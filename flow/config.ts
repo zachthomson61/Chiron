@@ -47,8 +47,7 @@ export const flow: FlowConfig = {
       required: true,
       validate: (a) => {
         const name = String(a).trim();
-        if (!name) return 'Please enter a plan name';
-        if (name.length < 2) return 'Name must be at least 2 characters';
+        if (name.length < 1) return 'Please enter a plan name (at least 1 character)';
         if (name.length > 50) return 'Name must be less than 50 characters';
         return null;
       },
