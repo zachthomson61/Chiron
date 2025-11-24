@@ -130,7 +130,7 @@ struct BodyweightSquatOverview: View {
         .toolbar(.hidden, for: .tabBar)
         .preferredColorScheme(.dark)
         .fullScreenCover(isPresented: $showCameraSetup) {
-            CameraSetupView()
+            BodyweightSquatCameraSetupView(viewModel: viewModel)
         }
         // Removed second cover to avoid bouncing between covers
     }

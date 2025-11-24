@@ -66,7 +66,7 @@ struct RootTabView: View {
             // MARK: - Profile Tab
             NavigationStack {
                 if loadedTabs.contains(.profile) {
-                    ProfileScreen()
+                    ProfileView()
                 } else {
                     Color.clear.onAppear { loadedTabs.insert(.profile) }
                 }
@@ -271,26 +271,6 @@ struct PlansScreen: View {
     }
 }
 
-/// Profile screen placeholder for user settings and account management.
-struct ProfileScreen: View {
-    var body: some View {
-        Form {
-            Section(header: Text("Account")) {
-                Text("Name")
-                Text("Email")
-            }
-            Section(header: Text("Preferences")) {
-                Toggle("Haptics", isOn: .constant(true))
-            }
-            Section(header: Text("Training")) {
-                NavigationLink("Training Log") {
-                    ExerciseLibraryView()
-                }
-            }
-        }
-        .navigationTitle("Profile")
-    }
-}
 
 // MARK: - Preview
 #Preview {

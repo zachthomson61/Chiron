@@ -324,7 +324,14 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     }
     
     private func analyzeBarbellSquatForm(_ points: [String: CGPoint]) -> FormAnalysis {
-        // Standard analysis for barbell squats (placeholder for future implementation)
+        // TODO: Enhance barbell squat analysis with barbell-specific thresholds:
+        // - Different acceptable torso angle for heavy barbell vs. bodyweight
+        // - Stricter depth requirements for loaded squats
+        // - Bar path tracking (if possible with pose estimation)
+        // - Upper back tightness indicators
+        
+        // Currently uses standard analysis (reuses bodyweight logic)
+        // Future: Add barbell-specific form checks and thresholds
         let depth = calculateDepth(points)
         let backAngle = calculateBackAngle(points)
         let overallScore = calculateOverallScore(depth: depth, backAngle: backAngle)
@@ -781,7 +788,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         
         // Get single natural feedback and speak it once
         if let analysis = currentFormAnalysis {
-            OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(formAnalysis: analysis) { naturalFeedback in
+            OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(
+                formAnalysis: analysis,
+                exerciseType: squatType
+            ) { naturalFeedback in
                 print("🎯 Received natural feedback for set completion: \(naturalFeedback)")
                 // Speech is already handled inside analyzeAndGetNaturalFeedback
             }

@@ -1,7 +1,27 @@
+//
+//  OpenAICoachingManager.swift
+//  Chiron
+//
+//  Manages OpenAI API integration for generating exercise-specific coaching feedback.
+//
+//  Architecture:
+//  - Generates natural, conversational feedback based on form analysis
+//  - Adapts coaching cues based on exercise type (bodyweight vs barbell back squat)
+//  - Provides exercise-specific examples and fallback feedback
+//  - Handles API errors gracefully with exercise-appropriate fallback messages
+//
+//  Exercise-Specific Coaching:
+//  - Bodyweight squats: Focus on balance, chest position, knee tracking
+//  - Barbell back squats: Focus on bar position, core bracing, upper back tightness
+//
+
 import Foundation
 import AVFoundation
 
 // MARK: - OpenAI Coaching Manager
+
+/// Generates natural, conversational coaching feedback using OpenAI API.
+/// Provides exercise-specific feedback based on SquatType (bodyweight or barbell).
 class OpenAICoachingManager: ObservableObject {
     static let shared = OpenAICoachingManager()
     
@@ -14,8 +34,16 @@ class OpenAICoachingManager: ObservableObject {
     
     private init() {}
     
-    // MARK: - Natural Single Feedback (Replaces Two-Point System)
-    func getNaturalFeedback(formAnalysis: FormAnalysis, completion: @escaping (String) -> Void) {
+    // MARK: - Natural Single Feedback
+    
+    /// Generates a single, flowing coaching message using OpenAI API.
+    /// Adapts coaching cues and examples based on exercise type.
+    ///
+    /// - Parameters:
+    ///   - formAnalysis: Current form analysis with depth, back angle, knee alignment, etc.
+    ///   - exerciseType: .bodyweight or .barbell to determine exercise-specific coaching cues
+    ///   - completion: Callback with the generated feedback string
+    func getNaturalFeedback(formAnalysis: FormAnalysis, exerciseType: SquatType, completion: @escaping (String) -> Void) {
         let summary = formAnalysis.summary
         
         // Create structured analysis for better prompt context
@@ -33,8 +61,35 @@ class OpenAICoachingManager: ObservableObject {
             return "{}"
         }()
 
+        // Build exercise-specific context
+        let squatLabel: String
+        let coachingFocus: String
+        
+        switch exerciseType {
+        case .barbell:
+            squatLabel = "barbell back squat"
+            coachingFocus = """
+            This is a barbell back squat. Key priorities:
+            - Bar stays stacked over mid foot
+            - Strong braced core and neutral spine
+            - Upper back tight and bar stable on the back
+            - Knees track over mid foot, not collapsing in
+            """
+        case .bodyweight:
+            squatLabel = "bodyweight squat"
+            coachingFocus = """
+            This is a bodyweight squat. Key priorities:
+            - Balanced weight through mid foot and heels
+            - Upright chest and stable core
+            - Knees tracking over toes without collapsing in
+            """
+        }
+        
         let prompt = """
-        You're an encouraging gym trainer giving real-time feedback. Based on this squat analysis, give ONE flowing response that sounds natural:
+        You're an encouraging gym trainer giving real-time feedback. Based on this \(squatLabel) analysis, give ONE flowing response that sounds natural:
+
+        EXERCISE_CONTEXT:
+        \(coachingFocus)
 
         ANALYSIS_METRICS:
         \(analysisJSON)
@@ -47,12 +102,27 @@ class OpenAICoachingManager: ObservableObject {
         Start with quick acknowledgment: "There we go" / "Alright" / "Much better"
         Add specific observation: "good depth" / "nice control" / "solid tempo"
         Transition naturally: "now" / "just" / "but let's"
-        Give one specific cue using simple language: "sit back more" / "chest up" / "push your knees out"
+        Give one specific cue using simple language appropriate for \(squatLabel):
+        \(exerciseType == .barbell ? """
+        - "brace your core before you descend"
+        - "keep that bar over mid foot"
+        - "squeeze your upper back and keep the bar steady"
+        """ : """
+        - "sit back a bit more"
+        - "keep your chest proud"
+        - "knees track over your toes"
+        """)
 
-        Examples:
+        Examples for \(squatLabel):
+        \(exerciseType == .barbell ? """
+        "There we go, good depth - now keep that bar over mid foot"
+        "Alright, strong effort, squeeze your upper back and keep your chest proud"
+        "Much better, I see that depth - now brace your core before you descend"
+        """ : """
         "There we go, good depth - now drive through those heels"
         "Alright, nice control, just keep that chest proud"
         "Much better, I see that depth - now push those knees out"
+        """)
 
         Keep it 12-18 words, conversational, specific. Avoid technical terms like valgus, varus, eccentric, concentric.
         """
@@ -60,7 +130,7 @@ class OpenAICoachingManager: ObservableObject {
         print("🤖 Natural: preparing OpenAI request for unified feedback")
 
         guard let url = URL(string: baseURL) else {
-            completion(generateFallbackFeedback(from: formAnalysis))
+            completion(generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
             return
         }
 
@@ -82,7 +152,7 @@ class OpenAICoachingManager: ObservableObject {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
-            completion(generateFallbackFeedback(from: formAnalysis))
+            completion(generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
             return
         }
 
@@ -90,14 +160,14 @@ class OpenAICoachingManager: ObservableObject {
             if let error = error {
                 print("❌ OpenAI natural feedback error: \(error)")
                 DispatchQueue.main.async {
-                    completion(self.generateFallbackFeedback(from: formAnalysis))
+                    completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
                 }
                 return
             }
             
             guard let data = data else {
                 DispatchQueue.main.async {
-                    completion(self.generateFallbackFeedback(from: formAnalysis))
+                    completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
                 }
                 return
             }
@@ -120,7 +190,7 @@ class OpenAICoachingManager: ObservableObject {
                     if self.isGenericResponse(cleanedFeedback) {
                         print("🤖 Natural: detected generic response, using fallback")
                         DispatchQueue.main.async {
-                            completion(self.generateFallbackFeedback(from: formAnalysis))
+                            completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
                         }
                     } else {
                         DispatchQueue.main.async {
@@ -130,37 +200,56 @@ class OpenAICoachingManager: ObservableObject {
                 } else {
                     print("❌ Natural: failed to parse OpenAI response")
                     DispatchQueue.main.async {
-                        completion(self.generateFallbackFeedback(from: formAnalysis))
+                        completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
                     }
                 }
             } catch {
                 print("❌ Natural: parse error - \(error)")
                 DispatchQueue.main.async {
-                    completion(self.generateFallbackFeedback(from: formAnalysis))
+                    completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
                 }
             }
         }.resume()
     }
     
-    // MARK: - Natural Fallback Feedback
-    private func generateFallbackFeedback(from analysis: FormAnalysis) -> String {
-        // Natural, flowing trainer speech with specific technique cues
-        if analysis.issues.contains("Insufficient Depth") || analysis.depth < 0.45 {
-            return "There we go, nice control - now sit back a little deeper"
+    // MARK: - Fallback Feedback
+    
+    /// Generates fallback feedback when OpenAI API fails or returns generic responses.
+    /// Provides exercise-specific cues based on form issues detected.
+    private func generateFallbackFeedback(from analysis: FormAnalysis, exerciseType: SquatType) -> String {
+        if exerciseType == .barbell {
+            if analysis.issues.contains("Insufficient Depth") || analysis.depth < 0.45 {
+                return "There we go, now sit back and keep the bar over mid foot"
+            }
+            if analysis.issues.contains("Forward Lean") || abs(analysis.backAngle) > 30 {
+                return "Alright, strong effort, squeeze your upper back and keep your chest a bit prouder"
+            }
+            if analysis.issues.contains("Knees Caving In") {
+                return "Much better, solid effort - now push those knees out and keep the bar steady"
+            }
+            if analysis.depth >= 0.6 {
+                return "Nice depth, keep that bar steady and drive up through mid foot"
+            }
+            return "Nice control there - brace your core and keep that bar over mid foot"
+        } else {
+            // Bodyweight fallback cues
+            if analysis.issues.contains("Insufficient Depth") || analysis.depth < 0.45 {
+                return "There we go, nice control - now sit back a little deeper"
+            }
+            if analysis.issues.contains("Forward Lean") || abs(analysis.backAngle) > 30 {
+                return "Alright, good tempo - just keep that chest proud"
+            }
+            if analysis.issues.contains("Knees Caving In") {
+                return "Much better, solid effort - now push those knees out"
+            }
+            if analysis.issues.contains("Knees Bowing Out") {
+                return "Nice work staying steady - keep those knees tracking straight"
+            }
+            if analysis.depth >= 0.6 {
+                return "Great depth there - now drive through those heels"
+            }
+            return "Nice control there - just brace that core throughout"
         }
-        if analysis.issues.contains("Forward Lean") || abs(analysis.backAngle) > 30 {
-            return "Alright, good tempo - just keep that chest proud"
-        }
-        if analysis.issues.contains("Knees Caving In") {
-            return "Much better, solid effort - now push those knees out"
-        }
-        if analysis.issues.contains("Knees Bowing Out") {
-            return "Nice work staying steady - keep those knees tracking straight"
-        }
-        if analysis.depth >= 0.6 {
-            return "Great depth there - now drive through those heels"
-        }
-        return "Nice control there - just brace that core throughout"
     }
     
     // MARK: - Generic Response Detection
@@ -186,8 +275,16 @@ class OpenAICoachingManager: ObservableObject {
     }
     
     // MARK: - Combined Analysis and Natural Feedback
-    func analyzeAndGetNaturalFeedback(formAnalysis: FormAnalysis, completion: @escaping (String) -> Void) {
-        print("🤖 Starting natural feedback analysis")
+    
+    /// Main entry point for getting coaching feedback after a set.
+    /// Validates form analysis data, then generates and speaks exercise-specific feedback.
+    ///
+    /// - Parameters:
+    ///   - formAnalysis: Form analysis from OnDevicePoseManager
+    ///   - exerciseType: .bodyweight or .barbell for exercise-specific coaching
+    ///   - completion: Callback with the feedback string (speech is handled internally)
+    func analyzeAndGetNaturalFeedback(formAnalysis: FormAnalysis, exerciseType: SquatType, completion: @escaping (String) -> Void) {
+        print("🤖 Starting natural feedback analysis for \(exerciseType == .barbell ? "barbell" : "bodyweight") squat")
         
         // Check for valid data first
         if formAnalysis.repCount <= 0 || formAnalysis.summary.isEmpty {
@@ -197,7 +294,7 @@ class OpenAICoachingManager: ObservableObject {
             return
         }
         
-        getNaturalFeedback(formAnalysis: formAnalysis) { feedback in
+        getNaturalFeedback(formAnalysis: formAnalysis, exerciseType: exerciseType) { feedback in
             print("🤖 Received natural feedback: \(feedback)")
             // Speak the unified feedback
             self.speakFeedback(feedback)
@@ -205,10 +302,13 @@ class OpenAICoachingManager: ObservableObject {
         }
     }
     
-    // MARK: - Backward compatibility wrapper
-    // Previous API used throughout the app. Forward to the new natural feedback flow.
+    // MARK: - Backward Compatibility
+    
+    /// Legacy API wrapper. Defaults to bodyweight squat for backward compatibility.
+    /// New code should use `analyzeAndGetNaturalFeedback(formAnalysis:exerciseType:completion:)` directly.
+    @available(*, deprecated, message: "Use analyzeAndGetNaturalFeedback(formAnalysis:exerciseType:completion:) with explicit exerciseType")
     func analyzeAndGetFeedback(formAnalysis: FormAnalysis, isDetailed: Bool = false, completion: @escaping (String) -> Void) {
-        analyzeAndGetNaturalFeedback(formAnalysis: formAnalysis, completion: completion)
+        analyzeAndGetNaturalFeedback(formAnalysis: formAnalysis, exerciseType: .bodyweight, completion: completion)
     }
     
     // MARK: - Legacy Support (Updated)
@@ -220,7 +320,8 @@ class OpenAICoachingManager: ObservableObject {
             self.isRequestingFeedback = true
         }
         
-        let prompt = generateNaturalCoachingPrompt(summary: summary, isDetailed: isDetailed)
+        // Default to bodyweight for legacy support, but ideally this should be parameterized
+        let prompt = generateNaturalCoachingPrompt(summary: summary, isDetailed: isDetailed, exerciseType: .bodyweight)
         
         let requestBody: [String: Any] = [
             "model": "gpt-4",
@@ -304,9 +405,10 @@ class OpenAICoachingManager: ObservableObject {
         }.resume()
     }
     
-    private func generateNaturalCoachingPrompt(summary: String, isDetailed: Bool = false) -> String {
+    private func generateNaturalCoachingPrompt(summary: String, isDetailed: Bool = false, exerciseType: SquatType = .bodyweight) -> String {
+        let exerciseName = exerciseType == .barbell ? "barbell back squats" : "bodyweight squats"
         return """
-        You are an athletic trainer giving natural, conversational feedback for bodyweight squats.
+        You are an athletic trainer giving natural, conversational feedback for \(exerciseName).
 
         The user just completed a set:
         \(summary)
@@ -325,7 +427,8 @@ class OpenAICoachingManager: ObservableObject {
     @available(*, deprecated, message: "Use getNaturalFeedback instead for better user experience")
     func getTwoPointFeedback(formAnalysis: FormAnalysis, completion: @escaping (String, String) -> Void) {
         // Redirect to natural feedback and split for backward compatibility
-        getNaturalFeedback(formAnalysis: formAnalysis) { naturalFeedback in
+        // Default to bodyweight for backward compatibility
+        getNaturalFeedback(formAnalysis: formAnalysis, exerciseType: .bodyweight) { naturalFeedback in
             // Split the natural feedback if needed for legacy support
             let parts = naturalFeedback.components(separatedBy: ", but ")
             if parts.count >= 2 {

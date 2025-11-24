@@ -14,11 +14,9 @@ struct HomeScreenSpacing {
 /// exercise selector is still presented locally.
 struct HomeView: View {
     var onStartWorkout: (() -> Void)? = nil
-    @StateObject private var viewModel = WorkoutViewModel()
     @StateObject private var preferencesManager = UserPreferencesManager.shared
     @State private var showGoalSelector = false
     @State private var showExerciseSelection = false
-    @State private var showFeedback = false
     @State private var contentHeight: CGFloat = 0
     @State private var pulseGoal = false
     @State private var homeSelectedPlan: TrainingPlan? = nil
@@ -140,25 +138,6 @@ struct HomeView: View {
             .safeAreaInset(edge: .top) { 
                 Color.clear.frame(height: HomeScreenSpacing.topInset) 
             }
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button(action: {
-                        showFeedback = true
-                    }) {
-                        Image(systemName: "text.bubble")
-                            .font(.title2)
-                            .foregroundColor(.textSecondary)
-                    }
-                    
-                    Button(action: {
-                        // TODO: Navigate to settings
-                    }) {
-                        Image(systemName: "gearshape")
-                            .font(.title2)
-                            .foregroundColor(.textSecondary)
-                    }
-                }
-            }
             .preferredColorScheme(.dark)
             .navigationDestination(isPresented: Binding(
                 get: { homeSelectedPlan != nil },
@@ -173,9 +152,6 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showGoalSelector) {
                 GoalSelectorView(preferencesManager: preferencesManager, isPresented: $showGoalSelector)
-            }
-            .sheet(isPresented: $showFeedback) {
-                FeedbackView(viewModel: viewModel)
             }
         }
     }
