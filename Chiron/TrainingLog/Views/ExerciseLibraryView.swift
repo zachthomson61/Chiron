@@ -341,9 +341,13 @@ struct ExerciseLibraryView: View {
         if let existing = bodyweightSquatExercise {
             let expectedTargets: Set<MuscleGroup> = [.quadriceps, .glutes, .adductors]
             let currentTargets = Set(existing.primaryTargets)
-            if currentTargets != expectedTargets {
+            let expectedImageName = "BodyweightSquat"
+            let needsUpdate = currentTargets != expectedTargets || existing.imageName != expectedImageName
+            
+            if needsUpdate {
                 existing.primaryTargets = [.quadriceps, .glutes, .adductors]
                 existing.secondaryTargets = []
+                existing.imageName = expectedImageName
                 try? ctx.save()
             }
             return
@@ -355,7 +359,7 @@ struct ExerciseLibraryView: View {
             primaryTargets: [.quadriceps, .glutes, .adductors],
             secondaryTargets: [],
             difficulty: .beginner,
-            imageName: "figure.strengthtraining.traditional"
+            imageName: "BodyweightSquat"
         )
         ctx.insert(squat)
         try? ctx.save()
@@ -385,10 +389,14 @@ struct ExerciseLibraryView: View {
         if let existing = deadliftExercise {
             let expectedTargets: Set<MuscleGroup> = [.glutes, .hamstrings, .lowerBack]
             let currentTargets = Set(existing.primaryTargets)
-            if currentTargets != expectedTargets || existing.difficulty != .expert {
+            let expectedImageName = "Deadlift"
+            let needsUpdate = currentTargets != expectedTargets || existing.difficulty != .expert || existing.imageName != expectedImageName
+            
+            if needsUpdate {
                 existing.primaryTargets = [.glutes, .hamstrings, .lowerBack]
                 existing.secondaryTargets = []
                 existing.difficulty = .expert
+                existing.imageName = expectedImageName
                 try? ctx.save()
             }
             return
@@ -400,7 +408,7 @@ struct ExerciseLibraryView: View {
             primaryTargets: [.glutes, .hamstrings, .lowerBack],
             secondaryTargets: [],
             difficulty: .expert,
-            imageName: "figure.strengthtraining.traditional"
+            imageName: "Deadlift"
         )
         ctx.insert(deadlift)
         try? ctx.save()
@@ -419,13 +427,17 @@ struct ExerciseLibraryView: View {
             let expectedSecondaryTargets: Set<MuscleGroup> = []
             let currentPrimaryTargets = Set(existing.primaryTargets)
             let currentSecondaryTargets = Set(existing.secondaryTargets)
-            
-            if currentPrimaryTargets != expectedPrimaryTargets || 
+            let expectedImageName = "BarbellBenchPress"
+            let needsUpdate = currentPrimaryTargets != expectedPrimaryTargets || 
                currentSecondaryTargets != expectedSecondaryTargets || 
-               existing.difficulty != .intermediate {
+               existing.difficulty != .intermediate ||
+               existing.imageName != expectedImageName
+            
+            if needsUpdate {
                 existing.primaryTargets = [.chest, .frontDelts, .triceps]
                 existing.secondaryTargets = []
                 existing.difficulty = .intermediate
+                existing.imageName = expectedImageName
                 try? ctx.save()
             }
             return
@@ -437,7 +449,7 @@ struct ExerciseLibraryView: View {
             primaryTargets: [.chest, .frontDelts, .triceps],
             secondaryTargets: [],
             difficulty: .intermediate,
-            imageName: "figure.strengthtraining.traditional"
+            imageName: "BarbellBenchPress"
         )
         ctx.insert(benchPress)
         try? ctx.save()
@@ -454,10 +466,14 @@ struct ExerciseLibraryView: View {
         if let existing = romanianDeadliftExercise {
             let expectedTargets: Set<MuscleGroup> = [.glutes, .hamstrings, .lowerBack]
             let currentTargets = Set(existing.primaryTargets)
-            if currentTargets != expectedTargets || existing.difficulty != .intermediate {
+            let expectedImageName = "RomanianDeadlift"
+            let needsUpdate = currentTargets != expectedTargets || existing.difficulty != .intermediate || existing.imageName != expectedImageName
+            
+            if needsUpdate {
                 existing.primaryTargets = [.glutes, .hamstrings, .lowerBack]
                 existing.secondaryTargets = []
                 existing.difficulty = .intermediate
+                existing.imageName = expectedImageName
                 try? ctx.save()
             }
             return
@@ -469,7 +485,7 @@ struct ExerciseLibraryView: View {
             primaryTargets: [.glutes, .hamstrings, .lowerBack],
             secondaryTargets: [],
             difficulty: .intermediate,
-            imageName: "figure.strengthtraining.traditional"
+            imageName: "RomanianDeadlift"
         )
         ctx.insert(rdl)
         try? ctx.save()
@@ -611,9 +627,18 @@ private struct ExerciseThumbnail: View {
     var body: some View {
         ZStack {
             if let imageName {
-                Image(systemName: imageName)
-                    .font(.system(size: 48))
-                    .foregroundStyle(Color.white.opacity(0.8))
+                // Check if it's a system icon (contains a dot, typical of SF Symbols)
+                if imageName.contains(".") && !imageName.hasSuffix(".jpg") && !imageName.hasSuffix(".png") {
+                    Image(systemName: imageName)
+                        .font(.system(size: 48))
+                        .foregroundStyle(Color.white.opacity(0.8))
+                } else {
+                    // Regular image file - use robust loading approach
+                    loadedImage(for: imageName)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .clipped()
+                }
             } else {
                 Image(systemName: "figure.strengthtraining.traditional")
                     .font(.system(size: 48))
@@ -623,6 +648,44 @@ private struct ExerciseThumbnail: View {
         .frame(width: 100, height: 100)
         .background(Color.white.opacity(0.12))
         .cornerRadius(12)
+        .clipped()
+    }
+    
+    /// Robust image loading that searches asset catalogs and bundle resources
+    private func loadedImage(for name: String) -> Image {
+        #if os(iOS)
+        // Remove extension if present for asset catalog lookup
+        let baseName = name.replacingOccurrences(of: ".jpg", with: "").replacingOccurrences(of: ".png", with: "")
+        
+        // Try standard UIImage(named:) which searches asset catalogs and bundle images
+        if let ui = UIImage(named: baseName) {
+            return Image(uiImage: ui).renderingMode(.original)
+        }
+        // Try with original name (in case it's in bundle with extension)
+        if let ui = UIImage(named: name) {
+            return Image(uiImage: ui).renderingMode(.original)
+        }
+        // Try explicit .jpg in main bundle
+        if let url = Bundle.main.url(forResource: baseName, withExtension: "jpg"),
+           let ui = UIImage(contentsOfFile: url.path) {
+            return Image(uiImage: ui).renderingMode(.original)
+        }
+        // Try explicit .png in main bundle
+        if let url = Bundle.main.url(forResource: baseName, withExtension: "png"),
+           let ui = UIImage(contentsOfFile: url.path) {
+            return Image(uiImage: ui).renderingMode(.original)
+        }
+        // Try with JPG extension in name
+        if name.hasSuffix(".jpg"), let url = Bundle.main.url(forResource: baseName, withExtension: "jpg"),
+           let ui = UIImage(contentsOfFile: url.path) {
+            return Image(uiImage: ui).renderingMode(.original)
+        }
+        // Fallback placeholder - use a visible system icon
+        return Image(systemName: "figure.strengthtraining.traditional")
+        #else
+        let baseName = name.replacingOccurrences(of: ".jpg", with: "").replacingOccurrences(of: ".png", with: "")
+        return Image(baseName)
+        #endif
     }
 }
 
