@@ -138,7 +138,7 @@ struct DeadliftOverview: View {
         .toolbar(.hidden, for: .tabBar)
         .preferredColorScheme(.dark)
         .fullScreenCover(isPresented: $showCameraSetup) {
-            CameraSetupView()
+            CameraSetupView(exerciseType: .deadlift, viewModel: viewModel)
         }
     }
 }

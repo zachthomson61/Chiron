@@ -140,7 +140,7 @@ struct BarbellRowOverview: View {
         .toolbar(.hidden, for: .tabBar)
         .preferredColorScheme(.dark)
         .fullScreenCover(isPresented: $showCameraSetup) {
-            CameraSetupView()
+            CameraSetupView(exerciseType: .barbellRow, viewModel: viewModel)
         }
     }
 }

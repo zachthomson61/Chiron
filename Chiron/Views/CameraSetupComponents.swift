@@ -4,8 +4,8 @@
 //
 //  Shared UI components for camera setup views.
 //
-//  These components are reused by both BodyweightSquatCameraSetupView and BarbellBackSquatCameraSetupView
-//  to avoid code duplication. They handle the camera preview and segmentation overlay display.
+//  These components are used by the unified CameraSetupView to handle the camera preview
+//  and segmentation overlay display. They work with any exercise type.
 //
 //  Components:
 //  - SegmentationOverlayView: Displays the colored silhouette overlay (green/yellow/red based on setup quality)
@@ -125,7 +125,12 @@ final class SetupCameraPreviewView: UIView {
         videoDelegate?.processor = processor
     }
     
+    /// Rebinds the video output delegate to segmentation processing.
+    /// Only rebinds if in setup mode to avoid overriding the pose analysis delegate during workouts.
     func rebindSegmentationDelegate() {
+        guard SharedCameraSessionManager.shared.isInSetupMode else {
+            return
+        }
         guard let videoOutput = SharedCameraSessionManager.shared.getVideoDataOutput() else { return }
         bindSegmentationDelegate(to: videoOutput)
     }

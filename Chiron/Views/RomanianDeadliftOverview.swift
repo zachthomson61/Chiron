@@ -141,7 +141,7 @@ struct RomanianDeadliftOverview: View {
         .toolbar(.hidden, for: .tabBar)
         .preferredColorScheme(.dark)
         .fullScreenCover(isPresented: $showCameraSetup) {
-            CameraSetupView()
+            CameraSetupView(exerciseType: .romanianDeadlift, viewModel: viewModel)
         }
     }
 }

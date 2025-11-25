@@ -2,21 +2,10 @@
 //  BodyweightSquatActiveWorkoutView.swift
 //  Chiron
 //
-//  Active workout view for bodyweight squat exercise.
+//  DEPRECATED: This view has been replaced by the unified ActiveWorkoutView.
+//  Use ActiveWorkoutView(exerciseType: .bodyweightSquat, viewModel: viewModel) instead.
 //
-//  Architecture:
-//  - Shares the same pose pipeline (OnDevicePoseManager) with barbell squats
-//  - Differentiated only by SquatType (.bodyweight vs .barbell)
-//  - Sets OnDevicePoseManager.squatType = .bodyweight on appear
-//  - Uses SharedCameraSessionManager for camera session (shared across all exercises)
-//  - Passes .bodyweight to OpenAI coaching manager for exercise-specific feedback
-//
-//  Features:
-//  - Real-time rep counting and form analysis
-//  - Automatic set detection via inactivity monitoring
-//  - End-of-set feedback using OpenAI with bodyweight-specific coaching cues
-//  - Rest timer between sets
-//  - Completed sets display
+//  This file is kept for reference but should not be used in new code.
 //
 
 import SwiftUI

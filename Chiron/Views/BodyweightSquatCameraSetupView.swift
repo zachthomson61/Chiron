@@ -2,19 +2,10 @@
 //  BodyweightSquatCameraSetupView.swift
 //  Chiron
 //
-//  Camera setup view for bodyweight squat exercise.
+//  DEPRECATED: This view has been replaced by the unified CameraSetupView.
+//  Use CameraSetupView(exerciseType: .bodyweightSquat, viewModel: viewModel) instead.
 //
-//  Purpose:
-//  - Guides user to position phone correctly (6-8' away, 45° angle, waist-to-chest height, feet in view)
-//  - Displays real-time segmentation overlay with color feedback (green/yellow/red) based on setup quality
-//  - Sets exercise mode to .bodyweight for segmentation scoring
-//  - Navigates to BodyweightSquatActiveWorkoutView when user taps "Start Bodyweight Squat"
-//
-//  Architecture:
-//  - Uses shared camera session from SharedCameraSessionManager
-//  - Uses SegmentationProcessor with exerciseMode = .bodyweight for quality scoring
-//  - Sets OnDevicePoseManager.squatType = .bodyweight before navigation
-//  - Setup-only view (workout happens in separate active workout view)
+//  This file is kept for reference but should not be used in new code.
 //
 
 import SwiftUI

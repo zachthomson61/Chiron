@@ -130,7 +130,7 @@ struct BarbellBackSquatOverview: View {
         .toolbar(.hidden, for: .tabBar)
         .preferredColorScheme(.dark)
         .fullScreenCover(isPresented: $showCameraSetup) {
-            BarbellBackSquatCameraSetupView(viewModel: viewModel)
+            CameraSetupView(exerciseType: .barbellBackSquat, viewModel: viewModel)
         }
     }
 }

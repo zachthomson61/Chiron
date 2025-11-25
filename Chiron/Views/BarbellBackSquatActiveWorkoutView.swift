@@ -2,21 +2,10 @@
 //  BarbellBackSquatActiveWorkoutView.swift
 //  Chiron
 //
-//  Active workout view for barbell back squat exercise.
+//  DEPRECATED: This view has been replaced by the unified ActiveWorkoutView.
+//  Use ActiveWorkoutView(exerciseType: .barbellBackSquat, viewModel: viewModel) instead.
 //
-//  Architecture:
-//  - Shares the same pose pipeline (OnDevicePoseManager) with bodyweight squats
-//  - Differentiated only by SquatType (.barbell vs .bodyweight)
-//  - Sets OnDevicePoseManager.squatType = .barbell on appear
-//  - Uses SharedCameraSessionManager for camera session (shared across all exercises)
-//  - Passes .barbell to OpenAI coaching manager for exercise-specific feedback
-//
-//  Features:
-//  - Real-time rep counting and form analysis
-//  - Automatic set detection via inactivity monitoring
-//  - End-of-set feedback using OpenAI with barbell-specific coaching cues (bar position, bracing, etc.)
-//  - Rest timer between sets
-//  - Completed sets display
+//  This file is kept for reference but should not be used in new code.
 //
 
 import SwiftUI

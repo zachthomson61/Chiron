@@ -85,6 +85,12 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
         return videoDataOutput
     }
     
+    /// Returns `true` if currently in setup mode (segmentation), `false` if in workout mode (pose analysis).
+    /// Used by camera preview views to determine whether to bind segmentation or pose analysis delegates.
+    var isInSetupMode: Bool {
+        return isSetupMode
+    }
+    
     /// Switches camera session to workout mode for pose analysis.
     ///
     /// **Important**: SquatType must be set by the calling camera setup view before this method is called:

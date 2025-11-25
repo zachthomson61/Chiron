@@ -2,19 +2,10 @@
 //  BarbellBackSquatCameraSetupView.swift
 //  Chiron
 //
-//  Camera setup view for barbell back squat exercise.
+//  DEPRECATED: This view has been replaced by the unified CameraSetupView.
+//  Use CameraSetupView(exerciseType: .barbellBackSquat, viewModel: viewModel) instead.
 //
-//  Purpose:
-//  - Guides user to position phone correctly for barbell squats (7-9' away, 45° to front, mid-chest height, feet + barbell in frame)
-//  - Displays real-time segmentation overlay with enhanced quality scoring for barbell-specific requirements
-//  - Sets exercise mode to .barbell for enhanced segmentation scoring (distance, height, feet visibility)
-//  - Navigates to BarbellBackSquatActiveWorkoutView when user taps "Start Barbell Back Squat"
-//
-//  Architecture:
-//  - Uses shared camera session from SharedCameraSessionManager
-//  - Uses SegmentationProcessor with exerciseMode = .barbell for enhanced quality scoring
-//  - Sets OnDevicePoseManager.squatType = .barbell before navigation
-//  - Setup-only view (workout happens in separate active workout view)
+//  This file is kept for reference but should not be used in new code.
 //
 
 import SwiftUI

@@ -136,7 +136,7 @@ struct BarbellBenchPressOverview: View {
         .toolbar(.hidden, for: .tabBar)
         .preferredColorScheme(.dark)
         .fullScreenCover(isPresented: $showCameraSetup) {
-            CameraSetupView()
+            CameraSetupView(exerciseType: .barbellBenchPress, viewModel: viewModel)
         }
     }
 }
