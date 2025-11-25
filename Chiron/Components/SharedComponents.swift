@@ -7,11 +7,11 @@ struct InstructionRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.subheadline)
+                .font(.neueMontrealRegular(size: 15))
                 .foregroundColor(.primaryPurple)
                 .frame(width: 20)
             Text(text)
-                .font(.subheadline)
+                .font(.neueMontrealRegular(size: 15))
                 .foregroundColor(.textPrimary)
             Spacer()
         }
@@ -26,17 +26,16 @@ struct FormIndicator: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
-                .font(.subheadline)
+                .font(.neueMontrealRegular(size: 15))
                 .foregroundColor(status.color)
                 .frame(width: 20)
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.caption2)
+                    .font(.neueMontrealRegular(size: 11))
                     .foregroundColor(.textSecondary)
                 Text(status.text)
-                    .font(.caption)
-                    .fontWeight(.semibold)
+                    .font(.neueMontrealSemiBold(size: 12))
                     .foregroundColor(status.color)
             }
             Spacer()

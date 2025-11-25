@@ -19,11 +19,10 @@ struct CloudConfigView: View {
                     // Header
                     VStack(spacing: 8) {
                         Text("Cloud Configuration")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
+                            .font(.neueMontrealBold(size: 34))
                             .foregroundColor(.white)
                         Text("Configure your Cloud Run and OpenAI API settings")
-                            .font(.subheadline)
+                            .font(.neueMontrealRegular(size: 15))
                             .foregroundColor(.gray)
                     }
                     .padding(.top)
@@ -33,35 +32,35 @@ struct CloudConfigView: View {
                         // Cloud Run Configuration
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Cloud Run URL")
-                                .font(.headline)
+                                .font(.neueMontrealBold(size: 17))
                                 .foregroundColor(.white)
                             TextField("https://your-service.run.app", text: $cloudRunURL)
                                 .textFieldStyle(RoundedBorderTextFieldStyle())
                                 .autocapitalization(.none)
                                 .disableAutocorrection(true)
                             Text("Your Cloud Run service URL for MediaPipe pose analysis")
-                                .font(.caption)
+                                .font(.neueMontrealRegular(size: 12))
                                 .foregroundColor(.gray)
                         }
                         
                         // OpenAI API Configuration
                         VStack(alignment: .leading, spacing: 8) {
                             Text("OpenAI API Key")
-                                .font(.headline)
+                                .font(.neueMontrealBold(size: 17))
                                 .foregroundColor(.white)
                             SecureField("sk-...", text: $openAIAPIKey)
                                 .textFieldStyle(RoundedBorderTextFieldStyle())
                                 .autocapitalization(.none)
                                 .disableAutocorrection(true)
                             Text("Your OpenAI API key for LLM feedback generation")
-                                .font(.caption)
+                                .font(.neueMontrealRegular(size: 12))
                                 .foregroundColor(.gray)
                         }
                         
                         // Architecture Diagram
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Architecture Flow")
-                                .font(.headline)
+                                .font(.neueMontrealBold(size: 17))
                                 .foregroundColor(.white)
                             
                             VStack(alignment: .leading, spacing: 8) {
@@ -84,8 +83,7 @@ struct CloudConfigView: View {
                     VStack(spacing: 12) {
                         Button(action: saveConfiguration) {
                             Text("Save Configuration")
-                                .font(.headline)
-                                .fontWeight(.semibold)
+                                .font(.neueMontrealSemiBold(size: 17))
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 50)
@@ -95,8 +93,7 @@ struct CloudConfigView: View {
                         
                         Button(action: testConfiguration) {
                             Text("Test Configuration")
-                                .font(.headline)
-                                .fontWeight(.semibold)
+                                .font(.neueMontrealSemiBold(size: 17))
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 50)
@@ -106,8 +103,7 @@ struct CloudConfigView: View {
                         
                         Button(action: clearConfiguration) {
                             Text("Clear Configuration")
-                                .font(.headline)
-                                .fontWeight(.semibold)
+                                .font(.neueMontrealSemiBold(size: 17))
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 50)
@@ -215,18 +211,16 @@ struct ArchitectureStep: View {
                     .fill(Color.blue)
                     .frame(width: 30, height: 30)
                 Text(number)
-                    .font(.caption)
-                    .fontWeight(.bold)
+                    .font(.neueMontrealBold(size: 12))
                     .foregroundColor(.white)
             }
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.neueMontrealSemiBold(size: 15))
                     .foregroundColor(.white)
                 Text(description)
-                    .font(.caption)
+                    .font(.neueMontrealRegular(size: 12))
                     .foregroundColor(.gray)
             }
             

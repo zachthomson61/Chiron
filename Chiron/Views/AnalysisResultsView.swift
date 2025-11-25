@@ -11,12 +11,11 @@ struct AnalysisResultsView: View {
                     // Header
                     VStack(spacing: 8) {
                         Text("Form Analysis")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
+                            .font(.neueMontrealBold(size: 34))
                             .foregroundColor(.white)
                         
                         Text("AI-powered form feedback")
-                            .font(.subheadline)
+                            .font(.neueMontrealRegular(size: 15))
                             .foregroundColor(.gray)
                     }
                     .padding(.top)
@@ -25,7 +24,7 @@ struct AnalysisResultsView: View {
                     if let averageScore = analysisResults["average_form_score"] as? Double {
                         VStack(spacing: 12) {
                             Text("Overall Form Score")
-                                .font(.headline)
+                                .font(.neueMontrealBold(size: 17))
                                 .foregroundColor(.white)
                             
                             ZStack {
@@ -42,11 +41,10 @@ struct AnalysisResultsView: View {
                                 
                                 VStack {
                                     Text("\(Int(averageScore * 100))")
-                                        .font(.title)
-                                        .fontWeight(.bold)
+                                        .font(.neueMontrealBold(size: 28))
                                         .foregroundColor(.white)
                                     Text("%")
-                                        .font(.caption)
+                                        .font(.neueMontrealRegular(size: 12))
                                         .foregroundColor(.gray)
                                 }
                             }
@@ -60,8 +58,7 @@ struct AnalysisResultsView: View {
                     if let repAnalyses = analysisResults["rep_analyses"] as? [[String: Any]] {
                         VStack(alignment: .leading, spacing: 16) {
                             Text("Rep Breakdown")
-                                .font(.headline)
-                                .fontWeight(.semibold)
+                                .font(.neueMontrealBold(size: 17))
                                 .foregroundColor(.white)
                                 .padding(.horizontal)
                             
@@ -77,8 +74,7 @@ struct AnalysisResultsView: View {
                     if let feedback = analysisResults["overall_feedback"] as? [String] {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Overall Feedback")
-                                .font(.headline)
-                                .fontWeight(.semibold)
+                                .font(.neueMontrealBold(size: 17))
                                 .foregroundColor(.white)
                                 .padding(.horizontal)
                             
@@ -87,9 +83,9 @@ struct AnalysisResultsView: View {
                                     HStack(alignment: .top, spacing: 8) {
                                         Image(systemName: "checkmark.circle.fill")
                                             .foregroundColor(.green)
-                                            .font(.caption)
+                                            .font(.neueMontrealRegular(size: 12))
                                         Text(item)
-                                            .font(.subheadline)
+                                            .font(.neueMontrealRegular(size: 15))
                                             .foregroundColor(.white)
                                         Spacer()
                                     }
@@ -106,8 +102,7 @@ struct AnalysisResultsView: View {
                     if let recommendations = analysisResults["recommendations"] as? [String] {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Recommendations")
-                                .font(.headline)
-                                .fontWeight(.semibold)
+                                .font(.neueMontrealBold(size: 17))
                                 .foregroundColor(.white)
                                 .padding(.horizontal)
                             
@@ -116,9 +111,9 @@ struct AnalysisResultsView: View {
                                     HStack(alignment: .top, spacing: 8) {
                                         Image(systemName: "lightbulb.fill")
                                             .foregroundColor(.yellow)
-                                            .font(.caption)
+                                            .font(.neueMontrealRegular(size: 12))
                                         Text(item)
-                                            .font(.subheadline)
+                                            .font(.neueMontrealRegular(size: 15))
                                             .foregroundColor(.white)
                                         Spacer()
                                     }
@@ -173,15 +168,13 @@ struct RepAnalysisCard: View {
         VStack(spacing: 12) {
             HStack {
                 Text("Rep \(repNumber)")
-                    .font(.headline)
-                    .fontWeight(.semibold)
+                    .font(.neueMontrealBold(size: 17))
                     .foregroundColor(.white)
                 Spacer()
                 
                 if let overallScore = rep["overall_score"] as? Double {
                     Text("\(Int(overallScore * 100))%")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+                        .font(.neueMontrealSemiBold(size: 15))
                         .foregroundColor(scoreColor(overallScore))
                 }
             }
@@ -211,9 +204,9 @@ struct RepAnalysisCard: View {
                         HStack(alignment: .top, spacing: 4) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(.orange)
-                                .font(.caption)
+                                .font(.neueMontrealRegular(size: 12))
                             Text(issue)
-                                .font(.caption)
+                                .font(.neueMontrealRegular(size: 12))
                                 .foregroundColor(.orange)
                         }
                     }
@@ -245,12 +238,11 @@ struct ScoreIndicator: View {
     var body: some View {
         VStack(spacing: 4) {
             Text(title)
-                .font(.caption)
+                .font(.neueMontrealRegular(size: 12))
                 .foregroundColor(.gray)
             
             Text("\(Int(score * 100))%")
-                .font(.caption)
-                .fontWeight(.medium)
+                .font(.neueMontrealSemiBold(size: 12))
                 .foregroundColor(scoreColor(score))
         }
     }

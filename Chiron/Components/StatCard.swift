@@ -10,16 +10,15 @@ struct StatCard: View {
             HStack {
                 Image(systemName: icon)
                     .foregroundColor(color)
-                    .font(.title2)
+                    .font(.neueMontrealBold(size: 22))
                 Spacer()
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text(value)
-                    .font(.title)
-                    .fontWeight(.bold)
+                    .font(.neueMontrealBold(size: 28))
                     .foregroundColor(.white)
                 Text(title)
-                    .font(.caption)
+                    .font(.neueMontrealRegular(size: 12))
                     .foregroundColor(.gray)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -41,16 +40,15 @@ struct FormStatusIndicator: View {
                     .fill(status.color.opacity(0.2))
                     .frame(width: 60, height: 60)
                 Image(systemName: icon)
-                    .font(.title2)
+                    .font(.neueMontrealBold(size: 22))
                     .foregroundColor(status.color)
             }
             VStack(spacing: 2) {
                 Text(title)
-                    .font(.caption)
+                    .font(.neueMontrealRegular(size: 12))
                     .foregroundColor(.gray)
                 Text(status.text)
-                    .font(.caption)
-                    .fontWeight(.semibold)
+                    .font(.neueMontrealSemiBold(size: 12))
                     .foregroundColor(status.color)
             }
         }
@@ -63,14 +61,13 @@ struct FeedbackCardView: View {
         HStack(spacing: 12) {
             Image(systemName: feedback.type.icon)
                 .foregroundColor(feedback.type.color)
-                .font(.title3)
+                .font(.neueMontrealBold(size: 20))
             VStack(alignment: .leading, spacing: 4) {
                 Text(feedback.title)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.neueMontrealSemiBold(size: 15))
                     .foregroundColor(feedback.type.color)
                 Text(feedback.message)
-                    .font(.caption)
+                    .font(.neueMontrealRegular(size: 12))
                     .foregroundColor(.gray)
             }
             Spacer()
@@ -88,9 +85,9 @@ struct ChecklistItem: View {
         HStack(spacing: 12) {
             Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
                 .foregroundColor(isCompleted ? .green : .gray)
-                .font(.title3)
+                .font(.neueMontrealBold(size: 20))
             Text(text)
-                .font(.subheadline)
+                .font(.neueMontrealRegular(size: 15))
                 .foregroundColor(isCompleted ? .white : .gray)
             Spacer()
         }

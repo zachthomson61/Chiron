@@ -81,10 +81,10 @@ struct BarbellBackSquatActiveWorkoutView: View {
                             ForEach(Array(completedSetReps.enumerated()), id: \.offset) { idx, reps in
                                 VStack(spacing: 4) {
                                     Text("\(reps)")
-                                        .font(.system(size: 42, weight: .bold, design: .rounded))
+                                        .font(.neueMontrealBold(size: 42))
                                         .foregroundColor(.white)
                                     Text("Set \(idx + 1)")
-                                        .font(.system(size: 14, weight: .semibold))
+                                        .font(.neueMontrealSemiBold(size: 14))
                                         .foregroundColor(.white.opacity(0.8))
                                 }
                                 .padding(.horizontal, 20)
@@ -120,11 +120,10 @@ struct BarbellBackSquatActiveWorkoutView: View {
                     // Large Rep Counter in Header
                     VStack(spacing: 8) {
                         Text("\(currentRepCount)")
-                            .font(.system(size: 140, weight: .bold, design: .rounded))
-                            .fontWeight(.bold)
+                            .font(.neueMontrealBold(size: 140))
                             .foregroundColor(.textPrimary)
                         Text("Reps")
-                            .font(.system(size: 28, weight: .semibold))
+                            .font(.neueMontrealSemiBold(size: 28))
                             .foregroundColor(.textSecondary)
                     }
                     .shadow(color: .black, radius: 2, x: 1, y: 1)
@@ -151,7 +150,7 @@ struct BarbellBackSquatActiveWorkoutView: View {
                         showSpeechControl = true
                     }) {
                         Image(systemName: SpeechManager.shared.isSpeaking ? "speaker.wave.2.fill" : "speaker.wave.2")
-                            .font(.title2)
+                            .font(.neueMontrealBold(size: 22))
                             .foregroundColor(SpeechManager.shared.isSpeaking ? .green : .gray)
                     }
                     .shadow(color: .black, radius: 2, x: 1, y: 1)
@@ -161,7 +160,7 @@ struct BarbellBackSquatActiveWorkoutView: View {
                         showPoseVisualization.toggle()
                     }) {
                         Image(systemName: showPoseVisualization ? "eye.fill" : "eye")
-                            .font(.title2)
+                            .font(.neueMontrealBold(size: 22))
                             .foregroundColor(showPoseVisualization ? .green : .gray)
                     }
                     .shadow(color: .black, radius: 2, x: 1, y: 1)
@@ -169,14 +168,13 @@ struct BarbellBackSquatActiveWorkoutView: View {
                     // Automatic Status Display
                     VStack(spacing: 4) {
                         Text(getWorkoutStatusText())
-                            .font(OnDevicePoseManager.shared.workoutState == .waiting ? .subheadline : .headline)
-                            .fontWeight(.semibold)
+                            .font(OnDevicePoseManager.shared.workoutState == .waiting ? .neueMontrealRegular(size: 15) : .neueMontrealBold(size: 17))
                             .foregroundColor(.white)
                             .multilineTextAlignment(.center)
                         
                         if OnDevicePoseManager.shared.workoutState == .resting {
                             Text("Rest: \(formatRestTime())")
-                                .font(.subheadline)
+                                .font(.neueMontrealRegular(size: 15))
                                 .foregroundColor(.gray)
                         }
                     }
@@ -189,7 +187,7 @@ struct BarbellBackSquatActiveWorkoutView: View {
                         // TODO: Reset current set
                     }) {
                         Image(systemName: "arrow.clockwise")
-                            .font(.title2)
+                            .font(.neueMontrealBold(size: 22))
                             .foregroundColor(.gray)
                     }
                     .shadow(color: .black, radius: 2, x: 1, y: 1)
@@ -201,8 +199,7 @@ struct BarbellBackSquatActiveWorkoutView: View {
                     finishExercise()
                 }) {
                     Text("Finish Barbell Back Squat")
-                        .font(.headline)
-                        .fontWeight(.semibold)
+                        .font(.neueMontrealSemiBold(size: 17))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 48)

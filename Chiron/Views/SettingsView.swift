@@ -22,7 +22,7 @@ struct SettingsView: View {
                 }
                 
                 Text("Choose how you want to receive feedback during workouts")
-                    .font(.caption)
+                    .font(.neueMontrealRegular(size: 12))
                     .foregroundColor(.textSecondary)
             }
             

@@ -16,12 +16,11 @@ struct GoalSelectorView: View {
                     // Header
                     VStack(spacing: 8) {
                         Text("What's your primary goal?")
-                            .font(.title2)
-                            .fontWeight(.bold)
+                            .font(.neueMontrealBold(size: 22))
                             .foregroundColor(.textPrimary)
                         
                         Text("We'll customize your training to help you achieve it")
-                            .font(.subheadline)
+                            .font(.neueMontrealRegular(size: 15))
                             .foregroundColor(.textSecondary)
                             .multilineTextAlignment(.center)
                     }
@@ -48,8 +47,7 @@ struct GoalSelectorView: View {
                     // Save Button
                     Button(action: saveGoal) {
                         Text("Save Goal")
-                            .font(.headline)
-                            .fontWeight(.semibold)
+                            .font(.neueMontrealSemiBold(size: 17))
                             .foregroundColor(.textPrimary)
                             .frame(maxWidth: .infinity)
                             .frame(height: 56)
@@ -76,7 +74,7 @@ struct GoalSelectorView: View {
                     Button("Cancel") {
                         dismiss()
                     }
-                    .font(.body)
+                    .font(.neueMontrealRegular(size: 17))
                     .foregroundColor(.textSecondary)
                 }
             }
@@ -122,11 +120,11 @@ struct GoalOptionCard: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(goal.displayName)
-                            .font(.headline)
+                            .font(.neueMontrealBold(size: 17))
                             .foregroundColor(.textPrimary)
                         
                         Text(goal.description)
-                            .font(.caption)
+                            .font(.neueMontrealRegular(size: 12))
                             .foregroundColor(.textSecondary)
                             .lineLimit(2)
                     }

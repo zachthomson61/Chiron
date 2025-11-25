@@ -12,8 +12,7 @@ struct FeedbackView: View {
                 // Header
                 VStack(spacing: 12) {
                     Text("Feedback History")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
+                        .font(.neueMontrealBold(size: 34))
                         .foregroundColor(.white)
                     
                     // Feedback Summary
@@ -144,10 +143,10 @@ struct FeedbackSummaryCard: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Total Feedback")
-                        .font(.headline)
+                        .font(.neueMontrealBold(size: 17))
                         .foregroundColor(.white)
                     Text("\(summary.totalFeedback) items")
-                        .font(.subheadline)
+                        .font(.neueMontrealRegular(size: 15))
                         .foregroundColor(.gray)
                 }
                 Spacer()
@@ -164,7 +163,7 @@ struct FeedbackSummaryCard: View {
                         }
                     }
                     Text(summary.hasIssues ? "Issues Found" : "All Good")
-                        .font(.caption)
+                        .font(.neueMontrealRegular(size: 12))
                         .foregroundColor(summary.hasIssues ? .orange : .green)
                 }
             }
@@ -175,12 +174,12 @@ struct FeedbackSummaryCard: View {
                     VStack(spacing: 4) {
                         Image(systemName: type.icon)
                             .foregroundColor(type.color)
-                            .font(.title2)
+                            .font(.neueMontrealBold(size: 22))
                         Text("\(summary.feedbackByType[type] ?? 0)")
-                            .font(.caption)
+                            .font(.neueMontrealRegular(size: 12))
                             .foregroundColor(.white)
                         Text(type.displayName)
-                            .font(.caption2)
+                            .font(.neueMontrealRegular(size: 11))
                             .foregroundColor(.gray)
                     }
                 }
@@ -201,33 +200,33 @@ struct FeedbackDetailCard: View {
             HStack {
                 Image(systemName: feedback.type.icon)
                     .foregroundColor(feedback.type.color)
-                    .font(.title3)
+                    .font(.neueMontrealBold(size: 20))
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(feedback.title)
-                        .font(.headline)
+                        .font(.neueMontrealBold(size: 17))
                         .foregroundColor(.white)
                     
                     HStack(spacing: 8) {
                         Text(feedback.type.displayName)
-                            .font(.caption)
+                            .font(.neueMontrealRegular(size: 12))
                             .foregroundColor(feedback.type.color)
                         
                         Text("•")
-                            .font(.caption)
+                            .font(.neueMontrealRegular(size: 12))
                             .foregroundColor(.gray)
                         
                         Text(feedback.severity.displayName)
-                            .font(.caption)
+                            .font(.neueMontrealRegular(size: 12))
                             .foregroundColor(feedback.severity.color)
                         
                         if let repNumber = feedback.repNumber {
                             Text("•")
-                                .font(.caption)
+                                .font(.neueMontrealRegular(size: 12))
                                 .foregroundColor(.gray)
                             
                             Text("Rep \(repNumber)")
-                                .font(.caption)
+                                .font(.neueMontrealRegular(size: 12))
                                 .foregroundColor(.blue)
                         }
                     }
@@ -236,13 +235,13 @@ struct FeedbackDetailCard: View {
                 Spacer()
                 
                 Text(feedback.timestamp, style: .time)
-                    .font(.caption)
+                    .font(.neueMontrealRegular(size: 12))
                     .foregroundColor(.gray)
             }
             
             // Message
             Text(feedback.message)
-                .font(.subheadline)
+                .font(.neueMontrealRegular(size: 15))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.leading)
             
@@ -250,12 +249,11 @@ struct FeedbackDetailCard: View {
             if let formScore = feedback.formScore {
                 HStack {
                     Text("Form Score:")
-                        .font(.caption)
+                        .font(.neueMontrealRegular(size: 12))
                         .foregroundColor(.gray)
                     
                     Text("\(Int(formScore * 100))%")
-                        .font(.caption)
-                        .fontWeight(.medium)
+                        .font(.neueMontrealSemiBold(size: 12))
                         .foregroundColor(scoreColor(formScore))
                     
                     Spacer()
@@ -266,16 +264,16 @@ struct FeedbackDetailCard: View {
             if let recommendations = feedback.recommendations, !recommendations.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Recommendations:")
-                        .font(.caption)
+                        .font(.neueMontrealRegular(size: 12))
                         .foregroundColor(.gray)
                     
                     ForEach(recommendations, id: \.self) { recommendation in
                         HStack(alignment: .top, spacing: 4) {
                             Image(systemName: "lightbulb.fill")
                                 .foregroundColor(.yellow)
-                                .font(.caption)
+                                .font(.neueMontrealRegular(size: 12))
                             Text(recommendation)
-                                .font(.caption)
+                                .font(.neueMontrealRegular(size: 12))
                                 .foregroundColor(.white)
                         }
                     }

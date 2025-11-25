@@ -39,7 +39,7 @@ struct HomeView: View {
                         VStack(alignment: .leading, spacing: HomeScreenSpacing.headerStackSpacing) {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("LET'S GET IT!")
-                                    .font(.system(size: 38, weight: .heavy, design: .rounded))
+                                    .font(.neueMontrealBold(size: 38))
                                     .foregroundColor(.textPrimary)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.85)
@@ -59,7 +59,7 @@ struct HomeView: View {
                                     )
 
                                 Text("You've got this 💪")
-                                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                                    .font(.neueMontrealRegular(size: 18))
                                     .foregroundColor(.primaryPurple.opacity(0.95))
                                     .fixedSize(horizontal: false, vertical: true)
                             }
@@ -87,7 +87,7 @@ struct HomeView: View {
                                         .fill(Color.primaryPurple)
                                         .frame(width: 80, height: 80)
                                     Image(systemName: "play.fill")
-                                        .font(.system(size: 36, weight: .bold))
+                                        .font(.neueMontrealBold(size: 36))
                                         .foregroundColor(.textPrimary)
                                 }
                             }
@@ -95,11 +95,10 @@ struct HomeView: View {
                             // Ready to train section
                             VStack(spacing: 8) {
                                 Text("Ready to train?")
-                                    .font(.title2)
-                                    .fontWeight(.semibold)
+                                    .font(.neueMontrealBold(size: 22))
                                     .foregroundColor(.textPrimary)
                                 Text("Let's work on your squat form")
-                                    .font(.subheadline)
+                                    .font(.neueMontrealRegular(size: 15))
                                     .foregroundColor(.textSecondary)
                             }
 
@@ -107,8 +106,7 @@ struct HomeView: View {
                             // Note: "Build Workout Plan" button moved to Plans tab
                             Button(action: handleStartWorkout) {
                                 Text("Start Workout")
-                                    .font(.headline)
-                                    .fontWeight(.semibold)
+                                    .font(.neueMontrealSemiBold(size: 17))
                                     .foregroundColor(.textPrimary)
                                     .frame(maxWidth: .infinity)
                                     .frame(height: 56)
@@ -189,8 +187,7 @@ private extension HomeView {
     private var myWorkoutPlanSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("My Workout Plan")
-                .font(.title3)
-                .fontWeight(.semibold)
+                .font(.neueMontrealBold(size: 20))
                 .foregroundColor(.textPrimary)
 
             if let plan = planStore.lastSelectedPlan {
@@ -202,15 +199,14 @@ private extension HomeView {
                         HStack(alignment: .top) {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(plan.name)
-                                    .font(.title2)
-                                    .fontWeight(.semibold)
+                                    .font(.neueMontrealBold(size: 22))
                                     .foregroundColor(.textPrimary)
                                     .lineLimit(2)
                                     .multilineTextAlignment(.leading)
 
                                 if !planGoalsText.isEmpty {
                                     Text(planGoalsText)
-                                        .font(.subheadline)
+                                        .font(.neueMontrealRegular(size: 15))
                                         .foregroundColor(.planTextSecondary)
                                         .lineLimit(2)
                                 }
@@ -219,8 +215,7 @@ private extension HomeView {
                             Spacer()
 
                             Text("Active")
-                                .font(.caption2)
-                                .fontWeight(.bold)
+                                .font(.neueMontrealBold(size: 11))
                                 .foregroundColor(.primaryPurple)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 4)
@@ -233,7 +228,7 @@ private extension HomeView {
                             Text("•")
                             Text("\(plan.daysPerWeek) days/week")
                         }
-                        .font(.caption)
+                        .font(.neueMontrealRegular(size: 12))
                         .foregroundColor(.planTextSecondary)
 
                         if let progressValue = planProgress(for: plan) {
@@ -245,7 +240,7 @@ private extension HomeView {
                                 .cornerRadius(3)
 
                             Text("\(Int(progressValue * 100))% complete")
-                                .font(.caption2)
+                                .font(.neueMontrealRegular(size: 11))
                                 .foregroundColor(.planTextSecondary)
                         }
                     }
@@ -262,10 +257,10 @@ private extension HomeView {
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("No plan pinned yet")
-                        .font(.headline)
+                        .font(.neueMontrealBold(size: 17))
                         .foregroundColor(.textPrimary)
                     Text("Select a plan on the Plans tab and it will be shown here for quick access.")
-                        .font(.subheadline)
+                        .font(.neueMontrealRegular(size: 15))
                         .foregroundColor(.planTextSecondary)
                 }
                 .padding()
@@ -317,36 +312,35 @@ private struct MyGoalCard: View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 14) {
                 Text("My Goal")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundColor(.textSecondary.opacity(0.9))
+                    .font(.neueMontrealSemiBold(size: 24))
+                    .foregroundColor(.white.opacity(0.6))
                 
                 HStack(alignment: .top, spacing: 10) {
                     Text(goalName)
-                        .font(.system(size: 32, weight: .heavy, design: .rounded))
+                        .font(.neueMontrealBold(size: 40))
                         .foregroundColor(.textPrimary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                     Spacer()
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.neueMontrealBold(size: 22))
                         .foregroundColor(.textPrimary.opacity(0.9))
                 }
                 
                 Text("This is why you're here. Every rep gets you closer 🚀")
-                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .font(.neueMontrealRegular(size: 16))
                     .foregroundColor(.textPrimary.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)
 
                 if showHint {
                     Text("Tap to set your goal")
-                        .font(.footnote)
-                        .fontWeight(.semibold)
+                        .font(.neueMontrealSemiBold(size: 13))
                         .foregroundColor(.textPrimary.opacity(0.95))
                         .padding(.top, 4)
                         .onAppear(perform: onHintAppear)
                 } else if !isGoalSet {
                     Text("Set a goal to get personalized coaching")
-                        .font(.footnote)
+                        .font(.neueMontrealRegular(size: 13))
                         .foregroundColor(.textPrimary.opacity(0.8))
                         .padding(.top, 4)
                 }

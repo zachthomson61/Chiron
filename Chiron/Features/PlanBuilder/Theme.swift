@@ -27,8 +27,7 @@ struct PlanChipStyle: ViewModifier {
     
     func body(content: Content) -> some View {
         content
-            .font(.subheadline)
-            .fontWeight(.medium)
+            .font(.neueMontrealSemiBold(size: 15))
             .foregroundColor(isSelected ? .textPrimary : .planTextPrimary)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -47,8 +46,7 @@ struct PlanButtonStyle: ButtonStyle {
     
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.headline)
-            .fontWeight(.semibold)
+            .font(.neueMontrealSemiBold(size: 17))
             .foregroundColor(isPrimary ? .textPrimary : .planTextPrimary)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
@@ -105,13 +103,12 @@ struct PlanSectionHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.headline)
-                .fontWeight(.semibold)
+                .font(.neueMontrealBold(size: 17))
                 .foregroundColor(.planTextPrimary)
             
             if let subtitle = subtitle {
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.neueMontrealRegular(size: 12))
                     .foregroundColor(.planTextSecondary)
             }
         }
@@ -144,7 +141,7 @@ struct PlanChipGrid<T: Hashable>: View {
                     HStack(spacing: 6) {
                         if let icon = icon {
                             Image(systemName: icon(item))
-                                .font(.caption)
+                                .font(.neueMontrealRegular(size: 12))
                         }
                         Text(label(item))
                     }
@@ -194,8 +191,7 @@ struct MuscleGroupCard: View {
                 
                 // Muscle name
                 Text(muscle.displayName)
-                    .font(.caption)
-                    .fontWeight(.medium)
+                    .font(.neueMontrealSemiBold(size: 12))
                     .foregroundColor(.planTextPrimary)
                     .multilineTextAlignment(.center)
             }
@@ -257,11 +253,11 @@ struct PlanSlider: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(title)
-                    .font(.subheadline)
+                    .font(.neueMontrealRegular(size: 15))
                     .foregroundColor(.planTextPrimary)
                 Spacer()
                 Text(String(format: format, Int(value)))
-                    .font(.headline)
+                    .font(.neueMontrealBold(size: 17))
                     .foregroundColor(.planAccent)
             }
             
@@ -280,11 +276,11 @@ struct PlanToggle: View {
         Toggle(isOn: $isOn) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline)
+                    .font(.neueMontrealRegular(size: 15))
                     .foregroundColor(.planTextPrimary)
                 if let subtitle = subtitle {
                     Text(subtitle)
-                        .font(.caption)
+                        .font(.neueMontrealRegular(size: 12))
                         .foregroundColor(.planTextSecondary)
                 }
             }
