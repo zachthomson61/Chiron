@@ -1,7 +1,12 @@
 import SwiftUI
 
-/// Workout selection menu for users to choose from preloaded workouts.
-/// Currently displays a minimal placeholder structure - workouts will be populated later.
+/// Workout selection menu presented as a sheet modal from HomeView.
+///
+/// This view allows users to select from preloaded workouts when they tap
+/// "Start Workout" from the home screen. Currently displays a placeholder
+/// empty state - workout data will be populated in a future update.
+///
+/// **Accessibility:** Only accessible from HomeView via sheet presentation.
 struct WorkoutSelectionView: View {
     @Environment(\.dismiss) private var dismiss
     
@@ -12,7 +17,7 @@ struct WorkoutSelectionView: View {
                     .ignoresSafeArea()
                 
                 VStack(spacing: 24) {
-                    // Header
+                    // Header Section
                     VStack(spacing: 8) {
                         Text("Select Workout")
                             .font(.neueMontrealBold(size: 22))
@@ -25,7 +30,7 @@ struct WorkoutSelectionView: View {
                     }
                     .padding(.top, 8)
                     
-                    // Placeholder content area
+                    // Empty State Placeholder
                     VStack(spacing: 16) {
                         Image(systemName: "figure.strengthtraining.traditional")
                             .font(.system(size: 48))

@@ -8,15 +8,17 @@ struct HomeScreenSpacing {
     static let bottomInset: CGFloat = 28
 }
 
-/// Landing surface for the Home tab. Emits `onStartWorkout` when the user
-/// taps either primary CTA so callers can decide how to route (e.g., switch
-/// to the Research tab). If the callback is `nil`, the legacy full-screen
-/// exercise selector is still presented locally.
+/// Landing surface for the Home tab.
+///
+/// When users tap "Start Workout" (either the play button or the primary button),
+/// they are presented with a workout selection menu via sheet modal.
+///
+/// **Note:** The `onStartWorkout` callback parameter is currently unused but retained
+/// for potential future use or external integrations.
 struct HomeView: View {
     var onStartWorkout: (() -> Void)? = nil
     @StateObject private var preferencesManager = UserPreferencesManager.shared
     @State private var showGoalSelector = false
-    @State private var showExerciseSelection = false
     @State private var showWorkoutSelection = false
     @State private var contentHeight: CGFloat = 0
     @State private var pulseGoal = false
@@ -146,9 +148,6 @@ struct HomeView: View {
                     PlanPreviewView(plan: plan, source: .savedList)
                 }
             }
-            .fullScreenCover(isPresented: $showExerciseSelection) {
-                ExerciseSelectionView()
-            }
             .sheet(isPresented: $showWorkoutSelection) {
                 WorkoutSelectionView()
             }
@@ -160,8 +159,11 @@ struct HomeView: View {
 }
 
 private extension HomeView {
-    /// Centralizes the "Start Workout" action so both buttons stay in sync.
-    /// Always shows the workout selection menu when tapped from HomeView.
+    /// Handles "Start Workout" action from both the play button and primary button.
+    ///
+    /// Presents the workout selection menu as a sheet modal. Both buttons
+    /// (the circular play button and the "Start Workout" button) call this
+    /// function to ensure consistent behavior.
     func handleStartWorkout() {
         showWorkoutSelection = true
     }
