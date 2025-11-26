@@ -17,6 +17,7 @@ struct HomeView: View {
     @StateObject private var preferencesManager = UserPreferencesManager.shared
     @State private var showGoalSelector = false
     @State private var showExerciseSelection = false
+    @State private var showWorkoutSelection = false
     @State private var contentHeight: CGFloat = 0
     @State private var pulseGoal = false
     @State private var homeSelectedPlan: TrainingPlan? = nil
@@ -148,6 +149,9 @@ struct HomeView: View {
             .fullScreenCover(isPresented: $showExerciseSelection) {
                 ExerciseSelectionView()
             }
+            .sheet(isPresented: $showWorkoutSelection) {
+                WorkoutSelectionView()
+            }
             .sheet(isPresented: $showGoalSelector) {
                 GoalSelectorView(preferencesManager: preferencesManager, isPresented: $showGoalSelector)
             }
@@ -156,15 +160,10 @@ struct HomeView: View {
 }
 
 private extension HomeView {
-    /// Centralizes the “Start Workout” action so both buttons stay in sync.
-    /// When a parent provides `onStartWorkout`, we delegate routing upward;
-    /// otherwise we fall back to the on-device overlay for previews/legacy flows.
+    /// Centralizes the "Start Workout" action so both buttons stay in sync.
+    /// Always shows the workout selection menu when tapped from HomeView.
     func handleStartWorkout() {
-        if let onStartWorkout {
-            onStartWorkout()
-        } else {
-            showExerciseSelection = true
-        }
+        showWorkoutSelection = true
     }
     
     func handleGoalHintAppear() {
