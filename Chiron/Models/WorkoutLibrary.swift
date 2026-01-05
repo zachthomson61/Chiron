@@ -2,12 +2,24 @@
 //  WorkoutLibrary.swift
 //  Chiron
 //
-//  Static data source for predetermined workouts in the workout library
+//  Static data source for predetermined workouts in the workout library.
+//  Contains workout definitions with exercises organized by phases.
 //
 
 import Foundation
 
 /// Provides access to predetermined workouts available in the workout library.
+///
+/// Workouts are organized into phases:
+/// - **Warm-up**: Mobility exercises to prepare for the workout
+/// - **Explosive Primers**: Power-focused exercises with short rest periods (45 seconds)
+/// - **Supersets**: Paired exercises performed back-to-back with rest between rounds (90 seconds)
+/// - **Finisher**: High-intensity final exercises
+/// - **Cool Down**: Stretching and mobility exercises
+///
+/// Each exercise can have a `phase` property that groups it with other exercises.
+/// Phases with multiple rounds (e.g., "3 ROUNDS") will show a "Show All Rounds" button
+/// to expand and view all rounds in the workout progression view.
 struct WorkoutLibrary {
     /// All available predetermined workouts.
     static let workouts: [PredeterminedWorkout] = [
@@ -15,6 +27,15 @@ struct WorkoutLibrary {
     ]
     
     /// Python Wrangler - 45-minute Explosive Hypertrophy Arm Workout
+    ///
+    /// Workout Structure:
+    /// - Warm-up: 8 mobility exercises (30 seconds each)
+    /// - Explosive Tricep Primer: 3 rounds of Close-Grip Bench Press with 45-second rest
+    /// - Explosive Bicep Primer: 3 rounds of Alternating Kettlebell Curls with 45-second rest
+    /// - Superset 1: 3 rounds of Incline DB Curl + Rope Tricep Pushdown with 90-second rest
+    /// - Superset 2: 3 rounds of EZ-Bar Drag Curl + Overhead Rope Extension with 90-second rest
+    /// - Finisher: Single round of Barbell Bicep Curl (21s), Bench Dip, Hammer Curl Hold, with 90-second rest
+    /// - Cool Down: 4 stretches (Cross-body Tricep Stretch and Standing Wall Bicep Stretch, each side)
     static let pythonWrangler = PredeterminedWorkout(
         name: "Python Wrangler",
         description: "Explosive Muscle Building Arm Workout",

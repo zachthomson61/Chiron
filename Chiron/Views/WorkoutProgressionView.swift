@@ -2,40 +2,46 @@
 //  WorkoutProgressionView.swift
 //  Chiron
 //
-//  Sheet view displaying the full workout progression with all exercises
+//  Sheet view displaying the full workout progression with all exercises grouped by phases.
+//  Supports inline exercise expansion with video player and action buttons.
 //
 
 import SwiftUI
 
 /// Sheet view that displays the complete workout progression with all exercises,
-/// sets, reps, and rest times. Presented when the list button is tapped in WorkoutIntroView.
+/// grouped by phases (Warm-up, Primers, Supersets, Finisher, Cool Down).
+/// 
+/// Features:
+/// - Phase-based grouping with duration calculations
+/// - Round-based sections (e.g., "3 ROUNDS") with expandable/collapsible rounds
+/// - Inline exercise expansion showing video player, action buttons (Report Reps, Hear Guide, Exercise History)
+/// - Exercise thumbnail placeholders and rest cards
+///
+/// Presented when the list button is tapped in `WorkoutIntroView`.
 struct WorkoutProgressionView: View {
     let workout: PredeterminedWorkout
     @Environment(\.dismiss) private var dismiss
+    
+    /// Currently expanded exercise ID for inline expansion
     @State private var expandedExerciseId: UUID?
+    
+    /// Set of phase names that have been expanded to show all rounds
     @State private var expandedPhases: Set<String> = []
     
-    // Get all exercises in order
-    private var allExercises: [WorkoutExercise] {
-        workout.exercises
-    }
+    // MARK: - Computed Properties
     
-    // Group exercises by phase
+    /// Groups exercises by their phase property, defaulting to "Main Workout" if phase is nil
     private var exercisesByPhase: [String: [WorkoutExercise]] {
         Dictionary(grouping: workout.exercises) { exercise in
             exercise.phase ?? "Main Workout"
         }
     }
     
-    // Get index of an exercise in the full workout
-    private func exerciseIndex(_ exercise: WorkoutExercise) -> Int {
-        allExercises.firstIndex(where: { $0.id == exercise.id }) ?? 0
-    }
-    
-    // Ordered phases (specific order for workout structure)
+    /// Returns phases in a specific order: Warm-up, Primers, Supersets, Finisher, Cool Down.
+    /// Any phases not in the predefined order are sorted alphabetically and appended.
     private var phaseOrder: [String] {
         let phases = Array(exercisesByPhase.keys)
-        let ordered = [
+        let predefinedOrder = [
             "Warm-up",
             "Explosive Tricep Primer",
             "Explosive Bicep Primer",
@@ -44,8 +50,8 @@ struct WorkoutProgressionView: View {
             "Finisher",
             "Cool Down"
         ]
-        let orderedPhases = ordered.filter { phases.contains($0) }
-        let remainingPhases = phases.filter { !ordered.contains($0) }.sorted()
+        let orderedPhases = predefinedOrder.filter { phases.contains($0) }
+        let remainingPhases = phases.filter { !predefinedOrder.contains($0) }.sorted()
         return orderedPhases + remainingPhases
     }
     
@@ -93,10 +99,9 @@ struct WorkoutProgressionView: View {
                                     ForEach(exercisesToShow, id: \.id) { exercise in
                                         WorkoutProgressionExerciseRow(
                                             exercise: exercise,
-                                            exerciseIndex: exerciseIndex(exercise),
-                                            workout: workout,
                                             isExpanded: expandedExerciseId == exercise.id,
                                             onTap: {
+                                                // Toggle expansion: if already expanded, collapse; otherwise expand
                                                 if expandedExerciseId == exercise.id {
                                                     expandedExerciseId = nil
                                                 } else {
@@ -137,10 +142,23 @@ struct WorkoutProgressionView: View {
         .preferredColorScheme(.dark)
     }
     
-    // Calculate phase duration in minutes from exercises
+    // MARK: - Helper Functions
+    
+    /// Calculates the estimated duration of a phase in minutes based on exercise categories,
+    /// sets, rest times, and transition times.
+    ///
+    /// - Parameter exercises: Array of exercises in the phase
+    /// - Returns: Estimated duration in minutes (minimum 1 minute)
+    ///
+    /// Estimation logic:
+    /// - Compound exercises: ~45 seconds per set
+    /// - Mobility exercises: ~20 seconds per set
+    /// - Other exercises: ~30 seconds per set
+    /// - Rest time applied between sets (not after last set)
+    /// - 30 seconds transition time per exercise
     private func calculatePhaseDuration(_ exercises: [WorkoutExercise]) -> Int {
         let totalSeconds = exercises.reduce(0) { total, exercise in
-            // Estimate work time per set (simplified: ~45 seconds for compound, ~30 for isolation/mobility)
+            // Estimate work time per set based on exercise category
             let workTimePerSet: Int
             switch exercise.category {
             case .compound:
@@ -151,14 +169,9 @@ struct WorkoutProgressionView: View {
                 workTimePerSet = 30
             }
             
-            // Calculate total work time
             let totalWorkTime = workTimePerSet * exercise.sets
-            
-            // Calculate rest time (rest between sets, not after last set)
             let totalRestTime = exercise.restTime * max(0, exercise.sets - 1)
-            
-            // Add transition time (30 seconds per exercise)
-            let transitionTime = 30
+            let transitionTime = 30 // seconds between exercises
             
             return total + totalWorkTime + totalRestTime + transitionTime
         }
@@ -167,50 +180,68 @@ struct WorkoutProgressionView: View {
         return max(1, Int(ceil(Double(totalSeconds) / 60.0)))
     }
     
-    // Get number of rounds for a phase (if applicable)
+    /// Determines the number of rounds in a phase by counting unique exercise names
+    /// and dividing total exercises by unique exercises per round.
+    ///
+    /// - Parameters:
+    ///   - phase: Phase name (for reference)
+    ///   - exercises: Array of exercises in the phase
+    /// - Returns: Number of rounds if calculable, nil otherwise
+    ///
+    /// Example: If a phase has ["Bench Press", "Rest", "Bench Press", "Rest", "Bench Press", "Rest"],
+    /// unique exercises = 1 (Bench Press), total non-rest exercises = 3, rounds = 3.
     private func getRoundsForPhase(_ phase: String, exercises: [WorkoutExercise]) -> Int? {
-        // Count unique exercise names (excluding Rest) to determine rounds
         let uniqueExercises = Set(exercises.filter { $0.name != "Rest" }.map { $0.name })
-        if uniqueExercises.count > 0 {
-            let exerciseCount = exercises.filter { $0.name != "Rest" }.count
-            return exerciseCount / uniqueExercises.count
-        }
-        return nil
+        guard !uniqueExercises.isEmpty else { return nil }
+        
+        let exerciseCount = exercises.filter { $0.name != "Rest" }.count
+        return exerciseCount / uniqueExercises.count
     }
     
-    // Check if phase has rounds structure
+    /// Checks if a phase has a multi-round structure (more than 1 round).
+    ///
+    /// - Parameters:
+    ///   - phase: Phase name
+    ///   - exercises: Array of exercises in the phase
+    /// - Returns: true if phase has more than 1 round, false otherwise
     private func hasRounds(_ phase: String, exercises: [WorkoutExercise]) -> Bool {
-        if let rounds = getRoundsForPhase(phase, exercises: exercises), rounds > 1 {
-            return true
-        }
-        return false
+        guard let rounds = getRoundsForPhase(phase, exercises: exercises) else { return false }
+        return rounds > 1
     }
     
-    // Get exercises to show (first round or all rounds)
+    /// Returns the exercises to display for a phase:
+    /// - If phase has rounds and is not expanded: returns first round only (up to first Rest)
+    /// - Otherwise: returns all exercises
+    ///
+    /// - Parameters:
+    ///   - phase: Phase name
+    ///   - exercises: All exercises in the phase
+    /// - Returns: Exercises to display based on expansion state
     private func getExercisesToShow(for phase: String, exercises: [WorkoutExercise]) -> [WorkoutExercise] {
-        if hasRounds(phase, exercises: exercises) && !expandedPhases.contains(phase) {
-            // Find unique exercise names (excluding Rest) to determine round structure
-            let uniqueExerciseNames = Set(exercises.filter { $0.name != "Rest" }.map { $0.name })
-            let exercisesPerRound = uniqueExerciseNames.count
-            
-            // Get all exercises up to and including the first Rest
-            var firstRound: [WorkoutExercise] = []
-            var exerciseCount = 0
-            
-            for exercise in exercises {
-                if exercise.name == "Rest" {
-                    firstRound.append(exercise)
-                    break // Stop after first Rest
-                } else if exerciseCount < exercisesPerRound {
-                    firstRound.append(exercise)
-                    exerciseCount += 1
-                }
-            }
-            
-            return firstRound
+        // If phase has rounds and hasn't been expanded, show only first round
+        guard hasRounds(phase, exercises: exercises) && !expandedPhases.contains(phase) else {
+            return exercises
         }
-        // Show all exercises
-        return exercises
+        
+        // Find unique exercise names (excluding Rest) to determine round structure
+        let uniqueExerciseNames = Set(exercises.filter { $0.name != "Rest" }.map { $0.name })
+        let exercisesPerRound = uniqueExerciseNames.count
+        
+        // Collect exercises up to and including the first Rest
+        var firstRound: [WorkoutExercise] = []
+        var exerciseCount = 0
+        
+        for exercise in exercises {
+            if exercise.name == "Rest" {
+                firstRound.append(exercise)
+                break // Stop after first Rest
+            } else if exerciseCount < exercisesPerRound {
+                firstRound.append(exercise)
+                exerciseCount += 1
+            }
+        }
+        
+        return firstRound
     }
 }
 
@@ -248,7 +279,14 @@ private struct RestThumbnail: View {
 
 // MARK: - Phase Separator Bar
 
-/// Bar component displaying phase name and duration, matching the reference design.
+/// Bar component displaying phase name, duration, and round count (if applicable).
+///
+/// Displays:
+/// - Phase name in uppercase (e.g., "EXPLOSIVE TRICEP PRIMER")
+/// - Round count for multi-round phases (e.g., "- 3 ROUNDS") - excluded for Warm-up
+/// - Estimated duration in minutes (e.g., "5 min")
+///
+/// Styled with dark background matching the app theme.
 private struct PhaseSeparatorBar: View {
     let phaseName: String
     let duration: Int
@@ -282,17 +320,23 @@ private struct PhaseSeparatorBar: View {
 // MARK: - Exercise Row
 
 /// Row component displaying a single exercise in the workout progression.
-/// When expanded, shows video player, action buttons, and next exercise preview.
+/// 
+/// Features:
+/// - Tappable entire row (except Rest cards) to expand/collapse
+/// - Shows exercise thumbnail placeholder or rest icon
+/// - When expanded: displays landscape video player and action buttons
+/// - Formats exercise details (reps, sets, notes) with proper styling
+///
+/// Note: Rest cards are not expandable and use a clock icon instead of exercise thumbnail.
 private struct WorkoutProgressionExerciseRow: View {
     let exercise: WorkoutExercise
-    let exerciseIndex: Int
-    let workout: PredeterminedWorkout
     let isExpanded: Bool
     let onTap: () -> Void
     
-    // Get video name for exercise (placeholder for now)
+    /// Video name for exercise demonstration (currently placeholder).
+    /// TODO: Map exercise names to actual video resources.
     private var videoName: String {
-        return "bodyweight_squat_demo" // Placeholder
+        return "bodyweight_squat_demo"
     }
     
     var body: some View {
@@ -369,9 +413,19 @@ private struct WorkoutProgressionExerciseRow: View {
         }
     }
     
-    // Format reps details similar to reference: ":30 • Slow Tempo" or ":30 • Right Side"
+    /// Formats exercise repetition and set details for display.
+    ///
+    /// Formats:
+    /// - Rest cards: ":45" → "45 seconds"
+    /// - Duration format: ":30" → ":30"
+    /// - Time-based: "30s" or "1min" → "30s" or "1 × 30s" (if multiple sets)
+    /// - Range format: "8-12" → "8-12 reps" or "3 × 8-12 reps"
+    /// - Simple count: "10" → "10 reps" or "3 × 10 reps"
+    /// - Notes: Appended with " • " separator (e.g., "10 reps • Right Side")
+    ///
+    /// - Returns: Formatted string combining reps, sets, and notes
     private func formatRepsDetails() -> String {
-        // For Rest cards, convert ":45" to "45 seconds"
+        // Special handling for Rest cards
         if exercise.name == "Rest" {
             if exercise.reps.hasPrefix(":") {
                 let seconds = String(exercise.reps.dropFirst())
@@ -382,25 +436,28 @@ private struct WorkoutProgressionExerciseRow: View {
         
         var details: [String] = []
         
-        // Format reps - if it starts with ":", it's a duration format like ":30"
+        // Handle duration format (starts with ":")
         if exercise.reps.hasPrefix(":") {
             details.append(exercise.reps)
-        } else if exercise.reps.lowercased().contains("s") || exercise.reps.lowercased().contains("min") {
-            // Time-based, show sets × time or just time
+        }
+        // Handle time-based format (contains "s" or "min")
+        else if exercise.reps.lowercased().contains("s") || exercise.reps.lowercased().contains("min") {
             if exercise.sets > 1 {
                 details.append("\(exercise.sets) × \(exercise.reps)")
             } else {
                 details.append(exercise.reps)
             }
-        } else if exercise.reps.contains("-") {
-            // Range format like "8-12"
+        }
+        // Handle range format (contains "-")
+        else if exercise.reps.contains("-") {
             if exercise.sets > 1 {
                 details.append("\(exercise.sets) × \(exercise.reps) reps")
             } else {
                 details.append("\(exercise.reps) reps")
             }
-        } else {
-            // Simple rep count
+        }
+        // Handle simple rep count
+        else {
             if exercise.sets > 1 {
                 details.append("\(exercise.sets) × \(exercise.reps) reps")
             } else {
@@ -408,7 +465,7 @@ private struct WorkoutProgressionExerciseRow: View {
             }
         }
         
-        // Add notes information (Slow Tempo, Right Side, Left Side, etc.)
+        // Append notes if available
         if let notes = exercise.notes, !notes.isEmpty {
             details.append(notes)
         }
@@ -419,12 +476,16 @@ private struct WorkoutProgressionExerciseRow: View {
 
 // MARK: - Video Player Area
 
+/// Landscape video player area (16:9 aspect ratio) displayed when an exercise is expanded.
+/// Extends edge-to-edge across the screen width with no rounded corners.
+///
+/// - If video resource exists: plays looping video
+/// - If video not found: displays placeholder with icon and text
 private struct VideoPlayerArea: View {
     let videoName: String
     
     var body: some View {
         ZStack {
-            // Landscape video player (16:9 aspect ratio) - full width
             if let url = Bundle.main.url(forResource: videoName, withExtension: "mp4") {
                 GeometryReader { geometry in
                     LoopingVideoView(url: url)
@@ -433,15 +494,13 @@ private struct VideoPlayerArea: View {
                 }
                 .aspectRatio(16/9, contentMode: .fit)
             } else {
-                // Placeholder background if video not found
+                // Placeholder if video resource not found
                 ZStack {
                     Color.white.opacity(0.1)
-                    
                     VStack(spacing: 12) {
                         Image(systemName: "video.fill")
                             .font(.system(size: 48))
                             .foregroundColor(.textSecondary)
-                        
                         Text("Video Placeholder")
                             .font(.neueMontrealRegular(size: 14))
                             .foregroundColor(.textSecondary)
@@ -456,6 +515,13 @@ private struct VideoPlayerArea: View {
 
 // MARK: - Action Button
 
+/// Action button displayed in expanded exercise view.
+/// Used for "REPORT REPS", "HEAR GUIDE", and "EXERCISE HISTORY" actions.
+///
+/// Features:
+/// - Equal width and height (minHeight: 80) for consistent sizing
+/// - Icon and two-line title with proper text wrapping
+/// - Dark background matching app theme
 private struct ActionButton: View {
     let icon: String
     let title: String

@@ -2,7 +2,8 @@
 //  WorkoutIntroView.swift
 //  Chiron
 //
-//  Full-screen intro view for a predetermined workout, similar to "Trust the Process" design
+//  Full-screen intro view for a predetermined workout.
+//  Displays workout information with video background and navigation options.
 //
 
 import SwiftUI
@@ -10,11 +11,23 @@ import AVKit
 import AVFoundation
 
 /// Full-screen intro view for a predetermined workout.
-/// Displays workout information with video background, matching the "Trust the Process" design.
+///
+/// Features:
+/// - Video background (if available) with gradient overlay
+/// - Workout name, description, duration, and equipment list
+/// - Navigation buttons: Back, Settings (gear icon)
+/// - Action buttons: List (workout progression) and Start
+///
+/// The settings button presents `WorkoutSettingsView` as a sheet.
+/// The list button presents `WorkoutProgressionView` as a sheet.
 struct WorkoutIntroView: View {
     let workout: PredeterminedWorkout
     @Environment(\.dismiss) private var dismiss
+    
+    /// Controls presentation of the workout progression (list) sheet
     @State private var showProgression = false
+    
+    /// Controls presentation of the workout settings sheet
     @State private var showSettings = false
     
     var body: some View {

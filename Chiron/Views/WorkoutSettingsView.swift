@@ -183,43 +183,6 @@ private struct SettingsNavigationRow: View {
     }
 }
 
-// MARK: - Settings Button Row
-
-private struct SettingsButtonRow: View {
-    let title: String
-    let description: String?
-    let action: () -> Void
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button(action: action) {
-                HStack {
-                    Text(title)
-                        .font(.neueMontrealRegular(size: 16))
-                        .foregroundColor(.textPrimary)
-                    
-                    Spacer()
-                    
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12))
-                        .foregroundColor(.textSecondary)
-                }
-                .padding(16)
-                .background(Color.white.opacity(0.06))
-                .cornerRadius(12)
-            }
-            .buttonStyle(PlainButtonStyle())
-            
-            if let description = description {
-                Text(description)
-                    .font(.neueMontrealRegular(size: 13))
-                    .foregroundColor(.textSecondary)
-                    .padding(.horizontal, 4)
-            }
-        }
-    }
-}
-
 #Preview {
     WorkoutSettingsView()
         .preferredColorScheme(.dark)
