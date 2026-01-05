@@ -144,9 +144,10 @@ struct WorkoutExercise: Codable, Identifiable {
     let notes: String?
     let isSuperset: Bool
     let supersetGroup: Int?
+    let phase: String? // e.g., "Warm-up", "Main Workout", "Cool-down"
     
     init(name: String, category: ExerciseCategory, sets: Int, reps: String, 
-         restTime: Int, notes: String? = nil, isSuperset: Bool = false, supersetGroup: Int? = nil) {
+         restTime: Int, notes: String? = nil, isSuperset: Bool = false, supersetGroup: Int? = nil, phase: String? = nil) {
         self.name = name
         self.category = category
         self.sets = sets
@@ -155,10 +156,11 @@ struct WorkoutExercise: Codable, Identifiable {
         self.notes = notes
         self.isSuperset = isSuperset
         self.supersetGroup = supersetGroup
+        self.phase = phase
     }
     
     private enum CodingKeys: String, CodingKey {
-        case name, category, sets, reps, restTime, notes, isSuperset, supersetGroup
+        case name, category, sets, reps, restTime, notes, isSuperset, supersetGroup, phase
     }
 }
 

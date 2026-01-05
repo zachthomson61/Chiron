@@ -1,0 +1,115 @@
+﻿1. Overview
+AI Trainer is an iOS application that transforms the mobile device into a real-time personal movement coach using only the front-facing camera and on-device AI. The app detects, analyzes, and provides actionable feedback as users perform strength exercises (starting with squats), focusing on safety, effectiveness, and accessibility—without external sensors, internet connection, or technical setup.
+2. Problem Statement
+Most gym-goers and at-home exercisers lack real-time, personalized coaching. This often results in poor technique, slower progress, and increased injury risk. Existing solutions (videos, live coaching, wearables) are either not immediate, require setup, or fail to offer tailored, moment-to-moment guidance at scale.
+3. Goals & Success Metrics
+Goal Statements
+* Deliver real-time, actionable feedback for proper lifting technique.
+* Ensure feedback is intuitive, timely, and motivational.
+* Minimize onboarding, eliminate hardware or calibration requirements.
+* Enable scalable, extensible tracking for other exercises and individualization.
+Success Metrics
+* ≥88% user satisfaction with feedback quality and accuracy
+* <800ms average feedback latency while active
+* ≥80% workout session completion without external help
+* <7% drop-off rate between app launch and first rep tracked
+* ≤1 false positive/negative per set in form corrections
+* 97% feature engagement per workout
+* 99.5% crash-free session rate on supported devices
+4. User Stories
+* As an absolute beginner, I want clear, real-time feedback so I can perform lifts safely and confidently.
+* As an intermediate athlete, I want feedback and analytics that adapt as my form improves.
+* As a busy user, I want to set up and start quickly—no hardware, no lengthy setup.
+* As a data-driven user, I want after-set and longitudinal metrics: depth, tempo, alignment, progress.
+* As a power user, I want to optionally save sessions, share data, and receive advanced cues.
+* As an accessibility user, I want voice-first feedback and easily adjustable UI elements.
+5. Assumptions
+* Users will prop their iPhone 6–10ft away at hip or chest height.
+* Mixed lighting, including indirect sunlight and moderate indoor conditions; app will prompt user if lighting is insufficient.
+* Initial support: iPhone 12+ (A14 chip or higher); extendable to iPad with M1 or newer.
+* Users may perform squats with or without free weights; barbell-specific logic is a future addition.
+* Most users prefer both brief audio and highlighted visual feedback, with granular control in settings.
+6. Features & Functional Requirements
+Core Features
+* Real-time detection and feedback for squats (expandable to other lifts)
+* Pose estimation and key joint tracking: hips, knees, ankles, spine, shoulders
+* Automated form issue flagging:
+   * Depth too shallow/deep
+   * Tempo too fast/slow in any phase
+   * Spine instability or excessive lean
+   * Knee/ankle alignment concerns
+* Feedback modalities:
+   * Immediate audio cues with user-selectable coaching style (strict, supportive, neutral)
+   * Visual overlays and on-screen prompts (e.g., “Go Deeper”, “Nice Rep!”)
+* Session management:
+   * Rep counting, set timers, “Ready” pose indicator, camera framing guide
+   * Automatic pausing if form can't be recognized (e.g., user steps out of frame)
+* Post-set summary and coaching:
+   * Rep count, personalized score (depth, tempo, control)
+   * Trend reporting: improvement over time, consistency metrics
+   * Collect “Was this feedback helpful?” for model tuning
+* Accessibility: VoiceOver support, text scaling, color-blind safe UI
+Advanced/Optional Features (for Consideration)
+* AI-powered movement scoring: percentile ranking for rep quality
+* Suggested mobility/warm-up routines based on detected deficiencies
+* Privacy-focused opt-in video capture for advanced review/coaching
+* Social: session sharing, community challenges, personal records leaderboard
+7. Non-Functional & Technical Requirements
+* Feedback latency under 800ms (target: 500ms)
+* 100% on-device video processing; zero footage uploaded/stored by default
+* Battery usage: <10% battery drop for standard 30-minute session
+* Support for visually impaired users via voice feedback; tactile/sonic cues for key events
+* Support iOS 16+, iPhone 12 and newer (including mini, Pro, Pro Max variants)
+* 99.5% crash-free sessions (with Sentry or Firebase crash analytics in production)
+* Minimal setup: <2 steps from launch to first rep
+8. User Interface
+Screen
+	Key Elements
+	Home
+	Start, Exercise select (defaults to Squat), Settings
+	Camera Setup
+	Live video w/ framing guide, silhouette overlay, cues
+	Workout (Active)
+	Live rep count, text feedback, color overlays, audio
+	Post-Set Review
+	Metrics panel, coaching tips, trend graph, user survey
+	Settings
+	Feedback style, volume, accessibility toggles, privacy
+	9. Technical Architecture
+On-Device AI & Real-Time Processing
+* Apple Vision/CoreML; first-party pose models (MoveNet Thunder/BlazePose, CoreML-converted)
+* Inference at 30 FPS using Apple Neural Engine
+* Joint smoothing (One Euro filter), motion phase analysis for false positive suppression
+* Lightweight 2D-to-3D inference using movement velocity & angle delta
+* Modular rules engine for form cues (customizable for each exercise/lift)
+* Confidence scoring mitigates noisy or ambiguous frames
+* Secure, local metadata storage using CoreData (optional, user-managed)
+App Framework
+* Swift & SwiftUI for responsive, modern front-end
+* AVFoundation for camera pipeline, combine for reactive data flow
+* AVSpeechSynthesizer for dynamic, voice-selectable feedback
+* Side-view mode for enhanced depth estimation (future release)
+Optional Cloud/Data Layer
+* Opt-in sync with Firebase/CloudKit for session analytics, backups, and personalization
+* User tagging of feedback accuracy for self-tuning (semi-supervised learning)
+* Strict privacy: No video, only anonymized pose data, unless explicit opt-in for advanced analysis or support
+10. Security & Privacy
+* Zero user video/image data stored or transmitted by default
+* Opt-in anonymized metadata only (keypoints, session timing, feedback labels)
+* Fully GDPR/CCPA compliant; consent screens and granular toggles
+* Local data encrypted at rest; app-level passcode/FaceID (optional)
+* Transparent privacy policy & user data controls
+11. Open Questions
+* Should saving/replaying video be available for advanced users (strict opt-in)?
+* Is default front or side camera position optimal for form detection?
+* Which feedback tone (strict, supportive, neutral) do users prefer over time?
+* What’s the minimum viable depth detection accuracy for reliable cues?
+* How soon to expand to multi-exercise support (deadlifts, push-ups, etc.)?
+12. Future Roadmap
+* Multi-lift (deadlift, lunge, push, row) real-time form feedback
+* AI-powered habit loops, streaks, and engagement incentives
+* Progressive overload & PR tracking with predictive analytics
+* Personalized warm-up & cool-down routines based on mobility analysis
+* Cross-device support: iPad, Apple Vision Pro, Apple Watch integration
+* Gamification: badges, leaderboards, workout challenges
+*
