@@ -31,7 +31,7 @@ struct WorkoutLibrary {
     /// Workout Structure:
     /// - Warm-up: 8 mobility exercises (30 seconds each)
     /// - Explosive Tricep Primer: 3 rounds of Close-Grip Bench Press with 45-second rest
-    /// - Explosive Bicep Primer: 3 rounds of Alternating Kettlebell Curls with 45-second rest
+    /// - Explosive Bicep Primer: 3 rounds of Alternating DB Curls with 45-second rest
     /// - Superset 1: 3 rounds of Incline DB Curl + Rope Tricep Pushdown with 90-second rest
     /// - Superset 2: 3 rounds of EZ-Bar Drag Curl + Overhead Rope Extension with 90-second rest
     /// - Finisher: Single round of Barbell Bicep Curl (21s), Bench Dip, Hammer Curl Hold, with 90-second rest
@@ -174,7 +174,7 @@ struct WorkoutLibrary {
             ),
             // Explosive Bicep Primer - Round 1
             WorkoutExercise(
-                name: "Alternating Kettlebell Curls",
+                name: "Alternating DB Curls",
                 category: .isolation,
                 sets: 1,
                 reps: "6-8",
@@ -193,7 +193,7 @@ struct WorkoutLibrary {
             ),
             // Explosive Bicep Primer - Round 2
             WorkoutExercise(
-                name: "Alternating Kettlebell Curls",
+                name: "Alternating DB Curls",
                 category: .isolation,
                 sets: 1,
                 reps: "6-8",
@@ -212,7 +212,7 @@ struct WorkoutLibrary {
             ),
             // Explosive Bicep Primer - Round 3
             WorkoutExercise(
-                name: "Alternating Kettlebell Curls",
+                name: "Alternating DB Curls",
                 category: .isolation,
                 sets: 1,
                 reps: "6-8",

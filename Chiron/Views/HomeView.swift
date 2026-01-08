@@ -60,11 +60,6 @@ struct HomeView: View {
                                         Animation.easeInOut(duration: 1.1).repeatForever(autoreverses: true),
                                         value: animateTitle
                                     )
-
-                                Text("You've got this 💪")
-                                    .font(.neueMontrealRegular(size: 18))
-                                    .foregroundColor(.primaryPurple.opacity(0.95))
-                                    .fixedSize(horizontal: false, vertical: true)
                             }
 
                             MyGoalCard(
@@ -83,38 +78,27 @@ struct HomeView: View {
 
                         // CORE
                         VStack(spacing: HomeScreenSpacing.sectionSpacing) {
-                            // Play Button
-                            Button(action: handleStartWorkout) {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.primaryPurple)
-                                        .frame(width: 80, height: 80)
-                                    Image(systemName: "play.fill")
-                                        .font(.neueMontrealBold(size: 36))
-                                        .foregroundColor(.textPrimary)
-                                }
-                            }
-
                             // Ready to train section
                             VStack(spacing: 8) {
                                 Text("Ready to train?")
                                     .font(.neueMontrealBold(size: 22))
                                     .foregroundColor(.textPrimary)
-                                Text("Let's work on your squat form")
-                                    .font(.neueMontrealRegular(size: 15))
-                                    .foregroundColor(.textSecondary)
                             }
 
                             // Primary action button - Start Workout
                             // Note: "Build Workout Plan" button moved to Plans tab
                             Button(action: handleStartWorkout) {
-                                Text("Start Workout")
-                                    .font(.neueMontrealSemiBold(size: 17))
-                                    .foregroundColor(.textPrimary)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 56)
-                                    .background(Color.primaryPurple)
-                                    .cornerRadius(28)
+                                HStack(spacing: 8) {
+                                    Image(systemName: "play.fill")
+                                        .font(.neueMontrealSemiBold(size: 17))
+                                    Text("Start Workout")
+                                        .font(.neueMontrealSemiBold(size: 17))
+                                }
+                                .foregroundColor(.textPrimary)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 56)
+                                .background(Color.primaryPurple)
+                                .cornerRadius(28)
                             }
                         }
 

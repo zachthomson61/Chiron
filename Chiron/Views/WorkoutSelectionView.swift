@@ -11,10 +11,9 @@ import SwiftUI
 /// Presented as a sheet from HomeView when "Start Workout" is tapped.
 struct WorkoutSelectionView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedWorkoutId: UUID?
+    @State private var selectedWorkout: PredeterminedWorkout?
     
     var body: some View {
-        NavigationStack {
             ZStack {
                 Color.background.ignoresSafeArea()
                 
@@ -61,7 +60,9 @@ struct WorkoutSelectionView: View {
                                 spacing: 16
                             ) {
                                 ForEach(WorkoutLibrary.workouts) { workout in
-                                    NavigationLink(value: workout.id) {
+                                    Button(action: {
+                                        selectedWorkout = workout
+                                    }) {
                                         WorkoutCard(workout: workout)
                                     }
                                     .buttonStyle(.plain)
@@ -105,13 +106,10 @@ struct WorkoutSelectionView: View {
                     alignment: .topTrailing
                 )
             }
-            .navigationDestination(for: UUID.self) { workoutId in
-                if let workout = WorkoutLibrary.workouts.first(where: { $0.id == workoutId }) {
-                    WorkoutIntroView(workout: workout)
-                }
+            .fullScreenCover(item: $selectedWorkout) { workout in
+                WorkoutIntroView(workout: workout)
             }
-        }
-        .preferredColorScheme(.dark)
+            .preferredColorScheme(.dark)
     }
 }
 

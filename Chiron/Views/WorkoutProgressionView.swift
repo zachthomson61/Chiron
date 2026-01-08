@@ -66,9 +66,12 @@ struct WorkoutProgressionView: View {
                         ZStack {
                             HStack {
                                 Button(action: { dismiss() }) {
-                                    Image(systemName: "xmark")
-                                        .font(.neueMontrealSemiBold(size: 16))
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 18, weight: .semibold))
                                         .foregroundColor(.textPrimary)
+                                        .frame(width: 40, height: 40)
+                                        .background(Color.black.opacity(0.3))
+                                        .clipShape(Circle())
                                 }
                                 
                                 Spacer()
