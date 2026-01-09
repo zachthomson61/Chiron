@@ -103,6 +103,41 @@ struct WorkoutIntroView: View {
     /// Whether 10-second reminder has been spoken for current exercise
     @State private var hasSpoken10SecondReminder: Bool = false
     
+    // MARK: - Workout Logging State
+    
+    /// Whether showing weight input sheet
+    @State private var showWeightInput: Bool = false
+    
+    /// Whether showing reps input sheet
+    @State private var showRepsInput: Bool = false
+    
+    /// Whether showing flag options sheet
+    @State private var showFlagOptions: Bool = false
+    
+    /// Whether showing history sheet
+    @State private var showHistory: Bool = false
+    
+    /// Current set number for the current exercise
+    @State private var currentSetNumber: Int = 1
+    
+    /// Current workout log ID
+    @State private var currentWorkoutLogId: String?
+    
+    /// Current set's weight
+    @State private var currentSetWeight: Double?
+    
+    /// Current set's reps
+    @State private var currentSetReps: Int?
+    
+    /// Current set's pain flag
+    @State private var currentSetPainFlag: Bool = false
+    
+    /// Current set's not in control flag
+    @State private var currentSetNotInControlFlag: Bool = false
+    
+    /// Workout log service
+    @StateObject private var workoutLogService = WorkoutLogService.shared
+    
     // MARK: - Computed Properties
     
     /// Current exercise
@@ -311,13 +346,85 @@ struct WorkoutIntroView: View {
             Text("Are you sure you want to leave the workout?")
         }
         .sheet(isPresented: $showProgression) {
-            WorkoutProgressionView(workout: workout)
+            WorkoutProgressionView(
+                workout: workout,
+                onJumpToExercise: { index in
+                    // Switch to active workout if not already active
+                    if !isWorkoutActive {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            isWorkoutActive = true
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            jumpToExercise(index: index)
+                        }
+                    } else {
+                        jumpToExercise(index: index)
+                    }
+                },
+                currentExerciseIndex: isWorkoutActive ? currentExerciseIndex : nil
+            )
         }
         .sheet(isPresented: $showSettings) {
             WorkoutSettingsView()
         }
         .sheet(isPresented: $showOverview) {
-            WorkoutProgressionView(workout: workout)
+            WorkoutProgressionView(
+                workout: workout,
+                onJumpToExercise: { index in
+                    // Switch to active workout if not already active
+                    if !isWorkoutActive {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            isWorkoutActive = true
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            jumpToExercise(index: index)
+                        }
+                    } else {
+                        jumpToExercise(index: index)
+                    }
+                },
+                currentExerciseIndex: isWorkoutActive ? currentExerciseIndex : nil
+            )
+        }
+        .sheet(isPresented: $showWeightInput) {
+            WeightInputSheet(
+                isPresented: $showWeightInput,
+                weight: $currentSetWeight,
+                onSave: { weight in
+                    currentSetWeight = weight
+                    saveSetLogIfComplete()
+                }
+            )
+        }
+        .sheet(isPresented: $showRepsInput) {
+            RepsInputSheet(
+                isPresented: $showRepsInput,
+                reps: $currentSetReps,
+                onSave: { reps in
+                    currentSetReps = reps
+                    saveSetLogIfComplete()
+                }
+            )
+        }
+        .sheet(isPresented: $showFlagOptions) {
+            FlagOptionsSheet(
+                isPresented: $showFlagOptions,
+                flaggedPain: $currentSetPainFlag,
+                flaggedNotInControl: $currentSetNotInControlFlag,
+                onSave: { pain, notInControl in
+                    currentSetPainFlag = pain
+                    currentSetNotInControlFlag = notInControl
+                    updateCurrentSetFlags(pain: pain, notInControl: notInControl)
+                }
+            )
+        }
+        .sheet(isPresented: $showHistory) {
+            if let exercise = currentExercise {
+                ExerciseHistorySheet(
+                    isPresented: $showHistory,
+                    exerciseName: exercise.name
+                )
+            }
         }
     }
     
@@ -750,7 +857,9 @@ struct WorkoutIntroView: View {
                 icon: "dumbbell.fill",
                 title: "Weight",
                 isDisabled: isWarmUpExercise,
-                action: {}
+                action: {
+                    showWeightInput = true
+                }
             )
             
             // Reps button
@@ -758,7 +867,9 @@ struct WorkoutIntroView: View {
                 icon: "list.number",
                 title: "Reps",
                 isDisabled: false,
-                action: {}
+                action: {
+                    showRepsInput = true
+                }
             )
             
             // Flag button
@@ -766,7 +877,9 @@ struct WorkoutIntroView: View {
                 icon: "flag.fill",
                 title: "Flag",
                 isDisabled: false,
-                action: {}
+                action: {
+                    showFlagOptions = true
+                }
             )
             
             // Guide button
@@ -784,7 +897,9 @@ struct WorkoutIntroView: View {
                 icon: "clock.arrow.circlepath",
                 title: "History",
                 isDisabled: false,
-                action: {}
+                action: {
+                    showHistory = true
+                }
             )
             
             // Restart button
@@ -997,6 +1112,19 @@ struct WorkoutIntroView: View {
         // Ensure slide-up tab is collapsed when starting
         isSlideUpTabExpanded = false
         dragOffset = 0
+        
+        // Create workout log in Firestore
+        workoutLogService.createWorkoutLog(workoutName: workout.name) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let logId):
+                    currentWorkoutLogId = logId
+                    print("✅ Workout log created: \(logId)")
+                case .failure(let error):
+                    print("❌ Failed to create workout log: \(error.localizedDescription)")
+                }
+            }
+        }
         
         // Start with intro buffer
         if let exercise = currentExercise {
@@ -1257,13 +1385,27 @@ struct WorkoutIntroView: View {
             hasSpoken30SecondReminder = false
             hasSpoken10SecondReminder = false
             
+            // Reset set tracking for next exercise
+            resetSetTracking()
+            
             currentExerciseIndex += 1
             
             if let exercise = currentExercise {
                 showIntroBuffer(for: exercise)
             }
         } else {
-            // Workout complete - return to intro state
+            // Workout complete - end workout log
+            if let logId = currentWorkoutLogId {
+                workoutLogService.endWorkoutLog(workoutLogId: logId) { result in
+                    switch result {
+                    case .success:
+                        print("✅ Workout log ended: \(logId)")
+                    case .failure(let error):
+                        print("❌ Failed to end workout log: \(error.localizedDescription)")
+                    }
+                }
+            }
+            // Return to intro state
             withAnimation(.easeInOut(duration: 0.3)) {
                 isWorkoutActive = false
                 stopAllTimers()
@@ -1305,6 +1447,45 @@ struct WorkoutIntroView: View {
         }
     }
     
+    /// Jump to a specific exercise index (used from overview)
+    private func jumpToExercise(index: Int) {
+        guard index >= 0 && index < workout.exercises.count else { return }
+        
+        // Stop any ongoing speech and clear the queue
+        SpeechManager.shared.stopSpeaking()
+        SpeechManager.shared.clearSpeechQueue()
+        
+        // Reset glow effect
+        shouldGlowForwardArrow = false
+        
+        // Clean up current exercise timers
+        introTimer?.invalidate()
+        introTimer = nil
+        stopExerciseTimer()
+        reminderTimer?.invalidate()
+        reminderTimer = nil
+        
+        // Reset reminder flags
+        hasSpoken30SecondReminder = false
+        hasSpoken10SecondReminder = false
+        
+        // Reset set tracking for the new exercise
+        resetSetTracking()
+        
+        // Collapse slide-up tab
+        withAnimation {
+            isSlideUpTabExpanded = false
+            dragOffset = 0
+        }
+        
+        // Jump to the specified exercise
+        currentExerciseIndex = index
+        
+        if let exercise = currentExercise {
+            showIntroBuffer(for: exercise)
+        }
+    }
+    
     private func playRepReminder(for exercise: WorkoutExercise) {
         let repRange = formatRepRangeForSpeech(exercise.reps)
         let reminderText = "When you've completed \(repRange), press the arrow to move on"
@@ -1338,6 +1519,71 @@ struct WorkoutIntroView: View {
         if let exercise = currentExercise {
             showIntroBuffer(for: exercise)
         }
+    }
+    
+    // MARK: - Workout Logging Functions
+    
+    /// Save set log if both weight and reps are logged
+    private func saveSetLogIfComplete() {
+        guard let workoutLogId = currentWorkoutLogId,
+              let exercise = currentExercise else {
+            return
+        }
+        
+        // Only save if we have both weight and reps (or at least one for bodyweight exercises)
+        // For bodyweight exercises, weight can be nil
+        let hasWeight = currentSetWeight != nil || isWarmUpExercise
+        let hasReps = currentSetReps != nil
+        
+        // Save if we have at least reps (weight is optional for bodyweight)
+        if hasReps {
+            workoutLogService.saveSetLog(
+                workoutLogId: workoutLogId,
+                exerciseName: exercise.name,
+                setNumber: currentSetNumber,
+                weight: currentSetWeight,
+                reps: currentSetReps,
+                flaggedPain: currentSetPainFlag,
+                flaggedNotInControl: currentSetNotInControlFlag
+            ) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let setLogId):
+                        print("✅ Set log saved: \(setLogId)")
+                        // Increment set number for next set
+                        currentSetNumber += 1
+                        // Reset current set data
+                        currentSetWeight = nil
+                        currentSetReps = nil
+                        currentSetPainFlag = false
+                        currentSetNotInControlFlag = false
+                    case .failure(let error):
+                        print("❌ Failed to save set log: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Update flags for current set without saving (flags can be set independently)
+    private func updateCurrentSetFlags(pain: Bool, notInControl: Bool) {
+        currentSetPainFlag = pain
+        currentSetNotInControlFlag = notInControl
+        
+        // If we already have a set with weight/reps, update it
+        if currentSetWeight != nil || currentSetReps != nil {
+            // Flags are saved when the set is completed (when weight and reps are both logged)
+            // For now, just update the local state
+        }
+    }
+    
+    /// Reset set tracking when moving to a new exercise
+    private func resetSetTracking() {
+        currentSetNumber = 1
+        currentSetWeight = nil
+        currentSetReps = nil
+        currentSetPainFlag = false
+        currentSetNotInControlFlag = false
     }
     
     // MARK: - Parsing Functions

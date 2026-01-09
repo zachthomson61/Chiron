@@ -14,7 +14,7 @@ import SwiftUI
 /// Features:
 /// - Phase-based grouping with duration calculations
 /// - Round-based sections (e.g., "3 ROUNDS") with expandable/collapsible rounds
-/// - Inline exercise expansion showing video player, action buttons (Report Reps, Hear Guide, Exercise History)
+/// - Inline exercise expansion showing video player, action buttons (Weight, Reps, Flag, Guide, History, Jump to Here)
 /// - Exercise thumbnail placeholders and rest cards
 ///
 /// Presented when the list button is tapped in `WorkoutIntroView`.
@@ -22,11 +22,37 @@ struct WorkoutProgressionView: View {
     let workout: PredeterminedWorkout
     @Environment(\.dismiss) private var dismiss
     
+    /// Optional callback to jump to a specific exercise index in the main workout view
+    var onJumpToExercise: ((Int) -> Void)? = nil
+    
+    /// Optional current exercise index (to highlight or show current position)
+    var currentExerciseIndex: Int? = nil
+    
     /// Currently expanded exercise ID for inline expansion
     @State private var expandedExerciseId: UUID?
     
     /// Set of phase names that have been expanded to show all rounds
     @State private var expandedPhases: Set<String> = []
+    
+    // MARK: - Workout Logging State (for expanded exercises)
+    
+    /// Whether showing weight input sheet
+    @State private var showWeightInput: Bool = false
+    
+    /// Whether showing reps input sheet
+    @State private var showRepsInput: Bool = false
+    
+    /// Whether showing flag options sheet
+    @State private var showFlagOptions: Bool = false
+    
+    /// Whether showing history sheet
+    @State private var showHistory: Bool = false
+    
+    /// Currently selected exercise for logging (when sheets are shown)
+    @State private var selectedExerciseForLogging: WorkoutExercise?
+    
+    /// Workout log service
+    @StateObject private var workoutLogService = WorkoutLogService.shared
     
     // MARK: - Computed Properties
     
@@ -100,9 +126,13 @@ struct WorkoutProgressionView: View {
                                     
                                     // Exercises in this phase
                                     ForEach(exercisesToShow, id: \.id) { exercise in
+                                        // Find the actual index in the full workout exercises array
+                                        let exerciseIndex = workout.exercises.firstIndex(where: { $0.id == exercise.id }) ?? 0
+                                        
                                         WorkoutProgressionExerciseRow(
                                             exercise: exercise,
                                             isExpanded: expandedExerciseId == exercise.id,
+                                            isCurrentExercise: currentExerciseIndex == exerciseIndex,
                                             onTap: {
                                                 // Toggle expansion: if already expanded, collapse; otherwise expand
                                                 if expandedExerciseId == exercise.id {
@@ -110,6 +140,31 @@ struct WorkoutProgressionView: View {
                                                 } else {
                                                     expandedExerciseId = exercise.id
                                                 }
+                                            },
+                                            onJumpToExercise: {
+                                                if let onJumpToExercise = onJumpToExercise {
+                                                    onJumpToExercise(exerciseIndex)
+                                                    dismiss()
+                                                }
+                                            },
+                                            onShowWeightInput: {
+                                                selectedExerciseForLogging = exercise
+                                                showWeightInput = true
+                                            },
+                                            onShowRepsInput: {
+                                                selectedExerciseForLogging = exercise
+                                                showRepsInput = true
+                                            },
+                                            onShowFlagOptions: {
+                                                selectedExerciseForLogging = exercise
+                                                showFlagOptions = true
+                                            },
+                                            onShowHistory: {
+                                                selectedExerciseForLogging = exercise
+                                                showHistory = true
+                                            },
+                                            onPlayGuide: {
+                                                playExerciseGuide(for: exercise)
                                             }
                                         )
                                         .padding(.horizontal, 20)
@@ -142,7 +197,76 @@ struct WorkoutProgressionView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
         }
+        .sheet(isPresented: $showWeightInput) {
+            if let exercise = selectedExerciseForLogging {
+                WeightInputSheet(
+                    isPresented: $showWeightInput,
+                    weight: .constant(nil),
+                    onSave: { weight in
+                        // Note: In overview, we don't have a workout log ID, so this is just for preview
+                        // The actual logging should happen in the main workout view
+                        print("Weight logged for \(exercise.name): \(weight) lbs")
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showRepsInput) {
+            if let exercise = selectedExerciseForLogging {
+                RepsInputSheet(
+                    isPresented: $showRepsInput,
+                    reps: .constant(nil),
+                    onSave: { reps in
+                        // Note: In overview, we don't have a workout log ID, so this is just for preview
+                        // The actual logging should happen in the main workout view
+                        print("Reps logged for \(exercise.name): \(reps)")
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showFlagOptions) {
+            FlagOptionsSheet(
+                isPresented: $showFlagOptions,
+                flaggedPain: .constant(false),
+                flaggedNotInControl: .constant(false),
+                onSave: { pain, notInControl in
+                    // Note: In overview, we don't have a workout log ID, so this is just for preview
+                    // The actual logging should happen in the main workout view
+                    print("Flags logged for \(selectedExerciseForLogging?.name ?? "exercise"): pain=\(pain), notInControl=\(notInControl)")
+                }
+            )
+        }
+        .sheet(isPresented: $showHistory) {
+            if let exercise = selectedExerciseForLogging {
+                ExerciseHistorySheet(
+                    isPresented: $showHistory,
+                    exerciseName: exercise.name
+                )
+            }
+        }
         .preferredColorScheme(.dark)
+    }
+    
+    /// Play exercise guide audio
+    private func playExerciseGuide(for exercise: WorkoutExercise) {
+        let guideText = "\(exercise.name), \(formatRepsTime(exercise))"
+        SpeechManager.shared.speakCoachingFeedback(guideText)
+    }
+    
+    /// Format reps/time string for display
+    private func formatRepsTime(_ exercise: WorkoutExercise) -> String {
+        if exercise.reps.hasPrefix(":") {
+            // Time format ":30" -> "30 seconds"
+            if let seconds = Int(exercise.reps.dropFirst()) {
+                return "\(seconds) seconds"
+            }
+        } else if exercise.reps.lowercased().hasSuffix("s") || exercise.reps.lowercased().hasSuffix("min") {
+            // Time format "30s" or "1min"
+            return exercise.reps
+        } else {
+            // Rep format "10-12" or "8"
+            return "\(exercise.reps) reps"
+        }
+        return exercise.reps
     }
     
     // MARK: - Helper Functions
@@ -327,14 +451,21 @@ private struct PhaseSeparatorBar: View {
 /// Features:
 /// - Tappable entire row (except Rest cards) to expand/collapse
 /// - Shows exercise thumbnail placeholder or rest icon
-/// - When expanded: displays landscape video player and action buttons
+/// - When expanded: displays landscape video player and action buttons (Weight, Reps, Flag, Guide, History, Jump to Here)
 /// - Formats exercise details (reps, sets, notes) with proper styling
 ///
 /// Note: Rest cards are not expandable and use a clock icon instead of exercise thumbnail.
 private struct WorkoutProgressionExerciseRow: View {
     let exercise: WorkoutExercise
     let isExpanded: Bool
+    let isCurrentExercise: Bool
     let onTap: () -> Void
+    let onJumpToExercise: () -> Void
+    let onShowWeightInput: () -> Void
+    let onShowRepsInput: () -> Void
+    let onShowFlagOptions: () -> Void
+    let onShowHistory: () -> Void
+    let onPlayGuide: () -> Void
     
     /// Video name for exercise demonstration (currently placeholder).
     /// TODO: Map exercise names to actual video resources.
@@ -372,42 +503,90 @@ private struct WorkoutProgressionExerciseRow: View {
             .padding(.vertical, 12)
             .contentShape(Rectangle())
             .onTapGesture {
-                // Rest cards are not expandable
-                if exercise.name != "Rest" {
-                    onTap()
-                }
+                // Both exercises and rest cards are expandable
+                onTap()
             }
             
             // Expanded content (shown when isExpanded is true)
             if isExpanded {
                 VStack(spacing: 24) {
-                    // Landscape video player - full width, edge-to-edge, no rounded corners
-                    VideoPlayerArea(videoName: videoName)
-                        .frame(maxWidth: .infinity)
+                    // For rest sections, only show jump button
+                    if exercise.name == "Rest" {
+                        // Jump to Here button only for rest sections
+                        OverviewActionButton(
+                            icon: "arrow.right.circle.fill",
+                            title: "Jump to Here",
+                            isDisabled: false,
+                            isHighlighted: isCurrentExercise,
+                            action: onJumpToExercise
+                        )
+                        .padding(.horizontal, 20)
                         .padding(.top, 16)
-                        .padding(.horizontal, -20) // Extend beyond parent padding to screen edges
-                    
-                    // Action buttons row - equal size
-                    HStack(spacing: 20) {
-                        ActionButton(
-                            icon: "doc.text",
-                            title: "REPORT REPS",
-                            action: {}
-                        )
+                    } else {
+                        // For exercises, show video player and full button grid
+                        // Landscape video player - full width, edge-to-edge, no rounded corners
+                        VideoPlayerArea(videoName: videoName)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 16)
+                            .padding(.horizontal, -20) // Extend beyond parent padding to screen edges
                         
-                        ActionButton(
-                            icon: "speaker.wave.2",
-                            title: "HEAR GUIDE",
-                            action: {}
-                        )
-                        
-                        ActionButton(
-                            icon: "clock.arrow.circlepath",
-                            title: "EXERCISE HISTORY",
-                            action: {}
-                        )
+                        // Action buttons grid - same as exercise title box
+                        LazyVGrid(columns: [
+                            GridItem(.flexible()),
+                            GridItem(.flexible()),
+                            GridItem(.flexible())
+                        ], spacing: 12) {
+                            // Weight button
+                            OverviewActionButton(
+                                icon: "dumbbell.fill",
+                                title: "Weight",
+                                isDisabled: exercise.phase == "Warm-up",
+                                action: onShowWeightInput
+                            )
+                            
+                            // Reps button
+                            OverviewActionButton(
+                                icon: "list.number",
+                                title: "Reps",
+                                isDisabled: false,
+                                action: onShowRepsInput
+                            )
+                            
+                            // Flag button
+                            OverviewActionButton(
+                                icon: "flag.fill",
+                                title: "Flag",
+                                isDisabled: false,
+                                action: onShowFlagOptions
+                            )
+                            
+                            // Guide button
+                            OverviewActionButton(
+                                icon: "speaker.wave.2.fill",
+                                title: "Guide",
+                                isDisabled: false,
+                                action: onPlayGuide
+                            )
+                            
+                            // History button
+                            OverviewActionButton(
+                                icon: "clock.arrow.circlepath",
+                                title: "History",
+                                isDisabled: false,
+                                action: onShowHistory
+                            )
+                            
+                            // Jump to Here button (replaces Restart)
+                            OverviewActionButton(
+                                icon: "arrow.right.circle.fill",
+                                title: "Jump to Here",
+                                isDisabled: false,
+                                isHighlighted: isCurrentExercise,
+                                action: onJumpToExercise
+                            )
+                        }
+                        .padding(.horizontal, 20)
                     }
-                    .frame(maxWidth: .infinity)
                 }
                 .padding(.bottom, 16)
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -516,40 +695,42 @@ private struct VideoPlayerArea: View {
     }
 }
 
-// MARK: - Action Button
+// MARK: - Overview Action Button
 
-/// Action button displayed in expanded exercise view.
-/// Used for "REPORT REPS", "HEAR GUIDE", and "EXERCISE HISTORY" actions.
-///
-/// Features:
-/// - Equal width and height (minHeight: 80) for consistent sizing
-/// - Icon and two-line title with proper text wrapping
-/// - Dark background matching app theme
-private struct ActionButton: View {
+/// Action button displayed in expanded exercise view in the overview.
+/// Matches the style of buttons in the exercise title box.
+private struct OverviewActionButton: View {
     let icon: String
     let title: String
+    let isDisabled: Bool
+    let isHighlighted: Bool
     let action: () -> Void
+    
+    init(icon: String, title: String, isDisabled: Bool = false, isHighlighted: Bool = false, action: @escaping () -> Void) {
+        self.icon = icon
+        self.title = title
+        self.isDisabled = isDisabled
+        self.isHighlighted = isHighlighted
+        self.action = action
+    }
     
     var body: some View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: icon)
-                    .font(.system(size: 24))
-                    .foregroundColor(.textPrimary)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(isDisabled ? .textSecondary.opacity(0.5) : (isHighlighted ? .primaryPurple : .textPrimary))
                 
                 Text(title)
-                    .font(.neueMontrealSemiBold(size: 11))
-                    .foregroundColor(.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .font(.neueMontrealSemiBold(size: 12))
+                    .foregroundColor(isDisabled ? .textSecondary.opacity(0.5) : .textSecondary)
             }
-            .frame(maxWidth: .infinity, minHeight: 80)
-            .padding(.vertical, 16)
-            .background(Color.white.opacity(0.06))
+            .frame(maxWidth: .infinity)
+            .frame(height: 80)
+            .background(isDisabled ? Color.white.opacity(0.05) : (isHighlighted ? Color.primaryPurple.opacity(0.2) : Color.white.opacity(0.1)))
             .cornerRadius(12)
         }
-        .buttonStyle(PlainButtonStyle())
+        .disabled(isDisabled)
     }
 }
 

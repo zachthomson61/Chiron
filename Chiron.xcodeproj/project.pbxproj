@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		042491252E3E986400AC3367 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 042491242E3E986400AC3367 /* FirebaseCore */; };
 		042491272E3E986400AC3367 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 042491262E3E986400AC3367 /* FirebaseStorage */; };
+		042491282E3E986400AC3367 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 042491292E3E986400AC3367 /* FirebaseFirestore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -72,6 +73,7 @@
 			files = (
 				042491252E3E986400AC3367 /* FirebaseCore in Frameworks */,
 				042491272E3E986400AC3367 /* FirebaseStorage in Frameworks */,
+				042491282E3E986400AC3367 /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -134,6 +136,7 @@
 			packageProductDependencies = (
 				042491242E3E986400AC3367 /* FirebaseCore */,
 				042491262E3E986400AC3367 /* FirebaseStorage */,
+				042491292E3E986400AC3367 /* FirebaseFirestore */,
 			);
 			productName = Chiron;
 			productReference = 0446A7F12E31DA8200A13506 /* Chiron.app */;
@@ -613,6 +616,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 042491232E3E96ED00AC3367 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseStorage;
+		};
+		042491292E3E986400AC3367 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 042491232E3E96ED00AC3367 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
