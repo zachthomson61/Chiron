@@ -34,24 +34,18 @@ struct WorkoutProgressionView: View {
     /// Set of phase names that have been expanded to show all rounds
     @State private var expandedPhases: Set<String> = []
     
-    // MARK: - Workout Logging State (for expanded exercises)
+    // MARK: - Sheet Presentation State
     
-    /// Whether showing weight input sheet
+    /// Sheet presentation states (shared across all expanded exercises)
     @State private var showWeightInput: Bool = false
-    
-    /// Whether showing reps input sheet
     @State private var showRepsInput: Bool = false
-    
-    /// Whether showing flag options sheet
     @State private var showFlagOptions: Bool = false
-    
-    /// Whether showing history sheet
     @State private var showHistory: Bool = false
     
-    /// Currently selected exercise for logging (when sheets are shown)
+    /// Exercise selected when a sheet is opened (used to pass exercise name to sheets)
     @State private var selectedExerciseForLogging: WorkoutExercise?
     
-    /// Workout log service
+    /// Workout log service (only used for history, not for logging from overview)
     @StateObject private var workoutLogService = WorkoutLogService.shared
     
     // MARK: - Computed Properties
@@ -202,10 +196,9 @@ struct WorkoutProgressionView: View {
                 WeightInputSheet(
                     isPresented: $showWeightInput,
                     weight: .constant(nil),
-                    onSave: { weight in
-                        // Note: In overview, we don't have a workout log ID, so this is just for preview
-                        // The actual logging should happen in the main workout view
-                        print("Weight logged for \(exercise.name): \(weight) lbs")
+                    onSave: { _ in
+                        // Note: Logging from overview is not implemented - users should log from the active workout view
+                        // This sheet is shown for UI consistency but doesn't persist data
                     }
                 )
             }
@@ -215,10 +208,9 @@ struct WorkoutProgressionView: View {
                 RepsInputSheet(
                     isPresented: $showRepsInput,
                     reps: .constant(nil),
-                    onSave: { reps in
-                        // Note: In overview, we don't have a workout log ID, so this is just for preview
-                        // The actual logging should happen in the main workout view
-                        print("Reps logged for \(exercise.name): \(reps)")
+                    onSave: { _ in
+                        // Note: Logging from overview is not implemented - users should log from the active workout view
+                        // This sheet is shown for UI consistency but doesn't persist data
                     }
                 )
             }
@@ -228,10 +220,9 @@ struct WorkoutProgressionView: View {
                 isPresented: $showFlagOptions,
                 flaggedPain: .constant(false),
                 flaggedNotInControl: .constant(false),
-                onSave: { pain, notInControl in
-                    // Note: In overview, we don't have a workout log ID, so this is just for preview
-                    // The actual logging should happen in the main workout view
-                    print("Flags logged for \(selectedExerciseForLogging?.name ?? "exercise"): pain=\(pain), notInControl=\(notInControl)")
+                onSave: { _, _ in
+                    // Note: Logging from overview is not implemented - users should log from the active workout view
+                    // This sheet is shown for UI consistency but doesn't persist data
                 }
             )
         }
@@ -246,13 +237,15 @@ struct WorkoutProgressionView: View {
         .preferredColorScheme(.dark)
     }
     
-    /// Play exercise guide audio
+    // MARK: - Helper Functions
+    
+    /// Plays exercise guide audio using SpeechManager.
     private func playExerciseGuide(for exercise: WorkoutExercise) {
         let guideText = "\(exercise.name), \(formatRepsTime(exercise))"
         SpeechManager.shared.speakCoachingFeedback(guideText)
     }
     
-    /// Format reps/time string for display
+    /// Formats reps/time string for speech display.
     private func formatRepsTime(_ exercise: WorkoutExercise) -> String {
         if exercise.reps.hasPrefix(":") {
             // Time format ":30" -> "30 seconds"
@@ -268,8 +261,6 @@ struct WorkoutProgressionView: View {
         }
         return exercise.reps
     }
-    
-    // MARK: - Helper Functions
     
     /// Calculates the estimated duration of a phase in minutes based on exercise categories,
     /// sets, rest times, and transition times.
@@ -447,14 +438,14 @@ private struct PhaseSeparatorBar: View {
 // MARK: - Exercise Row
 
 /// Row component displaying a single exercise in the workout progression.
-/// 
-/// Features:
-/// - Tappable entire row (except Rest cards) to expand/collapse
-/// - Shows exercise thumbnail placeholder or rest icon
-/// - When expanded: displays landscape video player and action buttons (Weight, Reps, Flag, Guide, History, Jump to Here)
-/// - Formats exercise details (reps, sets, notes) with proper styling
 ///
-/// Note: Rest cards are not expandable and use a clock icon instead of exercise thumbnail.
+/// Features:
+/// - Tappable entire row (including Rest cards) to expand/collapse
+/// - Shows exercise thumbnail placeholder or rest icon
+/// - When expanded:
+///   - Exercises: displays video player and full button grid (Weight, Reps, Flag, Guide, History, Jump to Here)
+///   - Rest sections: displays only "Jump to Here" button
+/// - Formats exercise details (reps, sets, notes) with proper styling
 private struct WorkoutProgressionExerciseRow: View {
     let exercise: WorkoutExercise
     let isExpanded: Bool
@@ -697,8 +688,10 @@ private struct VideoPlayerArea: View {
 
 // MARK: - Overview Action Button
 
-/// Action button displayed in expanded exercise view in the overview.
-/// Matches the style of buttons in the exercise title box.
+/// Action button for expanded exercises in WorkoutProgressionView.
+///
+/// Matches the visual style of ActionButton used in the exercise title box
+/// (WorkoutActiveView and WorkoutIntroView) for consistency.
 private struct OverviewActionButton: View {
     let icon: String
     let title: String

@@ -2,11 +2,20 @@
 //  ExerciseHistorySheet.swift
 //  Chiron
 //
-//  Sheet for displaying exercise history from previous workouts
+//  Modal sheet for displaying exercise history from previous workouts.
+//  Shows all logged sets for a specific exercise with weight, reps, flags, and dates.
 //
 
 import SwiftUI
 
+/// Modal sheet displaying exercise history from previous workouts.
+///
+/// Features:
+/// - Fetches set logs from Firestore for the specified exercise
+/// - Displays date, set number, weight, reps, and flags
+/// - Shows loading state while fetching
+/// - Handles empty state (no history yet)
+/// - Handles error state with retry option
 struct ExerciseHistorySheet: View {
     @Binding var isPresented: Bool
     let exerciseName: String

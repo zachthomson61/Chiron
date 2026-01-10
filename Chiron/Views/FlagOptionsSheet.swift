@@ -2,11 +2,19 @@
 //  FlagOptionsSheet.swift
 //  Chiron
 //
-//  Sheet for flagging pain or not in control during an exercise set
+//  Modal sheet for flagging issues during an exercise set.
+//  Allows users to mark if they experienced pain or felt not in control.
 //
 
 import SwiftUI
 
+/// Modal sheet for flagging issues during an exercise set.
+///
+/// Features:
+/// - Toggle for "Pain" flag (red indicator)
+/// - Toggle for "Not in Control" flag (yellow indicator)
+/// - Both flags can be selected independently
+/// - Visual feedback with color-coded icons and highlights
 struct FlagOptionsSheet: View {
     @Binding var isPresented: Bool
     @Binding var flaggedPain: Bool

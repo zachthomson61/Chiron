@@ -6,6 +6,12 @@
 //  Displays workout information with video background and navigation options.
 //  Transitions seamlessly to active workout view when Start is pressed.
 //
+//  Workout Logging:
+//  - Creates WorkoutLog in Firestore when workout starts
+//  - Logs ExerciseSetLog entries when user logs weight/reps for sets
+//  - Ends WorkoutLog when workout completes
+//  - Provides buttons for Weight, Reps, Flag, Guide, History, and Restart
+//
 
 import SwiftUI
 import AVKit
@@ -20,6 +26,8 @@ import UIKit
 /// - Intro UI: workout info, description, duration, and equipment list
 /// - Active UI: exercise progression with timers, progress bars, and interactive controls
 /// - Smooth state-based transitions between intro and active states
+/// - Bottom slide-up tab with action buttons (Weight, Reps, Flag, Guide, History, Restart)
+/// - Workout logging to Firebase Firestore
 struct WorkoutIntroView: View {
     let workout: PredeterminedWorkout
     @Environment(\.dismiss) private var dismiss
@@ -105,37 +113,25 @@ struct WorkoutIntroView: View {
     
     // MARK: - Workout Logging State
     
-    /// Whether showing weight input sheet
+    /// Sheet presentation states
     @State private var showWeightInput: Bool = false
-    
-    /// Whether showing reps input sheet
     @State private var showRepsInput: Bool = false
-    
-    /// Whether showing flag options sheet
     @State private var showFlagOptions: Bool = false
-    
-    /// Whether showing history sheet
     @State private var showHistory: Bool = false
     
-    /// Current set number for the current exercise
+    /// Set tracking: current set number resets to 1 when moving to a new exercise
     @State private var currentSetNumber: Int = 1
     
-    /// Current workout log ID
+    /// Firestore document ID for the current workout session
     @State private var currentWorkoutLogId: String?
     
-    /// Current set's weight
+    /// Current set data (reset when set is saved or exercise changes)
     @State private var currentSetWeight: Double?
-    
-    /// Current set's reps
     @State private var currentSetReps: Int?
-    
-    /// Current set's pain flag
     @State private var currentSetPainFlag: Bool = false
-    
-    /// Current set's not in control flag
     @State private var currentSetNotInControlFlag: Bool = false
     
-    /// Workout log service
+    /// Workout log service (singleton)
     @StateObject private var workoutLogService = WorkoutLogService.shared
     
     // MARK: - Computed Properties
@@ -1447,7 +1443,11 @@ struct WorkoutIntroView: View {
         }
     }
     
-    /// Jump to a specific exercise index (used from overview)
+    /// Jumps to a specific exercise index (used from WorkoutProgressionView).
+    ///
+    /// - Parameter index: The exercise index to jump to (0-based)
+    ///
+    /// Stops current timers, resets set tracking, and starts the intro buffer for the new exercise.
     private func jumpToExercise(index: Int) {
         guard index >= 0 && index < workout.exercises.count else { return }
         
@@ -1523,26 +1523,29 @@ struct WorkoutIntroView: View {
     
     // MARK: - Workout Logging Functions
     
-    /// Save set log if both weight and reps are logged
+    /// Saves the current set log to Firestore if reps are logged.
+    ///
+    /// Weight is optional (nil for bodyweight exercises). When a set is saved:
+    /// - Creates ExerciseSetLog document in Firestore
+    /// - Increments set number for next set
+    /// - Resets current set data (weight, reps, flags)
     private func saveSetLogIfComplete() {
         guard let workoutLogId = currentWorkoutLogId,
               let exercise = currentExercise else {
             return
         }
         
-        // Only save if we have both weight and reps (or at least one for bodyweight exercises)
-        // For bodyweight exercises, weight can be nil
-        let hasWeight = currentSetWeight != nil || isWarmUpExercise
-        let hasReps = currentSetReps != nil
+        // Save if we have reps (weight is optional for bodyweight exercises)
+        guard let reps = currentSetReps else {
+            return
+        }
         
-        // Save if we have at least reps (weight is optional for bodyweight)
-        if hasReps {
-            workoutLogService.saveSetLog(
+        workoutLogService.saveSetLog(
                 workoutLogId: workoutLogId,
                 exerciseName: exercise.name,
                 setNumber: currentSetNumber,
                 weight: currentSetWeight,
-                reps: currentSetReps,
+                reps: reps,
                 flaggedPain: currentSetPainFlag,
                 flaggedNotInControl: currentSetNotInControlFlag
             ) { result in
@@ -1562,22 +1565,17 @@ struct WorkoutIntroView: View {
                     }
                 }
             }
-        }
     }
     
-    /// Update flags for current set without saving (flags can be set independently)
+    /// Updates flag states for the current set.
+    /// Flags are saved to Firestore when the set is completed (when reps are logged).
     private func updateCurrentSetFlags(pain: Bool, notInControl: Bool) {
         currentSetPainFlag = pain
         currentSetNotInControlFlag = notInControl
-        
-        // If we already have a set with weight/reps, update it
-        if currentSetWeight != nil || currentSetReps != nil {
-            // Flags are saved when the set is completed (when weight and reps are both logged)
-            // For now, just update the local state
-        }
     }
     
-    /// Reset set tracking when moving to a new exercise
+    /// Resets set tracking when moving to a new exercise.
+    /// Called when advancing to the next exercise or jumping to a different exercise.
     private func resetSetTracking() {
         currentSetNumber = 1
         currentSetWeight = nil

@@ -2,11 +2,19 @@
 //  RepsInputSheet.swift
 //  Chiron
 //
-//  Sheet for inputting reps for an exercise set
+//  Modal sheet for inputting number of reps completed for an exercise set.
+//  Provides text field input and quick adjust buttons (±1 and ±5).
 //
 
 import SwiftUI
 
+/// Modal sheet for logging number of reps completed in an exercise set.
+///
+/// Features:
+/// - Large text field for manual reps entry
+/// - Quick adjust buttons: ±1 rep and ±5 reps (with "5" label on ±5 buttons)
+/// - Validates numeric input
+/// - Saves reps via callback when user taps Save
 struct RepsInputSheet: View {
     @Binding var isPresented: Bool
     @Binding var reps: Int?

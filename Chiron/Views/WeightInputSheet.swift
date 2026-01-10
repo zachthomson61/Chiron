@@ -2,11 +2,19 @@
 //  WeightInputSheet.swift
 //  Chiron
 //
-//  Sheet for inputting weight for an exercise set
+//  Modal sheet for inputting weight (in pounds) for an exercise set.
+//  Provides text field input and quick adjust buttons (±1 and ±5).
 //
 
 import SwiftUI
 
+/// Modal sheet for logging weight used in an exercise set.
+///
+/// Features:
+/// - Large text field for manual weight entry
+/// - Quick adjust buttons: ±1 lb and ±5 lbs (with "5" label on ±5 buttons)
+/// - Validates numeric input
+/// - Saves weight via callback when user taps Save
 struct WeightInputSheet: View {
     @Binding var isPresented: Bool
     @Binding var weight: Double?

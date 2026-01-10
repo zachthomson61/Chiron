@@ -4,12 +4,18 @@
 //
 //  TrainingLog module - Service for managing workout logs in Firebase Firestore
 //
+//  Provides async operations for creating workout sessions, logging exercise sets,
+//  and retrieving exercise history. All data is persisted to Firestore collections:
+//  - `workoutLogs`: One document per workout session
+//  - `exerciseSetLogs`: One document per set logged
+//
 
 import Foundation
 import FirebaseFirestore
 import FirebaseCore
 
 /// Ensures Firebase is configured once, on the main thread, right before first use.
+/// Reuses the same configuration pattern as FirebaseManager.
 private enum FirebaseConfigurator {
     static func ensureConfigured() {
         guard FirebaseApp.app() == nil else { return }
@@ -26,23 +32,62 @@ private enum FirebaseConfigurator {
     }
 }
 
-/// Service for managing workout logs and exercise set logs in Firebase Firestore
+/// Service for managing workout logs and exercise set logs in Firebase Firestore.
+///
+/// Singleton service that handles all Firestore operations for workout logging.
+/// Follows the same pattern as FirebaseManager for consistency.
+///
+/// ## Data Flow
+///
+/// 1. **Workout Start**: `createWorkoutLog()` creates a WorkoutLog document
+/// 2. **During Workout**: `saveSetLog()` creates ExerciseSetLog documents as user logs sets
+/// 3. **Workout End**: `endWorkoutLog()` updates the WorkoutLog with endDate
+/// 4. **History**: `getHistoryForExercise()` queries ExerciseSetLog documents by exercise name
+///
+/// ## Firestore Collections
+///
+/// - `workoutLogs`: One document per workout session
+/// - `exerciseSetLogs`: One document per set logged (references workoutLogId)
+///
+/// ## Usage Example
+///
+/// ```swift
+/// let service = WorkoutLogService.shared
+/// service.createWorkoutLog(workoutName: "My Workout") { result in
+///     switch result {
+///     case .success(let logId):
+///         // Store logId for subsequent set logs
+///     case .failure(let error):
+///         // Handle error
+///     }
+/// }
+/// ```
 class WorkoutLogService: ObservableObject {
     static let shared = WorkoutLogService()
     
+    /// Lazy Firestore database instance (configured on first access)
     private lazy var db: Firestore = {
         FirebaseConfigurator.ensureConfigured()
         return Firestore.firestore()
     }()
     
+    /// Firestore collection name for workout logs
     private let workoutLogsCollection = "workoutLogs"
+    
+    /// Firestore collection name for exercise set logs
     private let exerciseSetLogsCollection = "exerciseSetLogs"
     
     private init() {}
     
     // MARK: - Workout Log Operations
     
-    /// Create a new workout log in Firestore
+    /// Creates a new workout log in Firestore.
+    ///
+    /// - Parameters:
+    ///   - workoutName: Name of the workout (e.g., "Python Wrangler")
+    ///   - completion: Callback with Result containing the document ID on success, or Error on failure
+    ///
+    /// The document ID is returned so it can be used to associate ExerciseSetLog entries.
     func createWorkoutLog(workoutName: String, completion: @escaping (Result<String, Error>) -> Void) {
         let workoutLog = WorkoutLog(workoutName: workoutName)
         let data = workoutLog.toFirestoreData()
@@ -61,7 +106,11 @@ class WorkoutLogService: ObservableObject {
         }
     }
     
-    /// End a workout log by updating the endDate
+    /// Marks a workout log as completed by setting the endDate.
+    ///
+    /// - Parameters:
+    ///   - workoutLogId: The Firestore document ID of the workout log
+    ///   - completion: Callback with Result indicating success or failure
     func endWorkoutLog(workoutLogId: String, completion: @escaping (Result<Void, Error>) -> Void) {
         let endDate = Timestamp(date: Date())
         db.collection(workoutLogsCollection).document(workoutLogId).updateData([
@@ -79,7 +128,20 @@ class WorkoutLogService: ObservableObject {
     
     // MARK: - Exercise Set Log Operations
     
-    /// Save an individual set log to Firestore
+    /// Saves an individual set log to Firestore.
+    ///
+    /// Creates a new document in the `exerciseSetLogs` collection with the set data.
+    /// Weight is optional (nil for bodyweight exercises). Reps is required.
+    ///
+    /// - Parameters:
+    ///   - workoutLogId: The Firestore document ID of the parent WorkoutLog
+    ///   - exerciseName: Name of the exercise (e.g., "Barbell Back Squat")
+    ///   - setNumber: Set number within the exercise (1, 2, 3, etc.)
+    ///   - weight: Weight in pounds (nil for bodyweight exercises)
+    ///   - reps: Number of reps completed
+    ///   - flaggedPain: Whether user experienced pain
+    ///   - flaggedNotInControl: Whether user felt not in control
+    ///   - completion: Callback with Result containing document ID on success, or Error on failure
     func saveSetLog(
         workoutLogId: String,
         exerciseName: String,
@@ -116,46 +178,17 @@ class WorkoutLogService: ObservableObject {
         }
     }
     
-    /// Update an existing set log
-    func updateSetLog(
-        setLogId: String,
-        weight: Double?,
-        reps: Int?,
-        flaggedPain: Bool,
-        flaggedNotInControl: Bool,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
-        var updateData: [String: Any] = [
-            "flaggedPain": flaggedPain,
-            "flaggedNotInControl": flaggedNotInControl
-        ]
-        
-        if let weight = weight {
-            updateData["weight"] = weight
-        } else {
-            updateData["weight"] = FieldValue.delete()
-        }
-        
-        if let reps = reps {
-            updateData["reps"] = reps
-        } else {
-            updateData["reps"] = FieldValue.delete()
-        }
-        
-        db.collection(exerciseSetLogsCollection).document(setLogId).updateData(updateData) { error in
-            if let error = error {
-                print("❌ Error updating set log: \(error.localizedDescription)")
-                completion(.failure(error))
-            } else {
-                print("✅ Set log updated: \(setLogId)")
-                completion(.success(()))
-            }
-        }
-    }
-    
     // MARK: - History Operations
     
-    /// Get history for a specific exercise, ordered by most recent first
+    /// Retrieves exercise history from Firestore.
+    ///
+    /// Fetches all set logs for a specific exercise, ordered by most recent first.
+    /// Used to display previous performance in the ExerciseHistorySheet.
+    ///
+    /// - Parameters:
+    ///   - exerciseName: Name of the exercise to get history for
+    ///   - limit: Maximum number of set logs to return (default: 30)
+    ///   - completion: Callback with Result containing array of ExerciseSetLog on success, or Error on failure
     func getHistoryForExercise(_ exerciseName: String, limit: Int = 30, completion: @escaping (Result<[ExerciseSetLog], Error>) -> Void) {
         db.collection(exerciseSetLogsCollection)
             .whereField("exerciseName", isEqualTo: exerciseName)
@@ -182,63 +215,4 @@ class WorkoutLogService: ObservableObject {
             }
     }
     
-    /// Get the last weight used for an exercise
-    func getLastWeightForExercise(_ exerciseName: String, completion: @escaping (Result<Double?, Error>) -> Void) {
-        db.collection(exerciseSetLogsCollection)
-            .whereField("exerciseName", isEqualTo: exerciseName)
-            .order(by: "timestamp", descending: true)
-            .limit(to: 30) // Get more documents to filter client-side
-            .getDocuments { snapshot, error in
-                if let error = error {
-                    print("❌ Error fetching last weight: \(error.localizedDescription)")
-                    completion(.failure(error))
-                    return
-                }
-                
-                guard let documents = snapshot?.documents else {
-                    completion(.success(nil))
-                    return
-                }
-                
-                // Find first document with a weight value
-                for document in documents {
-                    if let weight = document.data()["weight"] as? Double, weight > 0 {
-                        completion(.success(weight))
-                        return
-                    }
-                }
-                
-                completion(.success(nil))
-            }
-    }
-    
-    /// Get the last reps used for an exercise
-    func getLastRepsForExercise(_ exerciseName: String, completion: @escaping (Result<Int?, Error>) -> Void) {
-        db.collection(exerciseSetLogsCollection)
-            .whereField("exerciseName", isEqualTo: exerciseName)
-            .order(by: "timestamp", descending: true)
-            .limit(to: 30) // Get more documents to filter client-side
-            .getDocuments { snapshot, error in
-                if let error = error {
-                    print("❌ Error fetching last reps: \(error.localizedDescription)")
-                    completion(.failure(error))
-                    return
-                }
-                
-                guard let documents = snapshot?.documents else {
-                    completion(.success(nil))
-                    return
-                }
-                
-                // Find first document with a reps value
-                for document in documents {
-                    if let reps = document.data()["reps"] as? Int, reps > 0 {
-                        completion(.success(reps))
-                        return
-                    }
-                }
-                
-                completion(.success(nil))
-            }
-    }
 }

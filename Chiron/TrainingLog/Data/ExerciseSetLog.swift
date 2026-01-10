@@ -4,20 +4,43 @@
 //
 //  TrainingLog module - ExerciseSetLog model for Firebase Firestore
 //
+//  Represents a single set performed during a workout. Each set creates
+//  one ExerciseSetLog document in the `exerciseSetLogs` collection.
+//
 
 import Foundation
 import FirebaseFirestore
 
-/// Represents an individual set log for an exercise, stored in Firestore
+/// Represents an individual set log for an exercise, stored in Firebase Firestore.
+///
+/// Each set the user completes creates one ExerciseSetLog document.
+/// Multiple sets for the same exercise in the same workout are tracked via `setNumber`.
 struct ExerciseSetLog: Codable, Identifiable {
-    var id: String // Firestore document ID
+    /// Firestore document ID (auto-generated when created)
+    var id: String
+    
+    /// Reference to the parent WorkoutLog document
     var workoutLogId: String
+    
+    /// Name of the exercise (e.g., "Barbell Back Squat")
     var exerciseName: String
+    
+    /// Set number within the exercise (1, 2, 3, etc.)
     var setNumber: Int
-    var weight: Double? // Optional for bodyweight exercises
+    
+    /// Weight used in pounds (nil for bodyweight exercises)
+    var weight: Double?
+    
+    /// Number of reps completed
     var reps: Int?
+    
+    /// Whether the user experienced pain during this set
     var flaggedPain: Bool
+    
+    /// Whether the user felt not in control during this set
     var flaggedNotInControl: Bool
+    
+    /// When this set was logged
     var timestamp: Date
     
     init(
@@ -42,7 +65,11 @@ struct ExerciseSetLog: Codable, Identifiable {
         self.timestamp = timestamp
     }
     
-    /// Convert to Firestore-compatible dictionary
+    // MARK: - Firestore Serialization
+    
+    /// Converts the model to a Firestore-compatible dictionary.
+    /// Converts Swift Date to Firestore Timestamp for storage.
+    /// Only includes weight/reps if they have values (nil fields are omitted).
     func toFirestoreData() -> [String: Any] {
         var data: [String: Any] = [
             "workoutLogId": workoutLogId,
@@ -64,7 +91,8 @@ struct ExerciseSetLog: Codable, Identifiable {
         return data
     }
     
-    /// Create from Firestore document
+    /// Creates an ExerciseSetLog from a Firestore document.
+    /// Converts Firestore Timestamp back to Swift Date.
     static func fromFirestore(id: String, data: [String: Any]) -> ExerciseSetLog? {
         guard let workoutLogId = data["workoutLogId"] as? String,
               let exerciseName = data["exerciseName"] as? String,
