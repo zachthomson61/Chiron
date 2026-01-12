@@ -22,6 +22,9 @@ struct ExerciseSetLog: Codable, Identifiable {
     /// Reference to the parent WorkoutLog document
     var workoutLogId: String
     
+    /// User ID who performed this set (device-based identifier)
+    var userId: String
+    
     /// Name of the exercise (e.g., "Barbell Back Squat")
     var exerciseName: String
     
@@ -46,6 +49,7 @@ struct ExerciseSetLog: Codable, Identifiable {
     init(
         id: String = UUID().uuidString,
         workoutLogId: String,
+        userId: String,
         exerciseName: String,
         setNumber: Int,
         weight: Double? = nil,
@@ -56,6 +60,7 @@ struct ExerciseSetLog: Codable, Identifiable {
     ) {
         self.id = id
         self.workoutLogId = workoutLogId
+        self.userId = userId
         self.exerciseName = exerciseName
         self.setNumber = setNumber
         self.weight = weight
@@ -73,6 +78,7 @@ struct ExerciseSetLog: Codable, Identifiable {
     func toFirestoreData() -> [String: Any] {
         var data: [String: Any] = [
             "workoutLogId": workoutLogId,
+            "userId": userId,
             "exerciseName": exerciseName,
             "setNumber": setNumber,
             "flaggedPain": flaggedPain,
@@ -93,6 +99,7 @@ struct ExerciseSetLog: Codable, Identifiable {
     
     /// Creates an ExerciseSetLog from a Firestore document.
     /// Converts Firestore Timestamp back to Swift Date.
+    /// Note: userId is optional for backward compatibility with existing documents.
     static func fromFirestore(id: String, data: [String: Any]) -> ExerciseSetLog? {
         guard let workoutLogId = data["workoutLogId"] as? String,
               let exerciseName = data["exerciseName"] as? String,
@@ -103,9 +110,14 @@ struct ExerciseSetLog: Codable, Identifiable {
             return nil
         }
         
+        // userId is optional for backward compatibility (existing documents may not have it)
+        // For new documents, userId should always be present
+        let userId = data["userId"] as? String ?? ""
+        
         var log = ExerciseSetLog(
             id: id,
             workoutLogId: workoutLogId,
+            userId: userId,
             exerciseName: exerciseName,
             setNumber: setNumber,
             flaggedPain: flaggedPain,

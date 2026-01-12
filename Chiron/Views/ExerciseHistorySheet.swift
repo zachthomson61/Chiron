@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import Foundation
 
 /// Modal sheet displaying exercise history from previous workouts.
 ///
@@ -123,7 +124,21 @@ struct ExerciseHistorySheet: View {
         isLoading = true
         errorMessage = nil
         
-        workoutLogService.getHistoryForExercise(exerciseName) { result in
+        let userId = UserManager.shared.getUserId()
+        
+        // Validate userId
+        guard !userId.isEmpty else {
+            let errorMsg = "User ID is empty. Cannot load history."
+            print("❌ \(errorMsg)")
+            DispatchQueue.main.async {
+                self.isLoading = false
+                self.errorMessage = errorMsg
+            }
+            return
+        }
+        
+        
+        workoutLogService.getHistoryForExercise(exerciseName, userId: userId) { result in
             DispatchQueue.main.async {
                 isLoading = false
                 switch result {

@@ -85,11 +85,12 @@ class WorkoutLogService: ObservableObject {
     ///
     /// - Parameters:
     ///   - workoutName: Name of the workout (e.g., "Python Wrangler")
+    ///   - userId: User ID who is performing the workout
     ///   - completion: Callback with Result containing the document ID on success, or Error on failure
     ///
     /// The document ID is returned so it can be used to associate ExerciseSetLog entries.
-    func createWorkoutLog(workoutName: String, completion: @escaping (Result<String, Error>) -> Void) {
-        let workoutLog = WorkoutLog(workoutName: workoutName)
+    func createWorkoutLog(workoutName: String, userId: String, completion: @escaping (Result<String, Error>) -> Void) {
+        let workoutLog = WorkoutLog(workoutName: workoutName, userId: userId)
         let data = workoutLog.toFirestoreData()
         
         var ref: DocumentReference?
@@ -135,6 +136,7 @@ class WorkoutLogService: ObservableObject {
     ///
     /// - Parameters:
     ///   - workoutLogId: The Firestore document ID of the parent WorkoutLog
+    ///   - userId: User ID who performed this set
     ///   - exerciseName: Name of the exercise (e.g., "Barbell Back Squat")
     ///   - setNumber: Set number within the exercise (1, 2, 3, etc.)
     ///   - weight: Weight in pounds (nil for bodyweight exercises)
@@ -144,6 +146,7 @@ class WorkoutLogService: ObservableObject {
     ///   - completion: Callback with Result containing document ID on success, or Error on failure
     func saveSetLog(
         workoutLogId: String,
+        userId: String,
         exerciseName: String,
         setNumber: Int,
         weight: Double?,
@@ -154,6 +157,7 @@ class WorkoutLogService: ObservableObject {
     ) {
         let setLog = ExerciseSetLog(
             workoutLogId: workoutLogId,
+            userId: userId,
             exerciseName: exerciseName,
             setNumber: setNumber,
             weight: weight,
@@ -182,21 +186,68 @@ class WorkoutLogService: ObservableObject {
     
     /// Retrieves exercise history from Firestore.
     ///
-    /// Fetches all set logs for a specific exercise, ordered by most recent first.
+    /// Fetches all set logs for a specific exercise for the current user, ordered by most recent first.
     /// Used to display previous performance in the ExerciseHistorySheet.
     ///
     /// - Parameters:
     ///   - exerciseName: Name of the exercise to get history for
+    ///   - userId: User ID to filter history by
     ///   - limit: Maximum number of set logs to return (default: 30)
     ///   - completion: Callback with Result containing array of ExerciseSetLog on success, or Error on failure
-    func getHistoryForExercise(_ exerciseName: String, limit: Int = 30, completion: @escaping (Result<[ExerciseSetLog], Error>) -> Void) {
+    ///
+    /// Note: This query requires a Firestore composite index on (exerciseName, userId, timestamp).
+    /// Firebase will prompt to create this index when the query is first run.
+    func getHistoryForExercise(_ exerciseName: String, userId: String, limit: Int = 30, completion: @escaping (Result<[ExerciseSetLog], Error>) -> Void) {
+        
         db.collection(exerciseSetLogsCollection)
             .whereField("exerciseName", isEqualTo: exerciseName)
+            .whereField("userId", isEqualTo: userId)
             .order(by: "timestamp", descending: true)
             .limit(to: limit)
             .getDocuments { snapshot, error in
                 if let error = error {
+                    // #region agent log
+                    let errorDesc = error.localizedDescription.replacingOccurrences(of: "\"", with: "\\\"")
+                    let errorCode = (error as NSError).code
+                    let errorDomain = (error as NSError).domain
+                    print("🔍 DEBUG: Firestore query error - Code: \(errorCode), Domain: \(errorDomain), Message: \(error.localizedDescription)")
+                    if let logData = """
+                    {"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"WorkoutLogService.swift:207","message":"Firestore query error","data":{"error":"\(errorDesc)","errorCode":\(errorCode),"errorDomain":"\(errorDomain)","exerciseName":"\(exerciseName)","userId":"\(userId)"},"timestamp":\(Int(Date().timeIntervalSince1970 * 1000))}
+                    """.data(using: .utf8) {
+                        do {
+                            if let fileHandle = FileHandle(forWritingAtPath: logPath) {
+                                fileHandle.seekToEndOfFile()
+                                fileHandle.write(logData)
+                                fileHandle.closeFile()
+                            } else {
+                                try FileManager.default.createDirectory(atPath: "/Users/zach.thomson/Desktop/Chiron/.cursor", withIntermediateDirectories: true, attributes: nil)
+                                FileManager.default.createFile(atPath: logPath, contents: logData, attributes: nil)
+                            }
+                        } catch {
+                            print("🔍 DEBUG: Failed to write error log: \(error)")
+                        }
+                    }
+                    // #endregion
+                    let nsError = error as NSError
                     print("❌ Error fetching exercise history: \(error.localizedDescription)")
+                    
+                    // Check if it's an index error and provide helpful instructions
+                    let errorLower = error.localizedDescription.lowercased()
+                    if errorLower.contains("index") || errorLower.contains("requires an index") || nsError.code == 9 {
+                        print("""
+                        
+                        ⚠️ FIRESTORE INDEX ERROR DETECTED ⚠️
+                        
+                        The query requires a composite index. Create an index on collection 'exerciseSetLogs' with these fields:
+                          1. exerciseName (Ascending)
+                          2. userId (Ascending) - CRITICAL: lowercase 'd', NOT 'userID' or 'UserID'
+                          3. timestamp (Descending)
+                        
+                        Go to: https://console.firebase.google.com/project/chiron-6c955/firestore/indexes
+                        
+                        """)
+                    }
+                    
                     completion(.failure(error))
                     return
                 }
@@ -210,7 +261,7 @@ class WorkoutLogService: ObservableObject {
                     ExerciseSetLog.fromFirestore(id: doc.documentID, data: doc.data())
                 }
                 
-                print("✅ Fetched \(setLogs.count) set logs for exercise: \(exerciseName)")
+                print("✅ Fetched \(setLogs.count) set logs for exercise: \(exerciseName), user: \(userId)")
                 completion(.success(setLogs))
             }
     }

@@ -122,6 +122,9 @@ struct WorkoutIntroView: View {
     /// Set tracking: current set number resets to 1 when moving to a new exercise
     @State private var currentSetNumber: Int = 1
     
+    /// Set numbers per exercise: tracks the current set number for each exercise index
+    @State private var setNumbersPerExercise: [Int: Int] = [:]
+    
     /// Firestore document ID for the current workout session
     @State private var currentWorkoutLogId: String?
     
@@ -130,6 +133,9 @@ struct WorkoutIntroView: View {
     @State private var currentSetReps: Int?
     @State private var currentSetPainFlag: Bool = false
     @State private var currentSetNotInControlFlag: Bool = false
+    
+    /// Exercise data tracking: stores weight/reps per exercise index (persists across navigation)
+    @State private var exerciseData: [Int: (weight: Double?, reps: Int?)] = [:]
     
     /// Workout log service (singleton)
     @StateObject private var workoutLogService = WorkoutLogService.shared
@@ -357,7 +363,15 @@ struct WorkoutIntroView: View {
                         jumpToExercise(index: index)
                     }
                 },
-                currentExerciseIndex: isWorkoutActive ? currentExerciseIndex : nil
+                currentExerciseIndex: isWorkoutActive ? currentExerciseIndex : nil,
+                exerciseData: isWorkoutActive ? exerciseData : nil,
+                onUpdateExerciseData: isWorkoutActive ? { exerciseIndex, weight, reps in
+                    exerciseData[exerciseIndex] = (weight: weight, reps: reps)
+                } : nil,
+                workoutLogId: isWorkoutActive ? currentWorkoutLogId : nil,
+                onSaveSetLog: isWorkoutActive ? { exerciseIndex, weight, reps in
+                    saveSetLogForExercise(exerciseIndex: exerciseIndex, weight: weight, reps: reps)
+                } : nil
             )
         }
         .sheet(isPresented: $showSettings) {
@@ -379,7 +393,15 @@ struct WorkoutIntroView: View {
                         jumpToExercise(index: index)
                     }
                 },
-                currentExerciseIndex: isWorkoutActive ? currentExerciseIndex : nil
+                currentExerciseIndex: isWorkoutActive ? currentExerciseIndex : nil,
+                exerciseData: isWorkoutActive ? exerciseData : nil,
+                onUpdateExerciseData: isWorkoutActive ? { exerciseIndex, weight, reps in
+                    exerciseData[exerciseIndex] = (weight: weight, reps: reps)
+                } : nil,
+                workoutLogId: isWorkoutActive ? currentWorkoutLogId : nil,
+                onSaveSetLog: isWorkoutActive ? { exerciseIndex, weight, reps in
+                    saveSetLogForExercise(exerciseIndex: exerciseIndex, weight: weight, reps: reps)
+                } : nil
             )
         }
         .sheet(isPresented: $showWeightInput) {
@@ -388,6 +410,9 @@ struct WorkoutIntroView: View {
                 weight: $currentSetWeight,
                 onSave: { weight in
                     currentSetWeight = weight
+                    // Update exercise data dictionary
+                    let currentData = exerciseData[currentExerciseIndex] ?? (weight: nil, reps: nil)
+                    exerciseData[currentExerciseIndex] = (weight: weight, reps: currentData.reps)
                     saveSetLogIfComplete()
                 }
             )
@@ -398,6 +423,10 @@ struct WorkoutIntroView: View {
                 reps: $currentSetReps,
                 onSave: { reps in
                     currentSetReps = reps
+                    // Update exercise data dictionary - use currentSetWeight as source of truth for the current set
+                    let currentData = exerciseData[currentExerciseIndex] ?? (weight: nil, reps: nil)
+                    // Use currentSetWeight if available (for current set), otherwise fall back to exerciseData weight (for display)
+                    exerciseData[currentExerciseIndex] = (weight: currentSetWeight ?? currentData.weight, reps: reps)
                     saveSetLogIfComplete()
                 }
             )
@@ -761,6 +790,40 @@ struct WorkoutIntroView: View {
                     .font(.neueMontrealRegular(size: 18))
                     .foregroundColor(.textSecondary)
                 
+                // Display entered weight/reps values if available
+                if let data = exerciseData[currentExerciseIndex], (data.weight != nil || data.reps != nil) {
+                    HStack(spacing: 12) {
+                        if let weight = data.weight {
+                            HStack(spacing: 4) {
+                                Text(String(format: "%.1f", weight))
+                                    .font(.neueMontrealBold(size: 16))
+                                    .foregroundColor(.textPrimary)
+                                Text("lbs")
+                                    .font(.neueMontrealRegular(size: 14))
+                                    .foregroundColor(.textSecondary)
+                            }
+                        }
+                        
+                        if let weight = data.weight, let reps = data.reps {
+                            Text("•")
+                                .font(.neueMontrealRegular(size: 14))
+                                .foregroundColor(.textSecondary)
+                        }
+                        
+                        if let reps = data.reps {
+                            HStack(spacing: 4) {
+                                Text("\(reps)")
+                                    .font(.neueMontrealBold(size: 16))
+                                    .foregroundColor(.textPrimary)
+                                Text("reps")
+                                    .font(.neueMontrealRegular(size: 14))
+                                    .foregroundColor(.textSecondary)
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                
                 // Bottom timer/progress
                 if isShowingIntro {
                     introBufferProgressView
@@ -852,7 +915,7 @@ struct WorkoutIntroView: View {
             ActionButton(
                 icon: "dumbbell.fill",
                 title: "Weight",
-                isDisabled: isWarmUpExercise,
+                isDisabled: isPaused || isWarmUpExercise,
                 action: {
                     showWeightInput = true
                 }
@@ -862,7 +925,7 @@ struct WorkoutIntroView: View {
             ActionButton(
                 icon: "list.number",
                 title: "Reps",
-                isDisabled: false,
+                isDisabled: isPaused,
                 action: {
                     showRepsInput = true
                 }
@@ -872,7 +935,7 @@ struct WorkoutIntroView: View {
             ActionButton(
                 icon: "flag.fill",
                 title: "Flag",
-                isDisabled: false,
+                isDisabled: isPaused,
                 action: {
                     showFlagOptions = true
                 }
@@ -882,7 +945,7 @@ struct WorkoutIntroView: View {
             ActionButton(
                 icon: "speaker.wave.2.fill",
                 title: "Guide",
-                isDisabled: false,
+                isDisabled: isPaused,
                 action: {
                     playExerciseGuide()
                 }
@@ -892,7 +955,7 @@ struct WorkoutIntroView: View {
             ActionButton(
                 icon: "clock.arrow.circlepath",
                 title: "History",
-                isDisabled: false,
+                isDisabled: isPaused,
                 action: {
                     showHistory = true
                 }
@@ -902,7 +965,7 @@ struct WorkoutIntroView: View {
             ActionButton(
                 icon: "arrow.counterclockwise",
                 title: "Restart",
-                isDisabled: false,
+                isDisabled: isPaused,
                 action: {
                     restartCurrentExercise()
                 }
@@ -1110,7 +1173,8 @@ struct WorkoutIntroView: View {
         dragOffset = 0
         
         // Create workout log in Firestore
-        workoutLogService.createWorkoutLog(workoutName: workout.name) { result in
+        let userId = UserManager.shared.getUserId()
+        workoutLogService.createWorkoutLog(workoutName: workout.name, userId: userId) { result in
             DispatchQueue.main.async {
                 switch result {
                 case .success(let logId):
@@ -1523,6 +1587,68 @@ struct WorkoutIntroView: View {
     
     // MARK: - Workout Logging Functions
     
+    /// Saves a set log to Firestore for a specific exercise.
+    /// 
+    /// Called when weight/reps are saved from the overview menu. Tracks set numbers per exercise
+    /// to ensure correct set numbering when logging sets for different exercises.
+    ///
+    /// - Parameters:
+    ///   - exerciseIndex: Index of the exercise in the workout
+    ///   - weight: Weight used (optional for bodyweight exercises)
+    ///   - reps: Number of reps completed
+    private func saveSetLogForExercise(exerciseIndex: Int, weight: Double?, reps: Int?) {
+        // Ensure we're on the main thread and validate inputs
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                self.saveSetLogForExercise(exerciseIndex: exerciseIndex, weight: weight, reps: reps)
+            }
+            return
+        }
+        
+        // Validate bounds
+        guard exerciseIndex >= 0,
+              exerciseIndex < workout.exercises.count else {
+            return
+        }
+        
+        guard let workoutLogId = currentWorkoutLogId else {
+            return
+        }
+        
+        guard let reps = reps else {
+            return
+        }
+        
+        // Safely access exercise
+        let exercise = workout.exercises[exerciseIndex]
+        let userId = UserManager.shared.getUserId()
+        
+        // Get or initialize set number for this exercise
+        let setNumber = setNumbersPerExercise[exerciseIndex] ?? 1
+        
+        workoutLogService.saveSetLog(
+            workoutLogId: workoutLogId,
+            userId: userId,
+            exerciseName: exercise.name,
+            setNumber: setNumber,
+            weight: weight,
+            reps: reps,
+            flaggedPain: false,
+            flaggedNotInControl: false
+        ) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let setLogId):
+                    print("✅ Set log saved from overview: \(setLogId)")
+                    // Increment set number for this exercise
+                    self.setNumbersPerExercise[exerciseIndex] = (self.setNumbersPerExercise[exerciseIndex] ?? 1) + 1
+                case .failure(let error):
+                    print("❌ Failed to save set log from overview: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    
     /// Saves the current set log to Firestore if reps are logged.
     ///
     /// Weight is optional (nil for bodyweight exercises). When a set is saved:
@@ -1540,8 +1666,10 @@ struct WorkoutIntroView: View {
             return
         }
         
+        let userId = UserManager.shared.getUserId()
         workoutLogService.saveSetLog(
                 workoutLogId: workoutLogId,
+                userId: userId,
                 exerciseName: exercise.name,
                 setNumber: currentSetNumber,
                 weight: currentSetWeight,
@@ -1555,6 +1683,8 @@ struct WorkoutIntroView: View {
                         print("✅ Set log saved: \(setLogId)")
                         // Increment set number for next set
                         currentSetNumber += 1
+                        // Also update per-exercise tracking
+                        setNumbersPerExercise[currentExerciseIndex] = currentSetNumber
                         // Reset current set data
                         currentSetWeight = nil
                         currentSetReps = nil

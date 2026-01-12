@@ -96,8 +96,14 @@ struct WeightInputSheet: View {
                     
                     // Save button
                     Button(action: {
-                        onSave(selectedWeight)
-                        isPresented = false
+                        // Ensure callback executes on main thread
+                        DispatchQueue.main.async {
+                            self.onSave(selectedWeight)
+                            // Dismiss after callback completes
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                self.isPresented = false
+                            }
+                        }
                     }) {
                         Text("Save")
                             .font(.neueMontrealSemiBold(size: 18))

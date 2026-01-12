@@ -28,6 +28,21 @@ struct WorkoutProgressionView: View {
     /// Optional current exercise index (to highlight or show current position)
     var currentExerciseIndex: Int? = nil
     
+    /// Exercise data tracking: stores weight/reps per exercise index
+    var exerciseData: [Int: (weight: Double?, reps: Int?)]? = nil
+    
+    /// Callback to update exercise data in parent view
+    var onUpdateExerciseData: ((Int, Double?, Int?) -> Void)? = nil
+    
+    /// Workout log ID for Firebase saving (optional - only needed if saving from overview)
+    var workoutLogId: String? = nil
+    
+    /// Callback to save set log to Firebase (takes exerciseIndex, weight, reps)
+    var onSaveSetLog: ((Int, Double?, Int?) -> Void)? = nil
+    
+    /// Local state to track exercise data (updated via callback)
+    @State private var localExerciseData: [Int: (weight: Double?, reps: Int?)] = [:]
+    
     /// Currently expanded exercise ID for inline expansion
     @State private var expandedExerciseId: UUID?
     
@@ -44,6 +59,9 @@ struct WorkoutProgressionView: View {
     
     /// Exercise selected when a sheet is opened (used to pass exercise name to sheets)
     @State private var selectedExerciseForLogging: WorkoutExercise?
+    
+    /// Exercise index selected when a sheet is opened (used to update exercise data)
+    @State private var selectedExerciseIndex: Int?
     
     /// Workout log service (only used for history, not for logging from overview)
     @StateObject private var workoutLogService = WorkoutLogService.shared
@@ -82,27 +100,15 @@ struct WorkoutProgressionView: View {
                 
                 ScrollView {
                     VStack(spacing: 0) {
-                        // Overview header bar
+                        // Overview header bar (spacer for fixed button)
                         ZStack {
-                            HStack {
-                                Button(action: { dismiss() }) {
-                                    Image(systemName: "chevron.down")
-                                        .font(.system(size: 18, weight: .semibold))
-                                        .foregroundColor(.textPrimary)
-                                        .frame(width: 40, height: 40)
-                                        .background(Color.black.opacity(0.3))
-                                        .clipShape(Circle())
-                                }
-                                
-                                Spacer()
-                            }
-                            
                             Text("Overview")
                                 .font(.neueMontrealSemiBold(size: 16))
                                 .foregroundColor(.textPrimary)
                         }
                         .padding(.horizontal, 20)
                         .padding(.vertical, 16)
+                        .frame(height: 60)
                         
                         // Exercises grouped by phase
                         VStack(spacing: 0) {
@@ -125,6 +131,8 @@ struct WorkoutProgressionView: View {
                                         
                                         WorkoutProgressionExerciseRow(
                                             exercise: exercise,
+                                            exerciseIndex: exerciseIndex,
+                                            exerciseData: localExerciseData,
                                             isExpanded: expandedExerciseId == exercise.id,
                                             isCurrentExercise: currentExerciseIndex == exerciseIndex,
                                             onTap: {
@@ -143,10 +151,12 @@ struct WorkoutProgressionView: View {
                                             },
                                             onShowWeightInput: {
                                                 selectedExerciseForLogging = exercise
+                                                selectedExerciseIndex = exerciseIndex
                                                 showWeightInput = true
                                             },
                                             onShowRepsInput: {
                                                 selectedExerciseForLogging = exercise
+                                                selectedExerciseIndex = exerciseIndex
                                                 showRepsInput = true
                                             },
                                             onShowFlagOptions: {
@@ -187,30 +197,82 @@ struct WorkoutProgressionView: View {
                         .padding(.bottom, 40)
                     }
                 }
+                
+                // Fixed dismiss button in top left (always visible)
+                VStack {
+                    HStack {
+                        Button(action: { dismiss() }) {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.textPrimary)
+                                .frame(width: 40, height: 40)
+                                .background(Color.black.opacity(0.3))
+                                .clipShape(Circle())
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                        
+                        Spacer()
+                    }
+                    
+                    Spacer()
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
         }
+        .onAppear {
+            // Initialize local state from passed exerciseData
+            if let data = exerciseData {
+                localExerciseData = data
+            }
+        }
         .sheet(isPresented: $showWeightInput) {
-            if let exercise = selectedExerciseForLogging {
+            if let exercise = selectedExerciseForLogging,
+               let exerciseIndex = selectedExerciseIndex {
                 WeightInputSheet(
                     isPresented: $showWeightInput,
-                    weight: .constant(nil),
-                    onSave: { _ in
-                        // Note: Logging from overview is not implemented - users should log from the active workout view
-                        // This sheet is shown for UI consistency but doesn't persist data
+                    weight: .constant(localExerciseData[exerciseIndex]?.weight),
+                    onSave: { weight in
+                        // Update local state
+                        let currentData = localExerciseData[exerciseIndex] ?? (weight: nil, reps: nil)
+                        localExerciseData[exerciseIndex] = (weight: weight, reps: currentData.reps)
+                        // Update parent via callback
+                        if let onUpdate = onUpdateExerciseData {
+                            onUpdate(exerciseIndex, weight, currentData.reps)
+                        }
+                        // Save to Firebase if we have reps (weight alone doesn't save a set)
+                        if let reps = currentData.reps, let onSave = onSaveSetLog {
+                            // Ensure callback executes on main thread
+                            DispatchQueue.main.async {
+                                onSave(exerciseIndex, weight, reps)
+                            }
+                        }
                     }
                 )
             }
         }
         .sheet(isPresented: $showRepsInput) {
-            if let exercise = selectedExerciseForLogging {
+            if let exercise = selectedExerciseForLogging,
+               let exerciseIndex = selectedExerciseIndex {
                 RepsInputSheet(
                     isPresented: $showRepsInput,
-                    reps: .constant(nil),
-                    onSave: { _ in
-                        // Note: Logging from overview is not implemented - users should log from the active workout view
-                        // This sheet is shown for UI consistency but doesn't persist data
+                    reps: .constant(localExerciseData[exerciseIndex]?.reps),
+                    onSave: { reps in
+                        // Update local state
+                        let currentData = localExerciseData[exerciseIndex] ?? (weight: nil, reps: nil)
+                        localExerciseData[exerciseIndex] = (weight: currentData.weight, reps: reps)
+                        // Update parent via callback
+                        if let onUpdate = onUpdateExerciseData {
+                            onUpdate(exerciseIndex, currentData.weight, reps)
+                        }
+                        // Save to Firebase if we have both weight and reps (or just reps for bodyweight)
+                        if let onSave = onSaveSetLog {
+                            // Ensure callback executes on main thread
+                            DispatchQueue.main.async {
+                                onSave(exerciseIndex, currentData.weight, reps)
+                            }
+                        }
                     }
                 )
             }
@@ -448,6 +510,8 @@ private struct PhaseSeparatorBar: View {
 /// - Formats exercise details (reps, sets, notes) with proper styling
 private struct WorkoutProgressionExerciseRow: View {
     let exercise: WorkoutExercise
+    let exerciseIndex: Int
+    let exerciseData: [Int: (weight: Double?, reps: Int?)]?
     let isExpanded: Bool
     let isCurrentExercise: Bool
     let onTap: () -> Void
@@ -486,6 +550,40 @@ private struct WorkoutProgressionExerciseRow: View {
                         Text(formatRepsDetails())
                             .font(.neueMontrealRegular(size: 14))
                             .foregroundColor(.textSecondary)
+                    }
+                    
+                    // Display entered weight/reps values if available
+                    if let data = exerciseData?[exerciseIndex], (data.weight != nil || data.reps != nil) {
+                        HStack(spacing: 8) {
+                            if let weight = data.weight {
+                                HStack(spacing: 4) {
+                                    Text(String(format: "%.1f", weight))
+                                        .font(.neueMontrealBold(size: 13))
+                                        .foregroundColor(.textPrimary)
+                                    Text("lbs")
+                                        .font(.neueMontrealRegular(size: 12))
+                                        .foregroundColor(.textSecondary)
+                                }
+                            }
+                            
+                            if let weight = data.weight, let reps = data.reps {
+                                Text("•")
+                                    .font(.neueMontrealRegular(size: 12))
+                                    .foregroundColor(.textSecondary)
+                            }
+                            
+                            if let reps = data.reps {
+                                HStack(spacing: 4) {
+                                    Text("\(reps)")
+                                        .font(.neueMontrealBold(size: 13))
+                                        .foregroundColor(.textPrimary)
+                                    Text("reps")
+                                        .font(.neueMontrealRegular(size: 12))
+                                        .foregroundColor(.textSecondary)
+                                }
+                            }
+                        }
+                        .padding(.top, 2)
                     }
                 }
                 
