@@ -691,67 +691,55 @@ private struct WorkoutProgressionExerciseRow: View {
             .padding(.vertical, 12)
             .contentShape(Rectangle())
             .onTapGesture {
-                // Both exercises and rest cards are expandable
+                // Rest and Camera Setup exercises are not expandable in the overview menu
+                // Only regular exercises can be expanded to show video and action buttons
+                guard exercise.name != "Rest", !isCameraSetupExercise else { return }
                 onTap()
             }
             
-            // Expanded content (shown when isExpanded is true)
+            // Expanded content section
+            //
+            // Button visibility rules for overview menu (intro page only):
+            // - Rest exercises: Not expandable (no buttons)
+            // - Camera Setup exercises: Not expandable (no buttons)
+            // - Warm-up/Cool-down exercises: Guide button only
+            // - All other exercises: Guide and History buttons
             if isExpanded {
                 VStack(spacing: 24) {
-                    // For rest sections, only show jump button
-                    if exercise.name == "Rest" {
-                        // Jump to Here button only for rest sections
-                        OverviewActionButton(
-                            icon: "arrow.right.circle.fill",
-                            title: "Jump to Here",
-                            isDisabled: false,
-                            isHighlighted: isCurrentExercise,
-                            action: onJumpToExercise
-                        )
-                        .padding(.horizontal, 20)
-                        .padding(.top, 16)
-                    } else if isCameraSetupExercise {
-                        // For camera setup exercises, show only Jump to Here button (no instructions in overview)
-                        OverviewActionButton(
-                            icon: "arrow.right.circle.fill",
-                            title: "Jump to Here",
-                            isDisabled: false,
-                            isHighlighted: isCurrentExercise,
-                            action: onJumpToExercise
-                        )
-                        .padding(.horizontal, 20)
-                        .padding(.top, 16)
+                    // Rest and Camera Setup exercises should never reach here due to tap guard above,
+                    // but include EmptyView as defensive programming
+                    if exercise.name == "Rest" || isCameraSetupExercise {
+                        EmptyView()
                     } else {
-                        // For regular exercises, show video player and full button grid
-                        // Landscape video player - full width, edge-to-edge, no rounded corners
+                        // Video player for regular exercises
                         VideoPlayerArea(videoName: videoName)
                             .frame(maxWidth: .infinity)
                             .padding(.top, 16)
                             .padding(.horizontal, -20) // Extend beyond parent padding to screen edges
                         
-                        // Action buttons grid
-                        // Button visibility: Rest exercises show only "Jump to Here"
-                        // Warm-up/Cool-down exercises hide Weight, Reps, and History
-                        let shouldHideWeightRepsHistory = exercise.phase == "Warm-up" || exercise.phase == "Cool Down"
+                        // Action buttons based on exercise phase
+                        let isWarmUpOrCoolDown = exercise.phase == "Warm-up" || exercise.phase == "Cool Down"
                         
-                        LazyVGrid(columns: [
-                            GridItem(.flexible()),
-                            GridItem(.flexible()),
-                            GridItem(.flexible())
-                        ], spacing: 12) {
-                            if !shouldHideWeightRepsHistory {
+                        if isWarmUpOrCoolDown {
+                            // Warm-up/Cool-down: Single Guide button
+                            OverviewActionButton(
+                                icon: "speaker.wave.2.fill",
+                                title: "Guide",
+                                isDisabled: false,
+                                action: onPlayGuide
+                            )
+                            .padding(.horizontal, 20)
+                        } else {
+                            // Regular exercises: Guide and History buttons in 2-column grid
+                            LazyVGrid(columns: [
+                                GridItem(.flexible()),
+                                GridItem(.flexible())
+                            ], spacing: 12) {
                                 OverviewActionButton(
-                                    icon: "dumbbell.fill",
-                                    title: "Weight",
+                                    icon: "speaker.wave.2.fill",
+                                    title: "Guide",
                                     isDisabled: false,
-                                    action: onShowWeightInput
-                                )
-                                
-                                OverviewActionButton(
-                                    icon: "list.number",
-                                    title: "Reps",
-                                    isDisabled: false,
-                                    action: onShowRepsInput
+                                    action: onPlayGuide
                                 )
                                 
                                 OverviewActionButton(
@@ -761,30 +749,8 @@ private struct WorkoutProgressionExerciseRow: View {
                                     action: onShowHistory
                                 )
                             }
-                            
-                            OverviewActionButton(
-                                icon: "flag.fill",
-                                title: "Flag",
-                                isDisabled: false,
-                                action: onShowFlagOptions
-                            )
-                            
-                            OverviewActionButton(
-                                icon: "speaker.wave.2.fill",
-                                title: "Guide",
-                                isDisabled: false,
-                                action: onPlayGuide
-                            )
-                            
-                            OverviewActionButton(
-                                icon: "arrow.right.circle.fill",
-                                title: "Jump to Here",
-                                isDisabled: false,
-                                isHighlighted: isCurrentExercise,
-                                action: onJumpToExercise
-                            )
+                            .padding(.horizontal, 20)
                         }
-                        .padding(.horizontal, 20)
                     }
                 }
                 .padding(.bottom, 16)
