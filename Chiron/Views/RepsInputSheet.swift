@@ -53,7 +53,7 @@ struct RepsInputSheet: View {
                             .padding(.vertical, 16)
                             .background(Color.white.opacity(0.1))
                             .cornerRadius(16)
-                            .onChange(of: repsString) { newValue in
+                            .onChange(of: repsString) { oldValue, newValue in
                                 if let value = Int(newValue) {
                                     selectedReps = value
                                 }

@@ -114,8 +114,7 @@ struct WorkoutActiveView: View {
     /// Exercise data tracking: stores weight/reps per exercise index (persists across navigation)
     @State private var exerciseData: [Int: (weight: Double?, reps: Int?)] = [:]
     
-    /// Workout log service (singleton)
-    @StateObject private var workoutLogService = WorkoutLogService.shared
+    /// Workout log service (singleton) - accessed via WorkoutLogService.shared
     
     // MARK: - Computed Properties
     
@@ -655,7 +654,7 @@ struct WorkoutActiveView: View {
                 ActionButton(
                     icon: "arrow.counterclockwise",
                     title: "Restart",
-                    isDisabled: isPaused,
+                    isDisabled: false,
                     action: {
                         restartCurrentExercise()
                     }
@@ -674,7 +673,7 @@ struct WorkoutActiveView: View {
                 ActionButton(
                     icon: "dumbbell.fill",
                     title: "Weight",
-                    isDisabled: isPaused || isWarmUpExercise,
+                    isDisabled: isWarmUpExercise,
                     action: {
                         showWeightInput = true
                     }
@@ -684,7 +683,7 @@ struct WorkoutActiveView: View {
                 ActionButton(
                     icon: "list.number",
                     title: "Reps",
-                    isDisabled: isPaused,
+                    isDisabled: false,
                     action: {
                         showRepsInput = true
                     }
@@ -694,7 +693,7 @@ struct WorkoutActiveView: View {
                 ActionButton(
                     icon: "flag.fill",
                     title: "Flag",
-                    isDisabled: isPaused,
+                    isDisabled: false,
                     action: {
                         showFlagOptions = true
                     }
@@ -704,7 +703,7 @@ struct WorkoutActiveView: View {
                 ActionButton(
                     icon: "speaker.wave.2.fill",
                     title: "Guide",
-                    isDisabled: isPaused,
+                    isDisabled: false,
                     action: {
                         playExerciseGuide()
                     }
@@ -714,7 +713,7 @@ struct WorkoutActiveView: View {
                 ActionButton(
                     icon: "clock.arrow.circlepath",
                     title: "History",
-                    isDisabled: isPaused,
+                    isDisabled: false,
                     action: {
                         showHistory = true
                     }
@@ -724,7 +723,7 @@ struct WorkoutActiveView: View {
                 ActionButton(
                     icon: "arrow.counterclockwise",
                     title: "Restart",
-                    isDisabled: isPaused,
+                    isDisabled: false,
                     action: {
                         restartCurrentExercise()
                     }
@@ -836,7 +835,7 @@ struct WorkoutActiveView: View {
         
         // Create workout log in Firestore
         let userId = UserManager.shared.getUserId()
-        workoutLogService.createWorkoutLog(workoutName: workout.name, userId: userId) { result in
+        WorkoutLogService.shared.createWorkoutLog(workoutName: workout.name, userId: userId) { result in
             DispatchQueue.main.async {
                 switch result {
                 case .success(let logId):
@@ -1015,7 +1014,11 @@ struct WorkoutActiveView: View {
         } else {
             // Workout complete - end workout log
             if let logId = currentWorkoutLogId {
-                workoutLogService.endWorkoutLog(workoutLogId: logId) { result in
+                WorkoutLogService.shared.endWorkoutLog(
+                    workoutLogId: logId,
+                    totalDuration: elapsedWorkoutTime,
+                    totalPausedDuration: totalPausedDuration
+                ) { result in
                     switch result {
                     case .success:
                         print("✅ Workout log ended: \(logId)")
@@ -1074,9 +1077,9 @@ struct WorkoutActiveView: View {
     private func saveSetLogForExercise(exerciseIndex: Int, weight: Double?, reps: Int?) {
         // Ensure we're on the main thread and validate inputs
         guard Thread.isMainThread else {
-            DispatchQueue.main.async {
+            DispatchQueue.main.async(execute: {
                 self.saveSetLogForExercise(exerciseIndex: exerciseIndex, weight: weight, reps: reps)
-            }
+            })
             return
         }
         
@@ -1101,7 +1104,7 @@ struct WorkoutActiveView: View {
         // Get or initialize set number for this exercise
         let setNumber = setNumbersPerExercise[exerciseIndex] ?? 1
         
-        workoutLogService.saveSetLog(
+        WorkoutLogService.shared.saveSetLog(
             workoutLogId: workoutLogId,
             userId: userId,
             exerciseName: exercise.name,
@@ -1111,7 +1114,7 @@ struct WorkoutActiveView: View {
             flaggedPain: false,
             flaggedNotInControl: false
         ) { result in
-            DispatchQueue.main.async {
+            DispatchQueue.main.async(execute: {
                 switch result {
                 case .success(let setLogId):
                     print("✅ Set log saved from overview: \(setLogId)")
@@ -1120,7 +1123,7 @@ struct WorkoutActiveView: View {
                 case .failure(let error):
                     print("❌ Failed to save set log from overview: \(error.localizedDescription)")
                 }
-            }
+            })
         }
     }
     
@@ -1154,7 +1157,7 @@ struct WorkoutActiveView: View {
         // This ensures weight is preserved even if currentSetWeight gets reset
         let currentData = exerciseData[currentExerciseIndex] ?? (weight: nil, reps: nil)
         let weightToSave = currentSetWeight ?? currentData.weight
-        workoutLogService.saveSetLog(
+        WorkoutLogService.shared.saveSetLog(
                 workoutLogId: workoutLogId,
                 userId: userId,
                 exerciseName: exercise.name,
@@ -1164,7 +1167,7 @@ struct WorkoutActiveView: View {
                 flaggedPain: currentSetPainFlag,
                 flaggedNotInControl: currentSetNotInControlFlag
             ) { result in
-                DispatchQueue.main.async {
+                DispatchQueue.main.async(execute: {
                     switch result {
                     case .success(let setLogId):
                         print("✅ Set log saved: \(setLogId)")
@@ -1190,7 +1193,7 @@ struct WorkoutActiveView: View {
                     case .failure(let error):
                         print("❌ Failed to save set log: \(error.localizedDescription)")
                     }
-                }
+                })
             }
     }
     

@@ -2,12 +2,8 @@
 //  WorkoutLogService.swift
 //  Chiron
 //
-//  TrainingLog module - Service for managing workout logs in Firebase Firestore
-//
-//  Provides async operations for creating workout sessions, logging exercise sets,
-//  and retrieving exercise history. All data is persisted to Firestore collections:
-//  - `workoutLogs`: One document per workout session
-//  - `exerciseSetLogs`: One document per set logged
+//  Service for managing workout logs and exercise set logs in Firebase Firestore.
+//  Handles creating workout logs, saving set logs, and retrieving exercise history.
 //
 
 import Foundation
@@ -15,7 +11,9 @@ import FirebaseFirestore
 import FirebaseCore
 
 /// Ensures Firebase is configured once, on the main thread, right before first use.
-/// Reuses the same configuration pattern as FirebaseManager.
+/// 
+/// This is used by WorkoutLogService to ensure Firebase is initialized before accessing Firestore.
+/// Prevents crashes when WorkoutLogService is accessed before FirebaseApp.configure() has been called.
 private enum FirebaseConfigurator {
     static func ensureConfigured() {
         guard FirebaseApp.app() == nil else { return }
@@ -33,68 +31,43 @@ private enum FirebaseConfigurator {
 }
 
 /// Service for managing workout logs and exercise set logs in Firebase Firestore.
-///
-/// Singleton service that handles all Firestore operations for workout logging.
-/// Follows the same pattern as FirebaseManager for consistency.
-///
-/// ## Data Flow
-///
-/// 1. **Workout Start**: `createWorkoutLog()` creates a WorkoutLog document
-/// 2. **During Workout**: `saveSetLog()` creates ExerciseSetLog documents as user logs sets
-/// 3. **Workout End**: `endWorkoutLog()` updates the WorkoutLog with endDate
-/// 4. **History**: `getHistoryForExercise()` queries ExerciseSetLog documents by exercise name
-///
-/// ## Firestore Collections
-///
-/// - `workoutLogs`: One document per workout session
-/// - `exerciseSetLogs`: One document per set logged (references workoutLogId)
-///
-/// ## Usage Example
-///
-/// ```swift
-/// let service = WorkoutLogService.shared
-/// service.createWorkoutLog(workoutName: "My Workout") { result in
-///     switch result {
-///     case .success(let logId):
-///         // Store logId for subsequent set logs
-///     case .failure(let error):
-///         // Handle error
-///     }
-/// }
-/// ```
-class WorkoutLogService: ObservableObject {
+class WorkoutLogService {
     static let shared = WorkoutLogService()
     
-    /// Lazy Firestore database instance (configured on first access)
+    /// Firestore database instance.
+    /// Uses lazy initialization to ensure Firebase is configured before accessing Firestore.
+    /// This prevents crashes when the service is accessed before FirebaseApp.configure() has been called.
     private lazy var db: Firestore = {
+        // Ensure Firebase is configured before accessing Firestore
         FirebaseConfigurator.ensureConfigured()
         return Firestore.firestore()
     }()
     
-    /// Firestore collection name for workout logs
     private let workoutLogsCollection = "workoutLogs"
-    
-    /// Firestore collection name for exercise set logs
     private let exerciseSetLogsCollection = "exerciseSetLogs"
     
     private init() {}
     
-    // MARK: - Workout Log Operations
+    // MARK: - Workout Log Management
     
     /// Creates a new workout log in Firestore.
     ///
     /// - Parameters:
-    ///   - workoutName: Name of the workout (e.g., "Python Wrangler")
-    ///   - userId: User ID who is performing the workout
-    ///   - completion: Callback with Result containing the document ID on success, or Error on failure
-    ///
-    /// The document ID is returned so it can be used to associate ExerciseSetLog entries.
+    ///   - workoutName: Name of the workout
+    ///   - userId: User ID (device-based)
+    ///   - completion: Callback with Result containing workout log ID on success, or Error on failure
     func createWorkoutLog(workoutName: String, userId: String, completion: @escaping (Result<String, Error>) -> Void) {
-        let workoutLog = WorkoutLog(workoutName: workoutName, userId: userId)
-        let data = workoutLog.toFirestoreData()
+        let workoutLog: [String: Any] = [
+            "workoutName": workoutName,
+            "userId": userId,
+            "startTime": Timestamp(date: Date()),
+            "endTime": NSNull(),
+            "totalDuration": NSNull(),
+            "totalPausedDuration": NSNull()
+        ]
         
         var ref: DocumentReference?
-        ref = db.collection(workoutLogsCollection).addDocument(data: data) { error in
+        ref = db.collection(workoutLogsCollection).addDocument(data: workoutLog) { error in
             if let error = error {
                 print("❌ Error creating workout log: \(error.localizedDescription)")
                 completion(.failure(error))
@@ -102,48 +75,51 @@ class WorkoutLogService: ObservableObject {
                 print("✅ Workout log created with ID: \(documentId)")
                 completion(.success(documentId))
             } else {
-                completion(.failure(NSError(domain: "WorkoutLogService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get document ID"])))
+                let unknownError = NSError(domain: "WorkoutLogService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unknown error creating workout log"])
+                completion(.failure(unknownError))
             }
         }
     }
     
-    /// Marks a workout log as completed by setting the endDate.
+    /// Ends a workout log by updating the end time and total duration.
     ///
     /// - Parameters:
-    ///   - workoutLogId: The Firestore document ID of the workout log
-    ///   - completion: Callback with Result indicating success or failure
-    func endWorkoutLog(workoutLogId: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        let endDate = Timestamp(date: Date())
-        db.collection(workoutLogsCollection).document(workoutLogId).updateData([
-            "endDate": endDate
-        ]) { error in
+    ///   - workoutLogId: The ID of the workout log to end
+    ///   - totalDuration: Total duration of the workout in seconds
+    ///   - totalPausedDuration: Total time paused during the workout in seconds
+    ///   - completion: Callback with Result containing success status or Error on failure
+    func endWorkoutLog(workoutLogId: String, totalDuration: Int, totalPausedDuration: Int, completion: @escaping (Result<Void, Error>) -> Void) {
+        let updates: [String: Any] = [
+            "endTime": Timestamp(date: Date()),
+            "totalDuration": totalDuration,
+            "totalPausedDuration": totalPausedDuration
+        ]
+        
+        db.collection(workoutLogsCollection).document(workoutLogId).updateData(updates) { error in
             if let error = error {
                 print("❌ Error ending workout log: \(error.localizedDescription)")
                 completion(.failure(error))
             } else {
-                print("✅ Workout log ended: \(workoutLogId)")
+                print("✅ Workout log ended successfully")
                 completion(.success(()))
             }
         }
     }
     
-    // MARK: - Exercise Set Log Operations
+    // MARK: - Exercise Set Log Management
     
-    /// Saves an individual set log to Firestore.
-    ///
-    /// Creates a new document in the `exerciseSetLogs` collection with the set data.
-    /// Weight is optional (nil for bodyweight exercises). Reps is required.
+    /// Saves an exercise set log to Firestore.
     ///
     /// - Parameters:
-    ///   - workoutLogId: The Firestore document ID of the parent WorkoutLog
-    ///   - userId: User ID who performed this set
-    ///   - exerciseName: Name of the exercise (e.g., "Barbell Back Squat")
-    ///   - setNumber: Set number within the exercise (1, 2, 3, etc.)
-    ///   - weight: Weight in pounds (nil for bodyweight exercises)
-    ///   - reps: Number of reps completed
-    ///   - flaggedPain: Whether user experienced pain
-    ///   - flaggedNotInControl: Whether user felt not in control
-    ///   - completion: Callback with Result containing document ID on success, or Error on failure
+    ///   - workoutLogId: ID of the workout log this set belongs to
+    ///   - userId: User ID (device-based)
+    ///   - exerciseName: Name of the exercise
+    ///   - setNumber: Set number (1-based)
+    ///   - weight: Weight used (optional for bodyweight exercises)
+    ///   - reps: Number of reps completed (optional, can save weight-only sets)
+    ///   - flaggedPain: Whether the set was flagged for pain
+    ///   - flaggedNotInControl: Whether the set was flagged as not in control
+    ///   - completion: Callback with Result containing set log ID on success, or Error on failure
     func saveSetLog(
         workoutLogId: String,
         userId: String,
@@ -163,7 +139,8 @@ class WorkoutLogService: ObservableObject {
             weight: weight,
             reps: reps,
             flaggedPain: flaggedPain,
-            flaggedNotInControl: flaggedNotInControl
+            flaggedNotInControl: flaggedNotInControl,
+            timestamp: Date()
         )
         
         let data = setLog.toFirestoreData()
@@ -177,21 +154,17 @@ class WorkoutLogService: ObservableObject {
                 print("✅ Set log saved with ID: \(documentId)")
                 completion(.success(documentId))
             } else {
-                completion(.failure(NSError(domain: "WorkoutLogService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get document ID"])))
+                let unknownError = NSError(domain: "WorkoutLogService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unknown error saving set log"])
+                completion(.failure(unknownError))
             }
         }
     }
     
-    // MARK: - History Operations
-    
-    /// Retrieves exercise history from Firestore.
-    ///
-    /// Fetches all set logs for a specific exercise for the current user, ordered by most recent first.
-    /// Used to display previous performance in the ExerciseHistorySheet.
+    /// Retrieves exercise history for a specific exercise and user.
     ///
     /// - Parameters:
     ///   - exerciseName: Name of the exercise to get history for
-    ///   - userId: User ID to filter history by
+    ///   - userId: User ID (device-based)
     ///   - limit: Maximum number of set logs to return (default: 30)
     ///   - completion: Callback with Result containing array of ExerciseSetLog on success, or Error on failure
     ///
@@ -206,28 +179,6 @@ class WorkoutLogService: ObservableObject {
             .limit(to: limit)
             .getDocuments { snapshot, error in
                 if let error = error {
-                    // #region agent log
-                    let errorDesc = error.localizedDescription.replacingOccurrences(of: "\"", with: "\\\"")
-                    let errorCode = (error as NSError).code
-                    let errorDomain = (error as NSError).domain
-                    print("🔍 DEBUG: Firestore query error - Code: \(errorCode), Domain: \(errorDomain), Message: \(error.localizedDescription)")
-                    if let logData = """
-                    {"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"WorkoutLogService.swift:207","message":"Firestore query error","data":{"error":"\(errorDesc)","errorCode":\(errorCode),"errorDomain":"\(errorDomain)","exerciseName":"\(exerciseName)","userId":"\(userId)"},"timestamp":\(Int(Date().timeIntervalSince1970 * 1000))}
-                    """.data(using: .utf8) {
-                        do {
-                            if let fileHandle = FileHandle(forWritingAtPath: logPath) {
-                                fileHandle.seekToEndOfFile()
-                                fileHandle.write(logData)
-                                fileHandle.closeFile()
-                            } else {
-                                try FileManager.default.createDirectory(atPath: "/Users/zach.thomson/Desktop/Chiron/.cursor", withIntermediateDirectories: true, attributes: nil)
-                                FileManager.default.createFile(atPath: logPath, contents: logData, attributes: nil)
-                            }
-                        } catch {
-                            print("🔍 DEBUG: Failed to write error log: \(error)")
-                        }
-                    }
-                    // #endregion
                     let nsError = error as NSError
                     print("❌ Error fetching exercise history: \(error.localizedDescription)")
                     

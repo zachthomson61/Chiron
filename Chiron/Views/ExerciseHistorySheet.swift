@@ -20,7 +20,6 @@ import Foundation
 struct ExerciseHistorySheet: View {
     @Binding var isPresented: Bool
     let exerciseName: String
-    @StateObject private var workoutLogService = WorkoutLogService.shared
     
     @State private var setLogs: [ExerciseSetLog] = []
     @State private var isLoading: Bool = true
@@ -138,7 +137,7 @@ struct ExerciseHistorySheet: View {
         }
         
         
-        workoutLogService.getHistoryForExercise(exerciseName, userId: userId) { result in
+        WorkoutLogService.shared.getHistoryForExercise(exerciseName, userId: userId) { result in
             DispatchQueue.main.async {
                 isLoading = false
                 switch result {

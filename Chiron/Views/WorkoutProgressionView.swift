@@ -51,21 +51,39 @@ struct WorkoutProgressionView: View {
     
     // MARK: - Sheet Presentation State
     
-    /// Sheet presentation states (shared across all expanded exercises)
-    @State private var showWeightInput: Bool = false
-    @State private var showRepsInput: Bool = false
+    /// Sheet presentation uses SwiftUI's `item:` binding pattern to prevent race conditions.
+    ///
+    /// **Problem Fixed:** Previously used `isPresented:` with separate state variables, which caused
+    /// sheets to appear blank on first open (especially when workout was paused) because the sheet
+    /// closure would evaluate before state variables were set.
+    ///
+    /// **Solution:** Using `item:` binding ensures the context (containing all required data) is
+    /// available atomically when the sheet is presented, eliminating the race condition.
+    
+    /// Context for weight/reps input sheets - holds both exercise and index together
+    struct ExerciseContext: Identifiable {
+        let id = UUID()
+        let exercise: WorkoutExercise
+        let exerciseIndex: Int
+    }
+    
+    /// Context for history sheet - holds exercise name
+    struct HistoryContext: Identifiable {
+        let id = UUID()
+        let exerciseName: String
+    }
+    
+    /// Exercise context for weight input sheet (nil = sheet not shown)
+    @State private var weightInputContext: ExerciseContext?
+    
+    /// Exercise context for reps input sheet (nil = sheet not shown)
+    @State private var repsInputContext: ExerciseContext?
+    
+    /// Exercise context for history sheet (nil = sheet not shown)
+    @State private var historyContext: HistoryContext?
+    
+    /// Sheet presentation state for flag options (doesn't require context since it doesn't persist data)
     @State private var showFlagOptions: Bool = false
-    @State private var showHistory: Bool = false
-    
-    /// Exercise selected when a sheet is opened (used to pass exercise name to sheets)
-    @State private var selectedExerciseForLogging: WorkoutExercise?
-    
-    /// Exercise index selected when a sheet is opened (used to update exercise data)
-    @State private var selectedExerciseIndex: Int?
-    
-    /// Workout log service (only used for history, not for logging from overview)
-    @StateObject private var workoutLogService = WorkoutLogService.shared
-    
     // MARK: - Computed Properties
     
     /// Groups exercises by their phase property, defaulting to "Main Workout" if phase is nil
@@ -150,22 +168,16 @@ struct WorkoutProgressionView: View {
                                                 }
                                             },
                                             onShowWeightInput: {
-                                                selectedExerciseForLogging = exercise
-                                                selectedExerciseIndex = exerciseIndex
-                                                showWeightInput = true
+                                                weightInputContext = ExerciseContext(exercise: exercise, exerciseIndex: exerciseIndex)
                                             },
                                             onShowRepsInput: {
-                                                selectedExerciseForLogging = exercise
-                                                selectedExerciseIndex = exerciseIndex
-                                                showRepsInput = true
+                                                repsInputContext = ExerciseContext(exercise: exercise, exerciseIndex: exerciseIndex)
                                             },
                                             onShowFlagOptions: {
-                                                selectedExerciseForLogging = exercise
                                                 showFlagOptions = true
                                             },
                                             onShowHistory: {
-                                                selectedExerciseForLogging = exercise
-                                                showHistory = true
+                                                historyContext = HistoryContext(exerciseName: exercise.name)
                                             },
                                             onPlayGuide: {
                                                 playExerciseGuide(for: exercise)
@@ -227,55 +239,59 @@ struct WorkoutProgressionView: View {
                 localExerciseData = data
             }
         }
-        .sheet(isPresented: $showWeightInput) {
-            if let exercise = selectedExerciseForLogging,
-               let exerciseIndex = selectedExerciseIndex {
-                WeightInputSheet(
-                    isPresented: $showWeightInput,
-                    weight: .constant(localExerciseData[exerciseIndex]?.weight),
-                    onSave: { weight in
-                        // Update local state
-                        let currentData = localExerciseData[exerciseIndex] ?? (weight: nil, reps: nil)
-                        localExerciseData[exerciseIndex] = (weight: weight, reps: currentData.reps)
-                        // Update parent via callback
-                        if let onUpdate = onUpdateExerciseData {
-                            onUpdate(exerciseIndex, weight, currentData.reps)
-                        }
-                        // Save to Firebase if we have reps (weight alone doesn't save a set)
-                        if let reps = currentData.reps, let onSave = onSaveSetLog {
-                            // Ensure callback executes on main thread
-                            DispatchQueue.main.async {
-                                onSave(exerciseIndex, weight, reps)
-                            }
+        // Weight input sheet - uses `item:` binding to ensure context is available when presented
+        .sheet(item: $weightInputContext) { context in
+            WeightInputSheet(
+                isPresented: Binding(
+                    get: { weightInputContext != nil },
+                    set: { if !$0 { weightInputContext = nil } }
+                ),
+                weight: .constant(localExerciseData[context.exerciseIndex]?.weight),
+                onSave: { weight in
+                    // Update local state
+                    let currentData = localExerciseData[context.exerciseIndex] ?? (weight: nil, reps: nil)
+                    localExerciseData[context.exerciseIndex] = (weight: weight, reps: currentData.reps)
+                    // Update parent via callback
+                    if let onUpdate = onUpdateExerciseData {
+                        onUpdate(context.exerciseIndex, weight, currentData.reps)
+                    }
+                    // Save to Firebase if we have reps (weight alone doesn't save a set)
+                    if let reps = currentData.reps, let onSave = onSaveSetLog {
+                        // Ensure callback executes on main thread
+                        DispatchQueue.main.async {
+                            onSave(context.exerciseIndex, weight, reps)
                         }
                     }
-                )
-            }
+                    weightInputContext = nil
+                }
+            )
         }
-        .sheet(isPresented: $showRepsInput) {
-            if let exercise = selectedExerciseForLogging,
-               let exerciseIndex = selectedExerciseIndex {
-                RepsInputSheet(
-                    isPresented: $showRepsInput,
-                    reps: .constant(localExerciseData[exerciseIndex]?.reps),
-                    onSave: { reps in
-                        // Update local state
-                        let currentData = localExerciseData[exerciseIndex] ?? (weight: nil, reps: nil)
-                        localExerciseData[exerciseIndex] = (weight: currentData.weight, reps: reps)
-                        // Update parent via callback
-                        if let onUpdate = onUpdateExerciseData {
-                            onUpdate(exerciseIndex, currentData.weight, reps)
-                        }
-                        // Save to Firebase if we have both weight and reps (or just reps for bodyweight)
-                        if let onSave = onSaveSetLog {
-                            // Ensure callback executes on main thread
-                            DispatchQueue.main.async {
-                                onSave(exerciseIndex, currentData.weight, reps)
-                            }
+        // Reps input sheet - uses `item:` binding to ensure context is available when presented
+        .sheet(item: $repsInputContext) { context in
+            RepsInputSheet(
+                isPresented: Binding(
+                    get: { repsInputContext != nil },
+                    set: { if !$0 { repsInputContext = nil } }
+                ),
+                reps: .constant(localExerciseData[context.exerciseIndex]?.reps),
+                onSave: { reps in
+                    // Update local state
+                    let currentData = localExerciseData[context.exerciseIndex] ?? (weight: nil, reps: nil)
+                    localExerciseData[context.exerciseIndex] = (weight: currentData.weight, reps: reps)
+                    // Update parent via callback
+                    if let onUpdate = onUpdateExerciseData {
+                        onUpdate(context.exerciseIndex, currentData.weight, reps)
+                    }
+                    // Save to Firebase if we have both weight and reps (or just reps for bodyweight)
+                    if let onSave = onSaveSetLog {
+                        // Ensure callback executes on main thread
+                        DispatchQueue.main.async {
+                            onSave(context.exerciseIndex, currentData.weight, reps)
                         }
                     }
-                )
-            }
+                    repsInputContext = nil
+                }
+            )
         }
         .sheet(isPresented: $showFlagOptions) {
             FlagOptionsSheet(
@@ -288,13 +304,15 @@ struct WorkoutProgressionView: View {
                 }
             )
         }
-        .sheet(isPresented: $showHistory) {
-            if let exercise = selectedExerciseForLogging {
-                ExerciseHistorySheet(
-                    isPresented: $showHistory,
-                    exerciseName: exercise.name
-                )
-            }
+        // History sheet - uses `item:` binding to ensure exercise name is available when presented
+        .sheet(item: $historyContext) { context in
+            ExerciseHistorySheet(
+                isPresented: Binding(
+                    get: { historyContext != nil },
+                    set: { if !$0 { historyContext = nil } }
+                ),
+                exerciseName: context.exerciseName
+            )
         }
         .preferredColorScheme(.dark)
     }
