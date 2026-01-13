@@ -122,7 +122,7 @@ struct WorkoutLibrary {
                 sets: 1,
                 reps: "",
                 restTime: 0,
-                notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on the floor in front of the bench|Set phone 6–8 ft back, angled Slightly upward|Center it on the barbell|Keep hands, elbows, and bar path fully in frame",
+                notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on the floor in front of the bench|Set phone 6–8 ft back, angled Slightly upward|Center it on the barbell|Keep hands, elbows, and bar path fully in frame|TRIPOD|Place 2-3' in front bench|Centered on the bar|Height: bar level or slightly above|Angle slightly down toward the grip|Ensure hands, wrists, elbows, bar in view",
                 phase: "Explosive Tricep Primer"
             ),
             // Explosive Tricep Primer - Round 1

@@ -118,6 +118,7 @@ struct WorkoutActiveView: View {
     /// - `nil`: Show selection UI (user hasn't chosen yet)
     /// - `.rackAttachment`: Show Rack Attachment setup cues
     /// - `.floor`: Show Floor setup cues
+    /// - `.tripod`: Show Tripod setup cues
     /// Resets to `nil` when navigating to/from camera setup exercise.
     @State private var cameraSetupSelection: CameraSetupType? = nil
     
@@ -130,6 +131,7 @@ struct WorkoutActiveView: View {
     enum CameraSetupType {
         case rackAttachment
         case floor
+        case tripod
     }
     
     // MARK: - Computed Properties
@@ -589,7 +591,13 @@ struct WorkoutActiveView: View {
                     
                     // Show selection UI or setup cues based on user's choice
                     if cameraSetupSelection == nil {
-                        cameraSetupSelectionView
+                        VStack(spacing: 12) {
+                            Text("Select One")
+                                .font(.neueMontrealRegular(size: 14))
+                                .foregroundColor(.textSecondary)
+                            
+                            cameraSetupSelectionView
+                        }
                     } else {
                         // Camera setup instructions with icons
                         VStack(alignment: .leading, spacing: 12) {
@@ -968,7 +976,15 @@ struct WorkoutActiveView: View {
         }
         
         let components = notes.components(separatedBy: "|")
-        let sectionMarker = selection == .rackAttachment ? "RACK" : "FLOOR"
+        let sectionMarker: String
+        switch selection {
+        case .rackAttachment:
+            sectionMarker = "RACK"
+        case .floor:
+            sectionMarker = "FLOOR"
+        case .tripod:
+            sectionMarker = "TRIPOD"
+        }
         
         guard let sectionIndex = components.firstIndex(of: sectionMarker) else {
             return []
@@ -978,7 +994,7 @@ struct WorkoutActiveView: View {
         var instructions: [String] = []
         for i in (sectionIndex + 1)..<components.count {
             let component = components[i]
-            if component == "RACK" || component == "FLOOR" {
+            if component == "RACK" || component == "FLOOR" || component == "TRIPOD" {
                 break // Stop at next section marker
             }
             instructions.append(component)
@@ -1558,7 +1574,7 @@ struct WorkoutActiveView: View {
     /// Returns the SF Symbol icon name for a camera setup instruction based on its content.
     ///
     /// Maps instruction text to appropriate icons for visual clarity:
-    /// - Rack Attachment: mount/rack → up arrow, angle → down-left arrow, center → square with line, etc.
+    /// - Mount: mount/rack → up arrow, angle → down-left arrow, center → square with line, etc.
     /// - Floor: phone placement → iPhone icon, distance → ruler, center → target, frame → rectangle
     ///
     /// - Parameters:
@@ -1590,6 +1606,14 @@ struct WorkoutActiveView: View {
         } else if lowercased.contains("hands") || lowercased.contains("elbows") || lowercased.contains("fully in frame") {
             return "rectangle.inset.filled"
         }
+        // Tripod setup icons
+        else if lowercased.contains("bench") || lowercased.contains("front") {
+            return "rectangle"
+        } else if lowercased.contains("grip") || lowercased.contains("wrists") {
+            return "hand.raised.fill"
+        } else if lowercased.contains("height") || lowercased.contains("above") {
+            return "arrow.up.and.down"
+        }
         
         return "camera.fill" // Default fallback
     }
@@ -1602,7 +1626,7 @@ struct WorkoutActiveView: View {
     /// - Returns: A view with two tappable image buttons separated by "or" text
     private var cameraSetupSelectionView: some View {
         HStack(spacing: 16) {
-            // Rack Attachment option
+            // Mount option
             VStack(spacing: 8) {
                 Button(action: {
                     // #region agent log
@@ -1639,19 +1663,14 @@ struct WorkoutActiveView: View {
                     Image(systemName: "camera.viewfinder")
                         .font(.system(size: 48, weight: .medium))
                         .foregroundColor(.textPrimary)
-                        .frame(width: 120, height: 120)
+                        .frame(width: 100, height: 100)
                         .background(Color.white.opacity(0.1))
                         .cornerRadius(12)
                 }
-                Text("Rack Attachment")
+                Text("Mount")
                     .font(.neueMontrealRegular(size: 14))
                     .foregroundColor(.textSecondary)
             }
-            
-            // "or" separator text
-            Text("or")
-                .font(.neueMontrealRegular(size: 14))
-                .foregroundColor(.textSecondary)
             
             // Floor option
             VStack(spacing: 8) {
@@ -1690,11 +1709,30 @@ struct WorkoutActiveView: View {
                     Image(systemName: "camera.fill")
                         .font(.system(size: 48, weight: .medium))
                         .foregroundColor(.textPrimary)
-                        .frame(width: 120, height: 120)
+                        .frame(width: 100, height: 100)
                         .background(Color.white.opacity(0.1))
                         .cornerRadius(12)
                 }
                 Text("Floor")
+                    .font(.neueMontrealRegular(size: 14))
+                    .foregroundColor(.textSecondary)
+            }
+            
+            // Tripod option
+            VStack(spacing: 8) {
+                Button(action: {
+                    cameraSetupSelection = .tripod
+                    // Play audio immediately when selection is made
+                    playCameraSetupInstructions(for: .tripod)
+                }) {
+                    Image(systemName: "camera.metering.multispot")
+                        .font(.system(size: 48, weight: .medium))
+                        .foregroundColor(.textPrimary)
+                        .frame(width: 100, height: 100)
+                        .background(Color.white.opacity(0.1))
+                        .cornerRadius(12)
+                }
+                Text("Tripod")
                     .font(.neueMontrealRegular(size: 14))
                     .foregroundColor(.textSecondary)
             }
@@ -1717,11 +1755,11 @@ struct WorkoutActiveView: View {
     
     /// Formats camera setup instructions into natural sentences and plays them via audio.
     ///
-    /// This function is called when the user selects a camera setup option (Rack Attachment or Floor).
+    /// This function is called when the user selects a camera setup option (Mount, Floor, or Tripod).
     /// It validates the current exercise, extracts the appropriate instructions, formats them into
     /// natural-sounding sentences, and plays them through the SpeechManager.
     ///
-    /// - Parameter setupType: The selected camera setup type (`.rackAttachment` or `.floor`)
+    /// - Parameter setupType: The selected camera setup type (`.rackAttachment`, `.floor`, or `.tripod`)
     private func playCameraSetupInstructions(for setupType: CameraSetupType) {
         // Verify we're on a camera setup exercise
         guard let exercise = currentExercise,
@@ -1753,19 +1791,27 @@ struct WorkoutActiveView: View {
     /// Extracts camera setup instructions for a specific setup type from exercise notes.
     ///
     /// Parses the exercise notes which are formatted as:
-    /// `"CAMERA_SETUP|RACK|instruction1|instruction2|...|FLOOR|instruction1|instruction2|..."`
+    /// `"CAMERA_SETUP|RACK|instruction1|instruction2|...|FLOOR|instruction1|instruction2|...|TRIPOD|instruction1|instruction2|..."`
     ///
-    /// - Parameter setupType: The camera setup type (`.rackAttachment` or `.floor`)
+    /// - Parameter setupType: The camera setup type (`.rackAttachment`, `.floor`, or `.tripod`)
     /// - Returns: Array of instruction strings for the specified setup type, or `nil` if:
     ///   - Current exercise is not a camera setup exercise
-    ///   - The specified section marker (RACK or FLOOR) is not found in the notes
+    ///   - The specified section marker (RACK, FLOOR, or TRIPOD) is not found in the notes
     private func getCameraSetupInstructions(for setupType: CameraSetupType) -> [String]? {
         guard let notes = currentExercise?.notes, notes.hasPrefix("CAMERA_SETUP") else {
             return nil
         }
         
         let components = notes.components(separatedBy: "|")
-        let sectionMarker = setupType == .rackAttachment ? "RACK" : "FLOOR"
+        let sectionMarker: String
+        switch setupType {
+        case .rackAttachment:
+            sectionMarker = "RACK"
+        case .floor:
+            sectionMarker = "FLOOR"
+        case .tripod:
+            sectionMarker = "TRIPOD"
+        }
         
         guard let sectionIndex = components.firstIndex(of: sectionMarker) else {
             return nil
@@ -1774,7 +1820,7 @@ struct WorkoutActiveView: View {
         var instructions: [String] = []
         for i in (sectionIndex + 1)..<components.count {
             let component = components[i]
-            if component == "RACK" || component == "FLOOR" {
+            if component == "RACK" || component == "FLOOR" || component == "TRIPOD" {
                 break
             }
             instructions.append(component)
@@ -1800,7 +1846,15 @@ struct WorkoutActiveView: View {
     private func formatCameraSetupInstructionsAsSentences(_ instructions: [String], setupType: CameraSetupType) -> String {
         guard !instructions.isEmpty else { return "" }
         
-        let setupTypeName = setupType == .rackAttachment ? "rack attachment" : "floor"
+        let setupTypeName: String
+        switch setupType {
+        case .rackAttachment:
+            setupTypeName = "mount"
+        case .floor:
+            setupTypeName = "floor"
+        case .tripod:
+            setupTypeName = "tripod"
+        }
         var sentences: [String] = []
         
         // Add introductory sentence
