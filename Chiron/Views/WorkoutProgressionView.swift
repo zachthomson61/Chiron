@@ -410,32 +410,52 @@ struct WorkoutProgressionView: View {
     /// Returns the exercises to display for a phase:
     /// - If phase has rounds and is not expanded: returns first round only (up to first Rest)
     /// - Otherwise: returns all exercises
+    /// - Camera setup exercises are filtered out if coaching is disabled for that exercise
     ///
     /// - Parameters:
     ///   - phase: Phase name
     ///   - exercises: All exercises in the phase
     /// - Returns: Exercises to display based on expansion state
     private func getExercisesToShow(for phase: String, exercises: [WorkoutExercise]) -> [WorkoutExercise] {
-        // If phase has rounds and hasn't been expanded, show only first round
-        guard hasRounds(phase, exercises: exercises) && !expandedPhases.contains(phase) else {
-            return exercises
+        // Filter out camera setup exercises if coaching is disabled
+        let filteredExercises = exercises.filter { exercise in
+            guard let notes = exercise.notes, notes.hasPrefix("CAMERA_SETUP") else {
+                return true // Keep non-camera-setup exercises
+            }
+            // Check if camera coaching is enabled for this exercise
+            return CameraCoachingPreferencesManager.shared.isCameraCoachingEnabled(for: exercise.name)
         }
         
-        // Find unique exercise names (excluding Rest) to determine round structure
-        let uniqueExerciseNames = Set(exercises.filter { $0.name != "Rest" }.map { $0.name })
+        // If phase has rounds and hasn't been expanded, show only first round
+        guard hasRounds(phase, exercises: filteredExercises) && !expandedPhases.contains(phase) else {
+            return filteredExercises
+        }
+        
+        // Find unique exercise names (excluding Rest and camera setup exercises) to determine round structure
+        // Camera setup exercises should always be included in the first round
+        let uniqueExerciseNames = Set(filteredExercises.filter { exercise in
+            exercise.name != "Rest" && !(exercise.notes?.hasPrefix("CAMERA_SETUP") ?? false)
+        }.map { $0.name })
         let exercisesPerRound = uniqueExerciseNames.count
         
         // Collect exercises up to and including the first Rest
+        // Always include camera setup exercises, then collect regular exercises up to exercisesPerRound
         var firstRound: [WorkoutExercise] = []
         var exerciseCount = 0
         
-        for exercise in exercises {
+        for exercise in filteredExercises {
             if exercise.name == "Rest" {
                 firstRound.append(exercise)
                 break // Stop after first Rest
-            } else if exerciseCount < exercisesPerRound {
-                firstRound.append(exercise)
-                exerciseCount += 1
+            } else {
+                // Always include camera setup exercises
+                let isCameraSetup = exercise.notes?.hasPrefix("CAMERA_SETUP") ?? false
+                if isCameraSetup {
+                    firstRound.append(exercise)
+                } else if exerciseCount < exercisesPerRound {
+                    firstRound.append(exercise)
+                    exerciseCount += 1
+                }
             }
         }
         
@@ -469,6 +489,22 @@ private struct RestThumbnail: View {
             .frame(width: 80, height: 80)
             .overlay(
                 Image(systemName: "clock")
+                    .font(.system(size: 32))
+                    .foregroundColor(.textSecondary.opacity(0.5))
+            )
+    }
+}
+
+// MARK: - Camera Setup Thumbnail
+
+/// Camera setup card thumbnail with camera icon.
+private struct CameraSetupThumbnail: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.white.opacity(0.1))
+            .frame(width: 80, height: 80)
+            .overlay(
+                Image(systemName: "camera.viewfinder")
                     .font(.system(size: 32))
                     .foregroundColor(.textSecondary.opacity(0.5))
             )
@@ -546,13 +582,51 @@ private struct WorkoutProgressionExerciseRow: View {
         return "bodyweight_squat_demo"
     }
     
+    /// Whether this exercise is a camera setup exercise.
+    private var isCameraSetupExercise: Bool {
+        guard let notes = exercise.notes else { return false }
+        return notes.hasPrefix("CAMERA_SETUP")
+    }
+    
+    /// Parse camera setup instructions from notes.
+    /// Notes format: "CAMERA_SETUP|instruction1|instruction2|..."
+    private var cameraSetupInstructions: [String] {
+        guard let notes = exercise.notes, notes.hasPrefix("CAMERA_SETUP") else { return [] }
+        let components = notes.components(separatedBy: "|")
+        // Skip the first component ("CAMERA_SETUP") and return the rest
+        return Array(components.dropFirst())
+    }
+    
+    /// Returns the appropriate icon for a camera setup instruction based on its content.
+    private func iconForCameraSetupInstruction(_ instruction: String, index: Int) -> String {
+        let lowercased = instruction.lowercased()
+        
+        // Match icons based on instruction content and index
+        if lowercased.contains("mount") || lowercased.contains("rack") || lowercased.contains("post") {
+            return "arrow.up"
+        } else if lowercased.contains("angle") || lowercased.contains("down") {
+            return "arrow.down.left"
+        } else if lowercased.contains("center") || lowercased.contains("frame") {
+            return "square.split.2x1"
+        } else if lowercased.contains("arm") || lowercased.contains("path") || lowercased.contains("visible") {
+            return "arrow.up.and.down"
+        } else if lowercased.contains("cropping") || lowercased.contains("avoid") {
+            return "crop"
+        }
+        
+        // Default icon
+        return "camera.fill"
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Exercise header (always visible) - entire row is tappable
             HStack(alignment: .center, spacing: 12) {
-                // Exercise thumbnail placeholder (or Rest icon)
+                // Exercise thumbnail placeholder (or Rest icon, or Camera icon for camera setup)
                 if exercise.name == "Rest" {
                     RestThumbnail()
+                } else if isCameraSetupExercise {
+                    CameraSetupThumbnail()
                 } else {
                     ExerciseThumbnailPlaceholder()
                 }
@@ -563,45 +637,52 @@ private struct WorkoutProgressionExerciseRow: View {
                         .font(.neueMontrealBold(size: 18))
                         .foregroundColor(.textPrimary)
                     
-                    // Reps and side details
-                    HStack(spacing: 4) {
-                        Text(formatRepsDetails())
+                    // For camera setup exercises, show "Camera Setup" subtitle
+                    if isCameraSetupExercise {
+                        Text("Camera Setup")
                             .font(.neueMontrealRegular(size: 14))
                             .foregroundColor(.textSecondary)
-                    }
-                    
-                    // Display entered weight/reps values if available
-                    if let data = exerciseData?[exerciseIndex], (data.weight != nil || data.reps != nil) {
-                        HStack(spacing: 8) {
-                            if let weight = data.weight {
-                                HStack(spacing: 4) {
-                                    Text(String(format: "%.1f", weight))
-                                        .font(.neueMontrealBold(size: 13))
-                                        .foregroundColor(.textPrimary)
-                                    Text("lbs")
-                                        .font(.neueMontrealRegular(size: 12))
-                                        .foregroundColor(.textSecondary)
-                                }
-                            }
-                            
-                            if let weight = data.weight, let reps = data.reps {
-                                Text("•")
-                                    .font(.neueMontrealRegular(size: 12))
-                                    .foregroundColor(.textSecondary)
-                            }
-                            
-                            if let reps = data.reps {
-                                HStack(spacing: 4) {
-                                    Text("\(reps)")
-                                        .font(.neueMontrealBold(size: 13))
-                                        .foregroundColor(.textPrimary)
-                                    Text("reps")
-                                        .font(.neueMontrealRegular(size: 12))
-                                        .foregroundColor(.textSecondary)
-                                }
-                            }
+                    } else {
+                        // Reps and side details
+                        HStack(spacing: 4) {
+                            Text(formatRepsDetails())
+                                .font(.neueMontrealRegular(size: 14))
+                                .foregroundColor(.textSecondary)
                         }
-                        .padding(.top, 2)
+                        
+                        // Display entered weight/reps values if available
+                        if let data = exerciseData?[exerciseIndex], (data.weight != nil || data.reps != nil) {
+                            HStack(spacing: 8) {
+                                if let weight = data.weight {
+                                    HStack(spacing: 4) {
+                                        Text(String(format: "%.1f", weight))
+                                            .font(.neueMontrealBold(size: 13))
+                                            .foregroundColor(.textPrimary)
+                                        Text("lbs")
+                                            .font(.neueMontrealRegular(size: 12))
+                                            .foregroundColor(.textSecondary)
+                                    }
+                                }
+                                
+                                if data.weight != nil && data.reps != nil {
+                                    Text("•")
+                                        .font(.neueMontrealRegular(size: 12))
+                                        .foregroundColor(.textSecondary)
+                                }
+                                
+                                if let reps = data.reps {
+                                    HStack(spacing: 4) {
+                                        Text("\(reps)")
+                                            .font(.neueMontrealBold(size: 13))
+                                            .foregroundColor(.textPrimary)
+                                        Text("reps")
+                                            .font(.neueMontrealRegular(size: 12))
+                                            .foregroundColor(.textSecondary)
+                                    }
+                                }
+                            }
+                            .padding(.top, 2)
+                        }
                     }
                 }
                 
@@ -629,8 +710,19 @@ private struct WorkoutProgressionExerciseRow: View {
                         )
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
+                    } else if isCameraSetupExercise {
+                        // For camera setup exercises, show only Jump to Here button (no instructions in overview)
+                        OverviewActionButton(
+                            icon: "arrow.right.circle.fill",
+                            title: "Jump to Here",
+                            isDisabled: false,
+                            isHighlighted: isCurrentExercise,
+                            action: onJumpToExercise
+                        )
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
                     } else {
-                        // For exercises, show video player and full button grid
+                        // For regular exercises, show video player and full button grid
                         // Landscape video player - full width, edge-to-edge, no rounded corners
                         VideoPlayerArea(videoName: videoName)
                             .frame(maxWidth: .infinity)

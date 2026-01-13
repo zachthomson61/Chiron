@@ -53,7 +53,7 @@ struct WeightInputSheet: View {
                             .padding(.vertical, 16)
                             .background(Color.white.opacity(0.1))
                             .cornerRadius(16)
-                            .onChange(of: weightString) { newValue in
+                            .onChange(of: weightString) { oldValue, newValue in
                                 if let value = Double(newValue) {
                                     selectedWeight = value
                                 }

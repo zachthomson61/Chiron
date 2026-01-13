@@ -115,6 +115,16 @@ struct WorkoutLibrary {
                 notes: "Left Side",
                 phase: "Warm-up"
             ),
+            // Explosive Tricep Primer - Camera Setup for Close-Grip Bench Press
+            WorkoutExercise(
+                name: "Close-Grip Bench Press",
+                category: .compound,
+                sets: 1,
+                reps: "",
+                restTime: 0,
+                notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on the floor in front of the bench|Set phone 6–8 ft back, angled Slightly upward|Center it on the barbell|Keep hands, elbows, and bar path fully in frame",
+                phase: "Explosive Tricep Primer"
+            ),
             // Explosive Tricep Primer - Round 1
             WorkoutExercise(
                 name: "Close-Grip Bench Press",
