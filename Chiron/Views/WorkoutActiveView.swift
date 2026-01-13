@@ -630,10 +630,30 @@ struct WorkoutActiveView: View {
                                 .clipShape(Circle())
                         }
                         
-                        // Back arrow button (only show when not on first exercise)
-                        if currentExerciseIndex > 0 {
+                        // Back arrow button
+                        //
+                        // Visibility: Show button if either:
+                        //   1. Not on first exercise (can navigate back), OR
+                        //   2. On camera setup exercise with a selection made (can return to selection view)
+                        //
+                        // Behavior:
+                        //   - If on camera setup exercise AND a selection has been made:
+                        //     → Reset selection to nil (returns to selection view showing Rack Attachment/Floor options)
+                        //   - Otherwise, if not on first exercise:
+                        //     → Navigate to previous exercise
+                        if currentExerciseIndex > 0 || (isCameraSetupExercise && cameraSetupSelection != nil) {
                             Button(action: {
-                                moveToPreviousExercise()
+                                if isCameraSetupExercise && cameraSetupSelection != nil {
+                                    // User has selected a camera setup option (Rack Attachment or Floor)
+                                    // and is viewing the setup instructions. Pressing back should return
+                                    // them to the selection view, not navigate to the previous exercise.
+                                    cameraSetupSelection = nil
+                                    SpeechManager.shared.stopSpeaking()
+                                    SpeechManager.shared.clearSpeechQueue()
+                                } else if currentExerciseIndex > 0 {
+                                    // Normal navigation: move to previous exercise
+                                    moveToPreviousExercise()
+                                }
                             }) {
                                 Image(systemName: "chevron.left")
                                     .font(.system(size: 20, weight: .semibold))
@@ -1585,6 +1605,33 @@ struct WorkoutActiveView: View {
             // Rack Attachment option
             VStack(spacing: 8) {
                 Button(action: {
+                    // #region agent log
+                    let logPath = "/Users/zach.thomson/Desktop/Chiron/.cursor/debug.log"
+                    let logData: [String: Any] = [
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "G",
+                        "location": "WorkoutActiveView.swift:1706",
+                        "message": "Camera setup selection made: rackAttachment",
+                        "data": [
+                            "selection": "rackAttachment",
+                            "currentExerciseIndex": currentExerciseIndex,
+                            "currentExerciseName": currentExercise?.name ?? "nil"
+                        ],
+                        "timestamp": Int(Date().timeIntervalSince1970 * 1000)
+                    ]
+                    if let jsonData = try? JSONSerialization.data(withJSONObject: logData),
+                       let jsonString = String(data: jsonData, encoding: .utf8) {
+                        if let fileHandle = FileHandle(forWritingAtPath: logPath) {
+                            fileHandle.seekToEndOfFile()
+                            fileHandle.write((jsonString + "\n").data(using: .utf8)!)
+                            fileHandle.closeFile()
+                        } else {
+                            try? (jsonString + "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
+                        }
+                    }
+                    // #endregion
+                    
                     cameraSetupSelection = .rackAttachment
                     // Play audio immediately when selection is made
                     playCameraSetupInstructions(for: .rackAttachment)
@@ -1609,6 +1656,33 @@ struct WorkoutActiveView: View {
             // Floor option
             VStack(spacing: 8) {
                 Button(action: {
+                    // #region agent log
+                    let logPath = "/Users/zach.thomson/Desktop/Chiron/.cursor/debug.log"
+                    let logData: [String: Any] = [
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "G",
+                        "location": "WorkoutActiveView.swift:1750",
+                        "message": "Camera setup selection made: floor",
+                        "data": [
+                            "selection": "floor",
+                            "currentExerciseIndex": currentExerciseIndex,
+                            "currentExerciseName": currentExercise?.name ?? "nil"
+                        ],
+                        "timestamp": Int(Date().timeIntervalSince1970 * 1000)
+                    ]
+                    if let jsonData = try? JSONSerialization.data(withJSONObject: logData),
+                       let jsonString = String(data: jsonData, encoding: .utf8) {
+                        if let fileHandle = FileHandle(forWritingAtPath: logPath) {
+                            fileHandle.seekToEndOfFile()
+                            fileHandle.write((jsonString + "\n").data(using: .utf8)!)
+                            fileHandle.closeFile()
+                        } else {
+                            try? (jsonString + "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
+                        }
+                    }
+                    // #endregion
+                    
                     cameraSetupSelection = .floor
                     // Play audio immediately when selection is made
                     playCameraSetupInstructions(for: .floor)
@@ -1796,6 +1870,7 @@ struct WorkoutActiveView: View {
     
     /// Moves to the previous exercise in the workout.
     private func moveToPreviousExercise() {
+        
         // Stop any ongoing speech and clear the queue
         SpeechManager.shared.stopSpeaking()
         SpeechManager.shared.clearSpeechQueue()

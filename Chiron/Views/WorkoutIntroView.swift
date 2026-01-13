@@ -852,10 +852,30 @@ struct WorkoutIntroView: View {
                                 .clipShape(Circle())
                         }
                         
-                        // Back arrow button (only show when not on first exercise)
-                        if currentExerciseIndex > 0 {
+                        // Back arrow button
+                        //
+                        // Visibility: Show button if either:
+                        //   1. Not on first exercise (can navigate back), OR
+                        //   2. On camera setup exercise with a selection made (can return to selection view)
+                        //
+                        // Behavior:
+                        //   - If on camera setup exercise AND a selection has been made:
+                        //     → Reset selection to nil (returns to selection view showing Rack Attachment/Floor options)
+                        //   - Otherwise, if not on first exercise:
+                        //     → Navigate to previous exercise
+                        if currentExerciseIndex > 0 || (isCameraSetupExercise && cameraSetupSelection != nil) {
                             Button(action: {
-                                moveToPreviousExercise()
+                                if isCameraSetupExercise && cameraSetupSelection != nil {
+                                    // User has selected a camera setup option (Rack Attachment or Floor)
+                                    // and is viewing the setup instructions. Pressing back should return
+                                    // them to the selection view, not navigate to the previous exercise.
+                                    cameraSetupSelection = nil
+                                    SpeechManager.shared.stopSpeaking()
+                                    SpeechManager.shared.clearSpeechQueue()
+                                } else if currentExerciseIndex > 0 {
+                                    // Normal navigation: move to previous exercise
+                                    moveToPreviousExercise()
+                                }
                             }) {
                                 Image(systemName: "chevron.left")
                                     .font(.system(size: 20, weight: .semibold))
