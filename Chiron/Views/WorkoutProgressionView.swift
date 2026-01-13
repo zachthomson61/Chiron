@@ -637,29 +637,39 @@ private struct WorkoutProgressionExerciseRow: View {
                             .padding(.top, 16)
                             .padding(.horizontal, -20) // Extend beyond parent padding to screen edges
                         
-                        // Action buttons grid - same as exercise title box
+                        // Action buttons grid
+                        // Button visibility: Rest exercises show only "Jump to Here"
+                        // Warm-up/Cool-down exercises hide Weight, Reps, and History
+                        let shouldHideWeightRepsHistory = exercise.phase == "Warm-up" || exercise.phase == "Cool Down"
+                        
                         LazyVGrid(columns: [
                             GridItem(.flexible()),
                             GridItem(.flexible()),
                             GridItem(.flexible())
                         ], spacing: 12) {
-                            // Weight button
-                            OverviewActionButton(
-                                icon: "dumbbell.fill",
-                                title: "Weight",
-                                isDisabled: exercise.phase == "Warm-up",
-                                action: onShowWeightInput
-                            )
+                            if !shouldHideWeightRepsHistory {
+                                OverviewActionButton(
+                                    icon: "dumbbell.fill",
+                                    title: "Weight",
+                                    isDisabled: false,
+                                    action: onShowWeightInput
+                                )
+                                
+                                OverviewActionButton(
+                                    icon: "list.number",
+                                    title: "Reps",
+                                    isDisabled: false,
+                                    action: onShowRepsInput
+                                )
+                                
+                                OverviewActionButton(
+                                    icon: "clock.arrow.circlepath",
+                                    title: "History",
+                                    isDisabled: false,
+                                    action: onShowHistory
+                                )
+                            }
                             
-                            // Reps button
-                            OverviewActionButton(
-                                icon: "list.number",
-                                title: "Reps",
-                                isDisabled: false,
-                                action: onShowRepsInput
-                            )
-                            
-                            // Flag button
                             OverviewActionButton(
                                 icon: "flag.fill",
                                 title: "Flag",
@@ -667,7 +677,6 @@ private struct WorkoutProgressionExerciseRow: View {
                                 action: onShowFlagOptions
                             )
                             
-                            // Guide button
                             OverviewActionButton(
                                 icon: "speaker.wave.2.fill",
                                 title: "Guide",
@@ -675,15 +684,6 @@ private struct WorkoutProgressionExerciseRow: View {
                                 action: onPlayGuide
                             )
                             
-                            // History button
-                            OverviewActionButton(
-                                icon: "clock.arrow.circlepath",
-                                title: "History",
-                                isDisabled: false,
-                                action: onShowHistory
-                            )
-                            
-                            // Jump to Here button (replaces Restart)
                             OverviewActionButton(
                                 icon: "arrow.right.circle.fill",
                                 title: "Jump to Here",

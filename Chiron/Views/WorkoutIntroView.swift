@@ -904,74 +904,83 @@ struct WorkoutIntroView: View {
         .padding(.bottom, isSlideUpTabExpanded ? 8 : 8) // Consistent padding
     }
     
+    /// Action buttons grid displayed when the slide-up tab is expanded.
+    ///
+    /// Button visibility rules:
+    /// - Rest exercises: Only Restart button
+    /// - Warm-up/Cool-down exercises: Flag, Guide, and Restart buttons (Weight, Reps, History hidden)
+    /// - Regular exercises: All buttons (Weight, Reps, Flag, Guide, History, Restart)
+    @ViewBuilder
     private var actionButtonsGrid: some View {
-        LazyVGrid(columns: [
-            GridItem(.flexible()),
-            GridItem(.flexible()),
-            GridItem(.flexible())
-        ], spacing: 12) {
-            // Weight button
-            ActionButton(
-                icon: "dumbbell.fill",
-                title: "Weight",
-                isDisabled: isWarmUpExercise,
-                action: {
-                    showWeightInput = true
-                }
-            )
+        if isRestPeriod {
+            // Rest exercises: Only show Restart button
+            VStack {
+                ActionButton(
+                    icon: "arrow.counterclockwise",
+                    title: "Restart",
+                    isDisabled: false,
+                    action: {
+                        restartCurrentExercise()
+                    }
+                )
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+        } else {
+            let shouldHideWeightRepsHistory = isWarmUpExercise || isCoolDownExercise
             
-            // Reps button
-            ActionButton(
-                icon: "list.number",
-                title: "Reps",
-                isDisabled: false,
-                action: {
-                    showRepsInput = true
+            LazyVGrid(columns: [
+                GridItem(.flexible()),
+                GridItem(.flexible()),
+                GridItem(.flexible())
+            ], spacing: 12) {
+                if !shouldHideWeightRepsHistory {
+                    ActionButton(
+                        icon: "dumbbell.fill",
+                        title: "Weight",
+                        isDisabled: false,
+                        action: { showWeightInput = true }
+                    )
+                    
+                    ActionButton(
+                        icon: "list.number",
+                        title: "Reps",
+                        isDisabled: false,
+                        action: { showRepsInput = true }
+                    )
+                    
+                    ActionButton(
+                        icon: "clock.arrow.circlepath",
+                        title: "History",
+                        isDisabled: false,
+                        action: { showHistory = true }
+                    )
                 }
-            )
-            
-            // Flag button
-            ActionButton(
-                icon: "flag.fill",
-                title: "Flag",
-                isDisabled: false,
-                action: {
-                    showFlagOptions = true
-                }
-            )
-            
-            // Guide button
-            ActionButton(
-                icon: "speaker.wave.2.fill",
-                title: "Guide",
-                isDisabled: false,
-                action: {
-                    playExerciseGuide()
-                }
-            )
-            
-            // History button
-            ActionButton(
-                icon: "clock.arrow.circlepath",
-                title: "History",
-                isDisabled: false,
-                action: {
-                    showHistory = true
-                }
-            )
-            
-            // Restart button
-            ActionButton(
-                icon: "arrow.counterclockwise",
-                title: "Restart",
-                isDisabled: false,
-                action: {
-                    restartCurrentExercise()
-                }
-            )
+                
+                ActionButton(
+                    icon: "flag.fill",
+                    title: "Flag",
+                    isDisabled: false,
+                    action: { showFlagOptions = true }
+                )
+                
+                ActionButton(
+                    icon: "speaker.wave.2.fill",
+                    title: "Guide",
+                    isDisabled: false,
+                    action: { playExerciseGuide() }
+                )
+                
+                ActionButton(
+                    icon: "arrow.counterclockwise",
+                    title: "Restart",
+                    isDisabled: false,
+                    action: { restartCurrentExercise() }
+                )
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 20)
     }
     
     private var timeBasedTimerView: some View {
@@ -1050,8 +1059,14 @@ struct WorkoutIntroView: View {
         return min(1.0, Double(elapsed) / Double(currentExerciseDuration))
     }
     
+    /// Whether the current exercise is in the Warm-up phase.
     private var isWarmUpExercise: Bool {
         currentExercise?.phase == "Warm-up"
+    }
+    
+    /// Whether the current exercise is in the Cool Down phase.
+    private var isCoolDownExercise: Bool {
+        currentExercise?.phase == "Cool Down"
     }
     
     // MARK: - Helper Functions
