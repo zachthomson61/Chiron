@@ -16,8 +16,9 @@ import SwiftUI
 /// - Round-based sections (e.g., "3 ROUNDS") with expandable/collapsible rounds
 /// - Inline exercise expansion showing video player, action buttons (Weight, Reps, Flag, Guide, History, Jump to Here)
 /// - Exercise thumbnail placeholders and rest cards
+/// - Auto-scrolls to current exercise when opened from active workout (positions current exercise at top of view)
 ///
-/// Presented when the list button is tapped in `WorkoutIntroView`.
+/// Presented when the list button is tapped in `WorkoutIntroView` or `WorkoutActiveView`.
 struct WorkoutProgressionView: View {
     let workout: PredeterminedWorkout
     @Environment(\.dismiss) private var dismiss
@@ -111,13 +112,35 @@ struct WorkoutProgressionView: View {
         return orderedPhases + remainingPhases
     }
     
+    /// Returns the phase name for the current exercise, or nil if not found.
+    /// Used to determine which phase should be auto-expanded when the overview menu opens.
+    private var currentExercisePhase: String? {
+        guard let currentIndex = currentExerciseIndex,
+              currentIndex >= 0,
+              currentIndex < workout.exercises.count else {
+            return nil
+        }
+        return workout.exercises[currentIndex].phase ?? "Main Workout"
+    }
+    
+    /// Determines if the overview menu was opened from the active workout view.
+    /// 
+    /// Returns `true` when both `workoutLogId` and `onSaveSetLog` are provided,
+    /// which only occurs when opened from `WorkoutActiveView`. This is used to
+    /// conditionally show the full set of action buttons matching the active view.
+    private var isFromActiveView: Bool {
+        return workoutLogId != nil && onSaveSetLog != nil
+    }
+    
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.background.ignoresSafeArea()
                 
-                ScrollView {
-                    VStack(spacing: 0) {
+                // ScrollViewReader enables programmatic scrolling to the current exercise
+                ScrollViewReader { scrollProxy in
+                    ScrollView {
+                        VStack(spacing: 0) {
                         // Overview header bar (spacer for fixed button)
                         ZStack {
                             Text("Overview")
@@ -135,7 +158,7 @@ struct WorkoutProgressionView: View {
                                     // Phase separator
                                     PhaseSeparatorBar(
                                         phaseName: phase,
-                                        duration: calculatePhaseDuration(exercises),
+                                        duration: phase == "Cool Down" ? 2 : calculatePhaseDuration(exercises),
                                         rounds: getRoundsForPhase(phase, exercises: exercises)
                                     )
                                     
@@ -153,6 +176,7 @@ struct WorkoutProgressionView: View {
                                             exerciseData: localExerciseData,
                                             isExpanded: expandedExerciseId == exercise.id,
                                             isCurrentExercise: currentExerciseIndex == exerciseIndex,
+                                            isFromActiveView: isFromActiveView,
                                             onTap: {
                                                 // Toggle expansion: if already expanded, collapse; otherwise expand
                                                 if expandedExerciseId == exercise.id {
@@ -183,12 +207,15 @@ struct WorkoutProgressionView: View {
                                                 playExerciseGuide(for: exercise)
                                             }
                                         )
+                                        // Unique ID for each exercise row to enable scrolling via ScrollViewReader
+                                        .id(exerciseIndex)
                                         .padding(.horizontal, 20)
                                         .padding(.vertical, 8)
                                     }
                                     
                                     // Show "Show All Rounds" button if phase has rounds and not all shown
-                                    if hasRounds(phase, exercises: exercises) && !expandedPhases.contains(phase) {
+                                    // Exclude Cool Down from having an expand button
+                                    if hasRounds(phase, exercises: exercises) && !expandedPhases.contains(phase) && phase != "Cool Down" {
                                         Button(action: {
                                             expandedPhases.insert(phase)
                                         }) {
@@ -207,6 +234,31 @@ struct WorkoutProgressionView: View {
                             }
                         }
                         .padding(.bottom, 40)
+                    }
+                    }
+                    // Auto-scroll to current exercise when overview menu opens
+                    // Positions the current exercise card at the top of the visible view
+                    .onAppear {
+                        guard let currentIndex = currentExerciseIndex else { return }
+                        
+                        // Auto-expand the phase containing the current exercise if it has multiple rounds
+                        // and is not Warm-up, Cool Down, or Finisher
+                        if let phase = currentExercisePhase,
+                           phase != "Warm-up",
+                           phase != "Cool Down",
+                           phase != "Finisher",
+                           !expandedPhases.contains(phase),
+                           let phaseExercises = exercisesByPhase[phase],
+                           hasRounds(phase, exercises: phaseExercises) {
+                            expandedPhases.insert(phase)
+                        }
+                        
+                        // Small delay ensures the view hierarchy is fully laid out before scrolling
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            withAnimation {
+                                scrollProxy.scrollTo(currentIndex, anchor: .top)
+                            }
+                        }
                     }
                 }
                 
@@ -411,6 +463,7 @@ struct WorkoutProgressionView: View {
     /// - If phase has rounds and is not expanded: returns first round only (up to first Rest)
     /// - Otherwise: returns all exercises
     /// - Camera setup exercises are filtered out if coaching is disabled for that exercise
+    /// - Cool Down always shows all exercises regardless of rounds or expansion state
     ///
     /// - Parameters:
     ///   - phase: Phase name
@@ -424,6 +477,11 @@ struct WorkoutProgressionView: View {
             }
             // Check if camera coaching is enabled for this exercise
             return CameraCoachingPreferencesManager.shared.isCameraCoachingEnabled(for: exercise.name)
+        }
+        
+        // Cool Down always shows all exercises (no collapsing/expanding)
+        if phase == "Cool Down" {
+            return filteredExercises
         }
         
         // If phase has rounds and hasn't been expanded, show only first round
@@ -517,7 +575,7 @@ private struct CameraSetupThumbnail: View {
 ///
 /// Displays:
 /// - Phase name in uppercase (e.g., "EXPLOSIVE TRICEP PRIMER")
-/// - Round count for multi-round phases (e.g., "- 3 ROUNDS") - excluded for Warm-up
+/// - Round count for multi-round phases (e.g., "- 3 ROUNDS") - excluded for Warm-up, Cool Down, and Finisher
 /// - Estimated duration in minutes (e.g., "5 min")
 ///
 /// Styled with dark background matching the app theme.
@@ -528,8 +586,12 @@ private struct PhaseSeparatorBar: View {
     
     var body: some View {
         HStack {
-            // Don't show rounds for Warm-up section
-            if let rounds = rounds, phaseName != "Warm-up" {
+            // Show rounds only for multi-round phases, excluding Warm-up, Cool Down, and Finisher
+            if let rounds = rounds,
+               rounds > 1,
+               phaseName != "Warm-up",
+               phaseName != "Cool Down",
+               phaseName != "Finisher" {
                 Text("\(phaseName.uppercased()) - \(rounds) ROUNDS")
                     .font(.neueMontrealSemiBold(size: 14))
                     .foregroundColor(.textPrimary)
@@ -556,11 +618,15 @@ private struct PhaseSeparatorBar: View {
 /// Row component displaying a single exercise in the workout progression.
 ///
 /// Features:
-/// - Tappable entire row (including Rest cards) to expand/collapse
-/// - Shows exercise thumbnail placeholder or rest icon
-/// - When expanded:
-///   - Exercises: displays video player and full button grid (Weight, Reps, Flag, Guide, History, Jump to Here)
-///   - Rest sections: displays only "Jump to Here" button
+/// - Tappable row to expand/collapse (Rest and Camera Setup expandable when from active view)
+/// - Shows exercise thumbnail placeholder, rest icon, or camera setup icon
+/// - When expanded from active view:
+///   - Rest/Camera Setup: "Jump to Here" button only
+///   - Warm-up/Cool-down: Flag, Guide, Jump to Here buttons (3-column grid)
+///   - Regular exercises: Weight, Reps, Flag, Guide, History, Jump to Here buttons (3-column grid) + video player
+/// - When expanded from intro view:
+///   - Warm-up/Cool-down: Guide button only
+///   - Regular exercises: Guide and History buttons (2-column grid) + video player
 /// - Formats exercise details (reps, sets, notes) with proper styling
 private struct WorkoutProgressionExerciseRow: View {
     let exercise: WorkoutExercise
@@ -568,6 +634,7 @@ private struct WorkoutProgressionExerciseRow: View {
     let exerciseData: [Int: (weight: Double?, reps: Int?)]?
     let isExpanded: Bool
     let isCurrentExercise: Bool
+    let isFromActiveView: Bool
     let onTap: () -> Void
     let onJumpToExercise: () -> Void
     let onShowWeightInput: () -> Void
@@ -691,24 +758,41 @@ private struct WorkoutProgressionExerciseRow: View {
             .padding(.vertical, 12)
             .contentShape(Rectangle())
             .onTapGesture {
-                // Rest and Camera Setup exercises are not expandable in the overview menu
-                // Only regular exercises can be expanded to show video and action buttons
-                guard exercise.name != "Rest", !isCameraSetupExercise else { return }
+                // Rest and Camera Setup exercises are expandable when opened from active view
+                // to show "Jump to Here" button. When opened from intro view, they remain non-expandable.
+                if !isFromActiveView {
+                    guard exercise.name != "Rest", !isCameraSetupExercise else { return }
+                }
                 onTap()
             }
             
             // Expanded content section
             //
-            // Button visibility rules for overview menu (intro page only):
-            // - Rest exercises: Not expandable (no buttons)
-            // - Camera Setup exercises: Not expandable (no buttons)
-            // - Warm-up/Cool-down exercises: Guide button only
-            // - All other exercises: Guide and History buttons
+            // Action button visibility rules:
+            //
+            // When opened from active view (isFromActiveView == true):
+            //   - Rest/Camera Setup: "Jump to Here" button only
+            //   - Warm-up/Cool-down: Flag, Guide, Jump to Here (3-column grid)
+            //   - Regular exercises: Weight, Reps, Flag, Guide, History, Jump to Here (3-column grid)
+            //
+            // When opened from intro view (isFromActiveView == false):
+            //   - Rest/Camera Setup: Not expandable (no buttons)
+            //   - Warm-up/Cool-down: Guide button only
+            //   - Regular exercises: Guide and History buttons (2-column grid)
             if isExpanded {
                 VStack(spacing: 24) {
-                    // Rest and Camera Setup exercises should never reach here due to tap guard above,
-                    // but include EmptyView as defensive programming
-                    if exercise.name == "Rest" || isCameraSetupExercise {
+                    // Rest and Camera Setup cards: Show "Jump to Here" when opened from active view
+                    if (exercise.name == "Rest" || isCameraSetupExercise) && isFromActiveView {
+                        OverviewActionButton(
+                            icon: "arrow.right.circle.fill",
+                            title: "Jump to Here",
+                            isDisabled: false,
+                            action: onJumpToExercise
+                        )
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+                    } else if exercise.name == "Rest" || isCameraSetupExercise {
+                        // Rest and Camera Setup from intro view: Not expandable (defensive check)
                         EmptyView()
                     } else {
                         // Video player for regular exercises
@@ -717,39 +801,124 @@ private struct WorkoutProgressionExerciseRow: View {
                             .padding(.top, 16)
                             .padding(.horizontal, -20) // Extend beyond parent padding to screen edges
                         
-                        // Action buttons based on exercise phase
+                        // Regular exercise buttons: Different sets based on context and phase
                         let isWarmUpOrCoolDown = exercise.phase == "Warm-up" || exercise.phase == "Cool Down"
                         
-                        if isWarmUpOrCoolDown {
-                            // Warm-up/Cool-down: Single Guide button
-                            OverviewActionButton(
-                                icon: "speaker.wave.2.fill",
-                                title: "Guide",
-                                isDisabled: false,
-                                action: onPlayGuide
-                            )
-                            .padding(.horizontal, 20)
+                        if isFromActiveView {
+                            // Active view: Full button set matching WorkoutActiveView
+                            if isWarmUpOrCoolDown {
+                                // Warm-up/Cool-down: Flag, Guide, Jump to Here (3-column grid)
+                                LazyVGrid(columns: [
+                                    GridItem(.flexible()),
+                                    GridItem(.flexible()),
+                                    GridItem(.flexible())
+                                ], spacing: 12) {
+                                    OverviewActionButton(
+                                        icon: "flag.fill",
+                                        title: "Flag",
+                                        isDisabled: false,
+                                        action: onShowFlagOptions
+                                    )
+                                    
+                                    OverviewActionButton(
+                                        icon: "speaker.wave.2.fill",
+                                        title: "Guide",
+                                        isDisabled: false,
+                                        action: onPlayGuide
+                                    )
+                                    
+                                    OverviewActionButton(
+                                        icon: "arrow.right.circle.fill",
+                                        title: "Jump to Here",
+                                        isDisabled: false,
+                                        action: onJumpToExercise
+                                    )
+                                }
+                                .padding(.horizontal, 20)
+                            } else {
+                                // Regular exercises: Weight, Reps, Flag, Guide, History, Jump to Here (3-column grid)
+                                LazyVGrid(columns: [
+                                    GridItem(.flexible()),
+                                    GridItem(.flexible()),
+                                    GridItem(.flexible())
+                                ], spacing: 12) {
+                                    OverviewActionButton(
+                                        icon: "dumbbell.fill",
+                                        title: "Weight",
+                                        isDisabled: false,
+                                        action: onShowWeightInput
+                                    )
+                                    
+                                    OverviewActionButton(
+                                        icon: "list.number",
+                                        title: "Reps",
+                                        isDisabled: false,
+                                        action: onShowRepsInput
+                                    )
+                                    
+                                    OverviewActionButton(
+                                        icon: "flag.fill",
+                                        title: "Flag",
+                                        isDisabled: false,
+                                        action: onShowFlagOptions
+                                    )
+                                    
+                                    OverviewActionButton(
+                                        icon: "speaker.wave.2.fill",
+                                        title: "Guide",
+                                        isDisabled: false,
+                                        action: onPlayGuide
+                                    )
+                                    
+                                    OverviewActionButton(
+                                        icon: "clock.arrow.circlepath",
+                                        title: "History",
+                                        isDisabled: false,
+                                        action: onShowHistory
+                                    )
+                                    
+                                    OverviewActionButton(
+                                        icon: "arrow.right.circle.fill",
+                                        title: "Jump to Here",
+                                        isDisabled: false,
+                                        action: onJumpToExercise
+                                    )
+                                }
+                                .padding(.horizontal, 20)
+                            }
                         } else {
-                            // Regular exercises: Guide and History buttons in 2-column grid
-                            LazyVGrid(columns: [
-                                GridItem(.flexible()),
-                                GridItem(.flexible())
-                            ], spacing: 12) {
+                            // Intro view: Limited button set
+                            if isWarmUpOrCoolDown {
+                                // Warm-up/Cool-down: Guide button only
                                 OverviewActionButton(
                                     icon: "speaker.wave.2.fill",
                                     title: "Guide",
                                     isDisabled: false,
                                     action: onPlayGuide
                                 )
-                                
-                                OverviewActionButton(
-                                    icon: "clock.arrow.circlepath",
-                                    title: "History",
-                                    isDisabled: false,
-                                    action: onShowHistory
-                                )
+                                .padding(.horizontal, 20)
+                            } else {
+                                // Regular exercises: Guide and History buttons in 2-column grid
+                                LazyVGrid(columns: [
+                                    GridItem(.flexible()),
+                                    GridItem(.flexible())
+                                ], spacing: 12) {
+                                    OverviewActionButton(
+                                        icon: "speaker.wave.2.fill",
+                                        title: "Guide",
+                                        isDisabled: false,
+                                        action: onPlayGuide
+                                    )
+                                    
+                                    OverviewActionButton(
+                                        icon: "clock.arrow.circlepath",
+                                        title: "History",
+                                        isDisabled: false,
+                                        action: onShowHistory
+                                    )
+                                }
+                                .padding(.horizontal, 20)
                             }
-                            .padding(.horizontal, 20)
                         }
                     }
                 }
