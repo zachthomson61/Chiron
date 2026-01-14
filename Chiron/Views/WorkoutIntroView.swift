@@ -153,6 +153,15 @@ struct WorkoutIntroView: View {
         case rackAttachment
         case floor
         case tripod
+        
+        /// Returns the display name for the camera setup type.
+        var displayName: String {
+            switch self {
+            case .rackAttachment: return "Mount"
+            case .floor: return "Floor"
+            case .tripod: return "Tripod"
+            }
+        }
     }
     
     // MARK: - Computed Properties
@@ -805,8 +814,8 @@ struct WorkoutIntroView: View {
                 
                 // Camera Setup UI
                 if isCameraSetupExercise {
-                    // "Camera Setup" subtitle - more prominent
-                    Text("Camera Setup")
+                    // Camera setup title: shows "Camera Setup" or "Camera Setup — [Type]" when selected
+                    Text(cameraSetupSelection == nil ? "Camera Setup" : "Camera Setup — \(cameraSetupSelection!.displayName)")
                         .font(.neueMontrealSemiBold(size: 20))
                         .foregroundColor(.textPrimary)
                         .padding(.top, 4)
@@ -2194,11 +2203,11 @@ struct WorkoutIntroView: View {
         }
     }
     
-    /// Formats camera setup instructions into natural sentences and plays them via audio.
+    /// Plays exact audio instructions for the selected camera setup type.
     ///
     /// This function is called when the user selects a camera setup option (Mount, Floor, or Tripod).
-    /// It validates the current exercise, extracts the appropriate instructions, formats them into
-    /// natural-sounding sentences, and plays them through the SpeechManager.
+    /// It uses predefined exact text strings (not formatted from exercise notes) to ensure consistent
+    /// audio playback. Stops any ongoing speech before playing new instructions.
     ///
     /// - Parameter setupType: The selected camera setup type (`.rackAttachment`, `.floor`, or `.tripod`)
     private func playCameraSetupInstructions(for setupType: CameraSetupType) {
@@ -2212,21 +2221,19 @@ struct WorkoutIntroView: View {
         SpeechManager.shared.stopSpeaking()
         SpeechManager.shared.clearSpeechQueue()
         
-        // Get instructions for the selected setup type
-        guard let instructions = getCameraSetupInstructions(for: setupType),
-              !instructions.isEmpty else {
-            return
+        // Use exact predefined text for each setup type (not formatted from notes)
+        let exactText: String
+        switch setupType {
+        case .rackAttachment:
+            exactText = "For a mount setup, mount your phone high up on one of the front rack posts, angled down toward the middle of the bar. Center the frame on the bar and your hands, not your face. Keep your full arm length and bar path visible. Try to avoid cropping at lockout or when you touch your chest."
+        case .floor:
+            exactText = "For a floor setup, place your phone on the floor, 4 to 6 feet from the bench, angled slightly upwards. Center it on the bar. Make sure to keep your hands, elbows, and bar path in frame."
+        case .tripod:
+            exactText = "For a tripod setup, place the tripod 2 to 3 feet in front of the bench, centered on the bar. Ensure that the tripod is at the same height as the racked bar or slightly higher. Angle the camera slightly down towards your grip. Ensure your hands, elbows, and bar path are in view."
         }
         
-        // Format instructions into natural sentences
-        let formattedText = formatCameraSetupInstructionsAsSentences(instructions, setupType: setupType)
-        
-        guard !formattedText.isEmpty else {
-            return
-        }
-        
-        // Play the formatted instructions
-        SpeechManager.shared.speakCoachingFeedback(formattedText)
+        // Play the exact instructions via SpeechManager
+        SpeechManager.shared.speakCoachingFeedback(exactText)
     }
     
     /// Extracts camera setup instructions for a specific setup type from exercise notes.
@@ -2270,7 +2277,11 @@ struct WorkoutIntroView: View {
         return instructions
     }
     
-    /// Formats camera setup instructions into natural, flowing sentences for audio playback.
+    /// Formats camera setup instructions into natural, flowing sentences.
+    ///
+    /// **Note:** This function is no longer used for audio playback. Audio now uses exact predefined
+    /// text strings in `playCameraSetupInstructions(for:)`. This function is kept for potential
+    /// future use or other display purposes.
     ///
     /// Converts terse instruction strings into natural-sounding speech by:
     /// - Adding proper articles ("the", "your", "a")
