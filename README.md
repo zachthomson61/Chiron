@@ -111,6 +111,12 @@ workout-data/
 - `WorkoutViewModel`: Coordinates recording and upload flow
 - Integration with existing pose detection system
 
+### Screen Orientation
+The app is locked to portrait orientation only for both iPhone and iPad. This is configured in:
+- **Info.plist**: `UISupportedInterfaceOrientations` and `UISupportedInterfaceOrientations~ipad` are set to portrait only
+- **Project Build Settings**: `INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone` and `INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad` are set to portrait only
+- **UIRequiresFullScreen**: Set to `true` to suppress Xcode warnings about orientation support
+
 ## Requirements
 
 - iOS 17.0+
