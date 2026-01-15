@@ -1657,9 +1657,7 @@ struct WorkoutIntroView: View {
                       currentExercise.name == exerciseNameAtTimerStart else {
                     return
                 }
-                // Play different tone and haptic feedback when exercise time is up (for rep-based exercises)
-                self.playBeepTone(frequency: 400.0, duration: 0.15) // Lower pitch for end
-                self.triggerEndHaptic()
+                // Play rep reminder without beep tone - allow user to move at their own pace
                 self.playRepReminder(for: exercise)
             }
         }
