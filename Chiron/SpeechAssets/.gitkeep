@@ -1,0 +1,10 @@
+# This directory contains pre-generated speech audio files
+# 
+# To generate the audio files:
+# 1. cd scripts
+# 2. npm install
+# 3. export OPENAI_API_KEY=your_key
+# 4. npm run generate
+#
+# The generated MP3 files and manifest.json should be committed to the repository
+# so they're available for builds without requiring API access.

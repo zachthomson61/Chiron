@@ -145,6 +145,17 @@ struct WorkoutIntroView: View {
     /// Resets to `nil` when navigating to/from camera setup exercise.
     @State private var cameraSetupSelection: CameraSetupType? = nil
     
+    // MARK: - Test View State
+    
+    /// Whether the test view camera preview is currently active.
+    /// When `true`, the video background is replaced with front camera feed and segmentation overlay.
+    @State private var isTestViewActive: Bool = false
+    
+    /// Segmentation processor for test view overlay.
+    /// Processes camera frames to generate real-time quality feedback overlay (green/yellow/red)
+    /// based on camera position and the selected view type (RACK, FLOOR, or TRIPOD).
+    @StateObject private var testViewSegmentationProcessor = SegmentationProcessor()
+    
     /// Workout log service (singleton) - accessed via WorkoutLogService.shared
     
     // MARK: - Camera Setup Type
@@ -309,40 +320,68 @@ struct WorkoutIntroView: View {
     }
     
     var body: some View {
-        ZStack {
-            // Background video (persists across state changes)
-            if let videoName = workout.videoName {
-                CroppedDemoVideoHeader(videoName: videoName)
+        GeometryReader { geometry in
+            ZStack {
+                // Background: Video, Test View Camera, or solid color
+                //
+                // Test View Mode (only when workout is active):
+                // - Displays front camera feed in top 65% of screen
+                // - Overlays real-time segmentation silhouette (green/yellow/red based on quality)
+                // - Quality scoring adapts to selected camera setup view (RACK, FLOOR, TRIPOD)
+                // - Activated via "Test View" button on Close-Grip Bench Press camera setup exercises
+                if isTestViewActive && isWorkoutActive {
+                    VStack(spacing: 0) {
+                        // Camera preview with segmentation overlay
+                        ZStack {
+                            TestViewCameraPreview(processor: testViewSegmentationProcessor)
+                                .frame(height: geometry.size.height * 0.65)
+                            
+                            SegmentationOverlayView(processor: testViewSegmentationProcessor)
+                                .frame(height: geometry.size.height * 0.65)
+                                .allowsHitTesting(false)
+                        }
+                        .frame(height: geometry.size.height * 0.65)
+                        .clipped()
+                        
+                        Spacer()
+                    }
                     .ignoresSafeArea()
-            } else {
-                Color.background.ignoresSafeArea()
-            }
-            
-            // Gradient overlay for readability (only shown in intro state)
-            if !isWorkoutActive {
-                LinearGradient(
-                    gradient: Gradient(colors: [
-                        Color.black.opacity(0.0),
-                        Color.black.opacity(0.2),
-                        Color.black.opacity(0.4),
-                        Color.black.opacity(0.6)
-                    ]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-                .transition(.opacity)
-            }
-            
-            // Conditional UI based on state
-            if isWorkoutActive {
-                // Active workout UI
-                activeWorkoutContent
+                } else {
+                    // Normal video background
+                    if let videoName = workout.videoName {
+                        CroppedDemoVideoHeader(videoName: videoName)
+                            .ignoresSafeArea()
+                    } else {
+                        Color.background.ignoresSafeArea()
+                    }
+                }
+                
+                // Gradient overlay for readability (only shown in intro state)
+                if !isWorkoutActive {
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.black.opacity(0.0),
+                            Color.black.opacity(0.2),
+                            Color.black.opacity(0.4),
+                            Color.black.opacity(0.6)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea()
                     .transition(.opacity)
-            } else {
-                // Intro UI
-                introContent
-                    .transition(.opacity)
+                }
+                
+                // Conditional UI based on state
+                if isWorkoutActive {
+                    // Active workout UI
+                    activeWorkoutContent
+                        .transition(.opacity)
+                } else {
+                    // Intro UI
+                    introContent
+                        .transition(.opacity)
+                }
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -855,7 +894,7 @@ struct WorkoutIntroView: View {
                         .padding(.bottom, 8)
                     }
                     
-                    // Navigation buttons: Overview, Back, and Forward (same as regular exercises)
+                    // Navigation buttons: Overview, Back, Test View / End Test, and Forward
                     HStack {
                         // Overview button (leftmost)
                         Button(action: {
@@ -882,6 +921,10 @@ struct WorkoutIntroView: View {
                         //     → Navigate to previous exercise
                         if currentExerciseIndex > 0 || (isCameraSetupExercise && cameraSetupSelection != nil) {
                             Button(action: {
+                                if isTestViewActive {
+                                    // End test view first
+                                    endTestView()
+                                }
                                 if isCameraSetupExercise && cameraSetupSelection != nil {
                                     // User has selected a camera setup option (Rack Attachment or Floor)
                                     // and is viewing the setup instructions. Pressing back should return
@@ -903,10 +946,33 @@ struct WorkoutIntroView: View {
                             }
                         }
                         
+                        // Test View / End Test button - only shown when a camera setup option has been selected
+                        if cameraSetupSelection != nil {
+                            Button(action: {
+                                if isTestViewActive {
+                                    endTestView()
+                                } else {
+                                    startTestView()
+                                }
+                            }) {
+                                Text(isTestViewActive ? "End Test" : "Test View")
+                                    .font(.neueMontrealSemiBold(size: 14))
+                                    .foregroundColor(.textPrimary)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
+                                    .background(isTestViewActive ? Color.red.opacity(0.6) : Color.primaryPurple.opacity(0.6))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        
                         Spacer()
                         
                         // Next exercise arrow button
                         Button(action: {
+                            if isTestViewActive {
+                                // End test view when moving to next exercise
+                                endTestView()
+                            }
                             moveToNextExercise()
                         }) {
                             Image(systemName: "chevron.right")
@@ -1534,8 +1600,16 @@ struct WorkoutIntroView: View {
     /// Generate rest period announcement with weighted random variations
     /// Majority of time (70%) uses basic "Rest, x Seconds"
     /// Occasionally (30%) uses one of the motivational variations
+    /// Uses exact duration first, then rounds to nearest 5 seconds for pre-generated audio files
     private func generateRestAnnouncement(duration: Int) -> String {
-        let basicAnnouncement = "Rest, \(duration) Seconds"
+        // Clamp duration to valid range
+        let clampedDuration = min(max(duration, 5), 300)
+        
+        // Round to nearest 5 seconds (matching phrase generation in 5-second increments)
+        // This ensures we match pre-generated audio files while being closer to actual duration
+        let roundedDuration = ((clampedDuration + 2) / 5) * 5
+        
+        let basicAnnouncement = "Rest, \(roundedDuration) Seconds"
         
         // 70% chance of basic announcement, 30% chance of variation
         let useVariation = Int.random(in: 1...100) <= 30
@@ -2058,9 +2132,9 @@ struct WorkoutIntroView: View {
     /// Format reps/time string for display
     private func formatRepsTime(_ exercise: WorkoutExercise) -> String {
         if exercise.reps.hasPrefix(":") {
-            // Time format ":30" -> "30 seconds"
+            // Time format ":30" -> "30 Seconds" (capital S to match speech phrase pattern)
             if let seconds = Int(exercise.reps.dropFirst()) {
-                return "\(seconds) seconds"
+                return "\(seconds) Seconds"
             }
         } else if exercise.reps.lowercased().hasSuffix("s") || exercise.reps.lowercased().hasSuffix("min") {
             // Time format "30s" or "1min"
@@ -2426,6 +2500,56 @@ struct WorkoutIntroView: View {
         }
         // Fallback for any other format
         return "\(reps) reps"
+    }
+    
+    // MARK: - Test View Methods
+    
+    /// Starts the test view camera preview with segmentation overlay.
+    ///
+    /// Configures the segmentation processor for bench press with the appropriate view type
+    /// based on the user's camera setup selection. The overlay provides real-time color-coded
+    /// feedback (green/yellow/red) indicating camera positioning quality.
+    private func startTestView() {
+        guard let selection = cameraSetupSelection else { return }
+        
+        // Configure segmentation processor for bench press exercise
+        testViewSegmentationProcessor.exerciseMode = .benchPress
+        
+        // Map camera setup selection to bench press view type
+        switch selection {
+        case .rackAttachment:
+            testViewSegmentationProcessor.benchPressViewType = .rack
+        case .floor:
+            testViewSegmentationProcessor.benchPressViewType = .floor
+        case .tripod:
+            testViewSegmentationProcessor.benchPressViewType = .tripod
+        }
+        
+        // Enable segmentation processing
+        testViewSegmentationProcessor.setProcessingEnabled(true)
+        
+        // Ensure camera session is set up and running
+        SharedCameraSessionManager.shared.setupCameraSession()
+        SharedCameraSessionManager.shared.switchToSetupMode()
+        
+        // Activate test view with animation
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isTestViewActive = true
+        }
+    }
+    
+    /// Ends the test view camera preview.
+    ///
+    /// Stops segmentation processing but keeps the camera session running for future
+    /// OpenAI coaching features. The video background is restored.
+    private func endTestView() {
+        // Stop segmentation processing (camera session remains active)
+        testViewSegmentationProcessor.stopProcessing()
+        
+        // Deactivate test view with animation
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isTestViewActive = false
+        }
     }
 }
 

@@ -57,9 +57,15 @@ enum WorkoutState {
 }
 
 // MARK: - Squat Type
+
+/// Exercise type identifier for pose detection and form analysis.
+///
+/// Note: Despite the name "SquatType", this enum is used for all exercise types
+/// until exercise-specific pose detection models are implemented.
 enum SquatType {
-    case bodyweight
-    case barbell
+    case bodyweight    // Bodyweight squat exercises
+    case barbell       // Barbell back squat exercises
+    case benchPress    // Bench press exercises (currently uses bodyweight analysis as fallback)
 }
 
 // MARK: - Inactivity Detection
@@ -291,6 +297,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return analyzeBodyweightSquatForm(points)
         case .barbell:
             return analyzeBarbellSquatForm(points)
+        case .benchPress:
+            // Use bodyweight analysis as fallback until bench press-specific form analysis is implemented
+            return analyzeBodyweightSquatForm(points)
         }
     }
     

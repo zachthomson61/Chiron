@@ -83,6 +83,16 @@ class OpenAICoachingManager: ObservableObject {
             - Upright chest and stable core
             - Knees tracking over toes without collapsing in
             """
+        case .benchPress:
+            squatLabel = "close-grip bench press"
+            coachingFocus = """
+            This is a close-grip bench press. Key priorities:
+            - Shoulder blades retracted and tight against the bench
+            - Feet flat on the floor for stability
+            - Controlled bar path down to mid-chest
+            - Elbows stay close to the body
+            - Full lockout at the top
+            """
         }
         
         let prompt = """

@@ -1,0 +1,13 @@
+{
+  "name": "chiron-speech-assets",
+  "version": "1.0.0",
+  "description": "Build script to generate speech audio assets using OpenAI TTS",
+  "main": "generate_speech_assets.js",
+  "scripts": {
+    "generate": "node generate_speech_assets.js"
+  },
+  "dependencies": {
+    "openai": "^4.20.0"
+  },
+  "type": "module"
+}

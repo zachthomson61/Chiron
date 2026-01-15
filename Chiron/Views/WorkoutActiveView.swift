@@ -122,6 +122,17 @@ struct WorkoutActiveView: View {
     /// Resets to `nil` when navigating to/from camera setup exercise.
     @State private var cameraSetupSelection: CameraSetupType? = nil
     
+    // MARK: - Test View State
+    
+    /// Whether the test view camera preview is currently active.
+    /// When `true`, the video background is replaced with front camera feed and segmentation overlay.
+    @State private var isTestViewActive: Bool = false
+    
+    /// Segmentation processor for test view overlay.
+    /// Processes camera frames to generate real-time quality feedback overlay (green/yellow/red)
+    /// based on camera position and the selected view type (RACK, FLOOR, or TRIPOD).
+    @StateObject private var testViewSegmentationProcessor = SegmentationProcessor()
+    
     /// Workout log service (singleton) - accessed via WorkoutLogService.shared
     
     // MARK: - Camera Setup Type
@@ -283,24 +294,52 @@ struct WorkoutActiveView: View {
     }
     
     var body: some View {
-        ZStack {
-            // Video background
-            if let videoName = workout.videoName {
-                CroppedDemoVideoHeader(videoName: videoName)
+        GeometryReader { geometry in
+            ZStack {
+                // Background: Video or Test View Camera
+                //
+                // Test View Mode:
+                // - Displays front camera feed in top 65% of screen
+                // - Overlays real-time segmentation silhouette (green/yellow/red based on quality)
+                // - Quality scoring adapts to selected camera setup view (RACK, FLOOR, TRIPOD)
+                // - Activated via "Test View" button on Close-Grip Bench Press camera setup exercises
+                if isTestViewActive {
+                    VStack(spacing: 0) {
+                        // Camera preview with segmentation overlay
+                        ZStack {
+                            TestViewCameraPreview(processor: testViewSegmentationProcessor)
+                                .frame(height: geometry.size.height * 0.65)
+                            
+                            SegmentationOverlayView(processor: testViewSegmentationProcessor)
+                                .frame(height: geometry.size.height * 0.65)
+                                .allowsHitTesting(false)
+                        }
+                        .frame(height: geometry.size.height * 0.65)
+                        .clipped()
+                        
+                        Spacer()
+                    }
                     .ignoresSafeArea()
-            } else {
-                Color.background.ignoresSafeArea()
-            }
-            
-            // Main content overlay
-            VStack(spacing: 0) {
-                // Top navigation bar
-                topNavigationBar
+                } else {
+                    // Normal video background
+                    if let videoName = workout.videoName {
+                        CroppedDemoVideoHeader(videoName: videoName)
+                            .ignoresSafeArea()
+                    } else {
+                        Color.background.ignoresSafeArea()
+                    }
+                }
                 
-                Spacer()
-                
-                // Bottom exercise card
-                bottomExerciseCard
+                // Main content overlay
+                VStack(spacing: 0) {
+                    // Top navigation bar
+                    topNavigationBar
+                    
+                    Spacer()
+                    
+                    // Bottom exercise card
+                    bottomExerciseCard
+                }
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -633,7 +672,7 @@ struct WorkoutActiveView: View {
                         .padding(.bottom, 8)
                     }
                     
-                    // Navigation buttons: Overview, Back, and Forward (same as regular exercises)
+                    // Navigation buttons: Overview, Back, Test View / End Test, and Forward
                     HStack {
                         // Overview button
                         Button(action: {
@@ -660,6 +699,10 @@ struct WorkoutActiveView: View {
                         //     → Navigate to previous exercise
                         if currentExerciseIndex > 0 || (isCameraSetupExercise && cameraSetupSelection != nil) {
                             Button(action: {
+                                if isTestViewActive {
+                                    // End test view first
+                                    endTestView()
+                                }
                                 if isCameraSetupExercise && cameraSetupSelection != nil {
                                     // User has selected a camera setup option (Rack Attachment or Floor)
                                     // and is viewing the setup instructions. Pressing back should return
@@ -681,10 +724,33 @@ struct WorkoutActiveView: View {
                             }
                         }
                         
+                        // Test View / End Test button - only shown when a camera setup option has been selected
+                        if cameraSetupSelection != nil {
+                            Button(action: {
+                                if isTestViewActive {
+                                    endTestView()
+                                } else {
+                                    startTestView()
+                                }
+                            }) {
+                                Text(isTestViewActive ? "End Test" : "Test View")
+                                    .font(.neueMontrealSemiBold(size: 14))
+                                    .foregroundColor(.textPrimary)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
+                                    .background(isTestViewActive ? Color.red.opacity(0.6) : Color.primaryPurple.opacity(0.6))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        
                         Spacer()
                         
                         // Next exercise arrow button
                         Button(action: {
+                            if isTestViewActive {
+                                // End test view when moving to next exercise
+                                endTestView()
+                            }
                             moveToNextExercise()
                         }) {
                             Image(systemName: "chevron.right")
@@ -1054,6 +1120,12 @@ struct WorkoutActiveView: View {
     }
     
     private func showIntroBuffer(for exercise: WorkoutExercise) {
+        // Special handling for rest periods: use dedicated rest announcement logic
+        if exercise.name == "Rest" {
+            handleRestPeriod(for: exercise)
+            return
+        }
+        
         // Capture the exercise index to verify we're still on this exercise when audio plays
         let exerciseIndexAtStart = currentExerciseIndex
         
@@ -1286,7 +1358,9 @@ struct WorkoutActiveView: View {
     
     private func playRepReminder(for exercise: WorkoutExercise) {
         let repCount = extractRepCount(from: exercise.reps)
-        let reminderText = "When you've completed \(repCount) reps, press the arrow to move on"
+        // Clamp to pre-generated range (1-20)
+        let clampedRepCount = min(max(repCount, 1), 20)
+        let reminderText = "When you've completed \(clampedRepCount) reps, press the arrow to move on"
         SpeechManager.shared.speakCoachingFeedback(reminderText)
     }
     
@@ -1553,9 +1627,9 @@ struct WorkoutActiveView: View {
     /// Format reps/time string for display
     private func formatRepsTime(_ exercise: WorkoutExercise) -> String {
         if exercise.reps.hasPrefix(":") {
-            // Time format ":30" -> "30 seconds"
+            // Time format ":30" -> "30 Seconds" (capital S to match speech phrase pattern)
             if let seconds = Int(exercise.reps.dropFirst()) {
-                return "\(seconds) seconds"
+                return "\(seconds) Seconds"
             }
         } else if exercise.reps.lowercased().hasSuffix("s") || exercise.reps.lowercased().hasSuffix("min") {
             // Time format "30s" or "1min"
@@ -1974,6 +2048,123 @@ struct WorkoutActiveView: View {
             }
         }
     }
+    
+    // MARK: - Test View Methods
+    
+    /// Starts the test view camera preview with segmentation overlay.
+    ///
+    /// Configures the segmentation processor for bench press with the appropriate view type
+    /// based on the user's camera setup selection. The overlay provides real-time color-coded
+    /// feedback (green/yellow/red) indicating camera positioning quality.
+    private func startTestView() {
+        guard let selection = cameraSetupSelection else { return }
+        
+        // Configure segmentation processor for bench press exercise
+        testViewSegmentationProcessor.exerciseMode = .benchPress
+        
+        // Map camera setup selection to bench press view type
+        switch selection {
+        case .rackAttachment:
+            testViewSegmentationProcessor.benchPressViewType = .rack
+        case .floor:
+            testViewSegmentationProcessor.benchPressViewType = .floor
+        case .tripod:
+            testViewSegmentationProcessor.benchPressViewType = .tripod
+        }
+        
+        // Enable segmentation processing
+        testViewSegmentationProcessor.setProcessingEnabled(true)
+        
+        // Ensure camera session is set up and running
+        SharedCameraSessionManager.shared.setupCameraSession()
+        SharedCameraSessionManager.shared.switchToSetupMode()
+        
+        // Activate test view with animation
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isTestViewActive = true
+        }
+    }
+    
+    /// Ends the test view camera preview.
+    ///
+    /// Stops segmentation processing but keeps the camera session running for future
+    /// OpenAI coaching features. The video background is restored.
+    private func endTestView() {
+        // Stop segmentation processing (camera session remains active)
+        testViewSegmentationProcessor.stopProcessing()
+        
+        // Deactivate test view with animation
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isTestViewActive = false
+        }
+    }
+    
+    // MARK: - Rest Period Handling
+    
+    /// Handles rest period exercises with proper speech announcements.
+    ///
+    /// Rest periods skip the intro buffer and immediately start with a spoken announcement.
+    /// Uses generateRestAnnouncement() to ensure duration matches the card exactly.
+    private func handleRestPeriod(for exercise: WorkoutExercise) {
+        // Stop any ongoing speech
+        SpeechManager.shared.stopSpeaking()
+        SpeechManager.shared.clearSpeechQueue()
+        
+        // No intro buffer for rest periods
+        isShowingIntro = false
+        
+        // Collapse slide-up tab
+        withAnimation {
+            isSlideUpTabExpanded = false
+            dragOffset = 0
+        }
+        
+        // Parse rest duration from exercise.reps (format: ":45" -> 45 seconds)
+        let restDuration = parseTimeFromReps(exercise.reps)
+        
+        // Generate rest announcement with weighted random variation
+        // Uses exact duration or rounds to nearest 5 seconds to match pre-generated audio
+        let announcement = generateRestAnnouncement(duration: restDuration)
+        SpeechManager.shared.speakCoachingFeedback(announcement)
+        
+        // Start rest timer immediately (no buffer)
+        startExercise()
+    }
+    
+    /// Generate rest period announcement with weighted random variations.
+    ///
+    /// - 70% chance: Basic announcement ("Rest, X Seconds")
+    /// - 30% chance: Motivational variation (with "You deserve it!", "Stretch out", etc.)
+    ///
+    /// Duration is rounded to nearest 5 seconds to match pre-generated audio files
+    /// (phrases are generated in 5-second increments: 5, 10, 15, 20, 25, 30, 35, 40, 45, etc.)
+    private func generateRestAnnouncement(duration: Int) -> String {
+        // Clamp duration to valid range
+        let clampedDuration = min(max(duration, 5), 300)
+        
+        // Round to nearest 5 seconds (matching phrase generation in 5-second increments)
+        // This ensures we match pre-generated audio files while being closer to actual duration
+        let roundedDuration = ((clampedDuration + 2) / 5) * 5
+        
+        let basicAnnouncement = "Rest, \(roundedDuration) Seconds"
+        
+        // 70% chance of basic announcement, 30% chance of variation
+        let useVariation = Int.random(in: 1...100) <= 30
+        
+        guard useVariation else {
+            return basicAnnouncement
+        }
+        
+        // Variations (each has equal chance when variation is selected)
+        let variations = [
+            "\(basicAnnouncement). You deserve it!",
+            "\(basicAnnouncement). Stretch out a bit.",
+            "\(basicAnnouncement). Take a drink of water if you're thirsty.",
+            "\(basicAnnouncement). Recover and then let's get this next set!"
+        ]
+        
+        return variations.randomElement() ?? basicAnnouncement
+    }
 }
 
 
@@ -2002,6 +2193,153 @@ private struct ActionButton: View {
             .cornerRadius(12)
         }
         .disabled(isDisabled)
+    }
+}
+
+// MARK: - Test View Camera Preview
+
+/// SwiftUI wrapper for the camera preview used in test view mode.
+///
+/// Displays the front camera feed and connects it to the segmentation processor
+/// for real-time quality overlay generation.
+struct TestViewCameraPreview: UIViewRepresentable {
+    @ObservedObject var processor: SegmentationProcessor
+    
+    func makeUIView(context: Context) -> TestViewCameraPreviewUIView {
+        TestViewCameraPreviewUIView(processor: processor)
+    }
+    
+    func updateUIView(_ uiView: TestViewCameraPreviewUIView, context: Context) {
+        uiView.updateProcessor(processor)
+    }
+}
+
+/// UIKit view that manages the camera preview layer and segmentation processing for test view.
+///
+/// Handles:
+/// - Camera preview layer setup and display
+/// - Video output delegate binding for segmentation processing
+/// - Portrait orientation configuration
+final class TestViewCameraPreviewUIView: UIView {
+    private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var processor: SegmentationProcessor?
+    private var videoDelegate: TestViewVideoDelegate?
+    private var processingQueue: DispatchQueue?
+    
+    init(processor: SegmentationProcessor) {
+        self.processor = processor
+        super.init(frame: .zero)
+        setup()
+    }
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setup()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+    
+    private func setup() {
+        setupPreviewLayer()
+    }
+    
+    private func setupPreviewLayer() {
+        guard let session = SharedCameraSessionManager.shared.getCaptureSession() else {
+            // Retry if session isn't ready
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.setupPreviewLayer()
+            }
+            return
+        }
+        
+        // Create preview layer
+        let layer = AVCaptureVideoPreviewLayer(session: session)
+        layer.videoGravity = .resizeAspectFill
+        layer.connection?.automaticallyAdjustsVideoMirroring = false
+        layer.connection?.isVideoMirrored = true
+        previewLayer = layer
+        self.layer.addSublayer(layer)
+        layer.frame = bounds
+        
+        // Bind video delegate for segmentation
+        bindVideoDelegate()
+        
+        // Start session if not running
+        if !session.isRunning {
+            DispatchQueue.global(qos: .userInitiated).async {
+                session.startRunning()
+            }
+        }
+    }
+    
+    /// Binds the video output delegate to process frames through the segmentation processor.
+    ///
+    /// Configures the video connection for portrait orientation and sets up the delegate
+    /// to process each camera frame for segmentation overlay generation.
+    private func bindVideoDelegate() {
+        guard let videoOutput = SharedCameraSessionManager.shared.getVideoDataOutput() else { return }
+        
+        // Create processing queue if needed
+        if processingQueue == nil {
+            processingQueue = DispatchQueue(label: "testViewSegmentationQueue")
+        }
+        
+        // Create or update video delegate
+        if videoDelegate == nil {
+            videoDelegate = TestViewVideoDelegate(processor: processor)
+        } else {
+            videoDelegate?.processor = processor
+        }
+        
+        // Set delegate to receive camera frames
+        videoOutput.setSampleBufferDelegate(videoDelegate, queue: processingQueue)
+        
+        // Configure video connection for portrait orientation
+        if let connection = videoOutput.connection(with: .video) {
+            if #available(iOS 17.0, *) {
+                connection.videoRotationAngle = 90.0
+            } else {
+                connection.videoOrientation = .portrait
+            }
+            if connection.isVideoMirroringSupported {
+                connection.isVideoMirrored = false
+            }
+        }
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        previewLayer?.frame = bounds
+    }
+    
+    func updateProcessor(_ processor: SegmentationProcessor) {
+        self.processor = processor
+        videoDelegate?.processor = processor
+    }
+    
+    deinit {
+        // Don't nil out the delegate - let the SharedCameraSessionManager manage it
+    }
+}
+
+/// Video output delegate that processes camera frames for segmentation overlay.
+///
+/// Receives each camera frame and passes it to the segmentation processor with
+/// appropriate transformations (mirrored for front camera, rotated for portrait orientation).
+private final class TestViewVideoDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+    var processor: SegmentationProcessor?
+    
+    init(processor: SegmentationProcessor?) {
+        self.processor = processor
+        super.init()
+    }
+    
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        // Process frame with mirroring (front camera) and rotation (portrait orientation)
+        processor?.process(sampleBuffer: sampleBuffer, mirrored: true, rotated: true)
     }
 }
 
