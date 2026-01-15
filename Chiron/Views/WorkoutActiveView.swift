@@ -133,6 +133,20 @@ struct WorkoutActiveView: View {
     /// based on camera position and the selected view type (RACK, FLOOR, or TRIPOD).
     @StateObject private var testViewSegmentationProcessor = SegmentationProcessor()
     
+    // MARK: - Close-Grip Bench Press Coaching State
+    
+    /// Observes pose manager for real-time form analysis and rep count updates.
+    /// Used to display form score and determine when to provide coaching feedback.
+    @ObservedObject private var poseManager = OnDevicePoseManager.shared
+    
+    /// Tracks whether the camera was closed after completing all close-grip bench press sets.
+    /// Set to true after the 3rd set, reset to false when navigating back to any close-grip bench press exercise.
+    @State private var isCameraClosedAfterThirdSet: Bool = false
+    
+    /// Tracks the number of completed close-grip bench press sets (excluding camera setup exercises).
+    /// Used to determine when to close the camera after the 3rd set.
+    @State private var completedCloseGripBenchPressSets: Int = 0
+    
     /// Workout log service (singleton) - accessed via WorkoutLogService.shared
     
     // MARK: - Camera Setup Type
@@ -291,6 +305,53 @@ struct WorkoutActiveView: View {
         let remainingSeconds = Int(Double(estimatedTotalDuration) * remainingProgress)
         
         return max(0, remainingSeconds)
+    }
+    
+    // MARK: - Close-Grip Bench Press Form Score UI
+    
+    /// Determines if the current exercise is a close-grip bench press (exact name match, excluding camera setup).
+    /// Used to conditionally enable form scoring and coaching features.
+    private var isCloseGripBenchPressExercise: Bool {
+        guard let exercise = currentExercise else { return false }
+        let isExactNameMatch = exercise.name == "Close-Grip Bench Press"
+        let isCameraSetup = exercise.notes?.hasPrefix("CAMERA_SETUP") ?? false
+        return isExactNameMatch && !isCameraSetup
+    }
+    
+    /// Determines whether to display the form score indicator.
+    /// Requirements:
+    /// - Exercise must be close-grip bench press (not camera setup)
+    /// - Intro buffer must be complete (user is actively exercising)
+    /// - At least one rep must be detected (prevents showing score for skipped sets)
+    private var shouldShowFormScore: Bool {
+        guard isCloseGripBenchPressExercise && !isShowingIntro else { return false }
+        return poseManager.repCount > 0
+    }
+    
+    /// Current form score (1-100) calculated from pose manager's analysis.
+    /// Returns 0 if no analysis is available.
+    private var currentFormScore: Int {
+        guard let analysis = poseManager.currentFormAnalysis else { return 0 }
+        return max(1, min(100, Int(analysis.overallScore * 100)))
+    }
+    
+    /// Color coding for form score ranges:
+    /// - 90-100: Emerald green (near perfect execution)
+    /// - 75-89: Green (good repeatable form)
+    /// - 60-74: Yellow (noticeable breakdown)
+    /// - 1-59: Red (unsafe or inefficient)
+    private var formScoreColor: Color {
+        let score = currentFormScore
+        switch score {
+        case 90...100:
+            return Color(red: 0.0, green: 0.8, blue: 0.4)
+        case 75...89:
+            return Color.green
+        case 60...74:
+            return Color.yellow
+        default:
+            return Color.red
+        }
     }
     
     var body: some View {
@@ -485,21 +546,29 @@ struct WorkoutActiveView: View {
             
             Spacer()
             
-            // Play/Pause button
-            Button(action: {
-                togglePause()
-            }) {
-                Image(systemName: isPaused ? "play.fill" : "pause.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.textPrimary)
-                    .frame(width: 40, height: 40)
-                    .background(Color.black.opacity(0.3))
-                    .clipShape(Circle())
+            // Play/Pause button and Form Score (if showing)
+            VStack(spacing: 8) {
+                // Play/Pause button
+                Button(action: {
+                    togglePause()
+                }) {
+                    Image(systemName: isPaused ? "play.fill" : "pause.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.textPrimary)
+                        .frame(width: 40, height: 40)
+                        .background(Color.black.opacity(0.3))
+                        .clipShape(Circle())
+                }
+                
+                // Form Score indicator (only for close-grip bench press during active exercise)
+                if shouldShowFormScore {
+                    formScoreIndicator
+                }
             }
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
-        .padding(.bottom, 16)
+        .padding(.bottom, shouldShowFormScore ? 8 : 16)
         .background(
             LinearGradient(
                 gradient: Gradient(colors: [
@@ -511,6 +580,39 @@ struct WorkoutActiveView: View {
                 endPoint: .bottom
             )
         )
+    }
+    
+    // MARK: - Form Score Indicator
+    
+    /// Circular progress ring displaying real-time form score (1-100) for close-grip bench press.
+    /// - Fills clockwise from top (0° rotation)
+    /// - Color changes based on score range (red/yellow/green/emerald)
+    /// - Updates in real-time as each rep is detected and graded
+    private var formScoreIndicator: some View {
+        ZStack {
+            // Background circle
+            Circle()
+                .stroke(Color.gray.opacity(0.3), lineWidth: 6)
+            
+            // Progress ring (colored based on score)
+            Circle()
+                .trim(from: 0, to: CGFloat(currentFormScore) / 100.0)
+                .stroke(formScoreColor, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(.easeInOut(duration: 0.3), value: currentFormScore)
+            
+            // Center score text
+            VStack(spacing: 0) {
+                Text("\(currentFormScore)")
+                    .font(.neueMontrealBold(size: 18))
+                    .foregroundColor(.textPrimary)
+                Text("FORM")
+                    .font(.neueMontrealRegular(size: 8))
+                    .foregroundColor(.textSecondary)
+            }
+        }
+        .frame(width: 56, height: 56)
+        .shadow(color: formScoreColor.opacity(0.5), radius: 4)
     }
     
     /// Overall workout progress (0.0 to 1.0)
@@ -1207,6 +1309,30 @@ struct WorkoutActiveView: View {
     private func startExercise() {
         guard let exercise = currentExercise else { return }
         
+        // MARK: - Configure Pose Manager for Close-Grip Bench Press
+        
+        // Configure pose detection and form analysis for close-grip bench press exercises
+        if exercise.name == "Close-Grip Bench Press" {
+            poseManager.squatType = .closeGripBenchPress
+            
+            // Map camera setup selection to view type for view-specific form analysis adjustments
+            if let cameraSetup = cameraSetupSelection {
+                switch cameraSetup {
+                case .rackAttachment: poseManager.benchPressViewType = .rack
+                case .floor: poseManager.benchPressViewType = .floor
+                case .tripod: poseManager.benchPressViewType = .tripod
+                }
+            } else {
+                poseManager.benchPressViewType = .tripod // Default fallback
+            }
+            
+            // Reset rep counting and form analysis state for the new set
+            poseManager.resetRepCountingState()
+        } else if poseManager.squatType == .closeGripBenchPress {
+            // Reset to bodyweight when moving away from close-grip bench press
+            poseManager.squatType = .bodyweight
+        }
+        
         if isTimeBasedExercise {
             // Start countdown timer for time-based exercise
             exerciseTimeRemaining = currentExerciseDuration
@@ -1298,6 +1424,33 @@ struct WorkoutActiveView: View {
         // Stop any ongoing speech and clear the queue
         SpeechManager.shared.stopSpeaking()
         SpeechManager.shared.clearSpeechQueue()
+        
+        // MARK: - Close-Grip Bench Press: Coaching & Camera Management
+        
+        // Trigger coaching feedback when transitioning from close-grip bench press to rest period
+        if isCloseGripBenchPressExercise {
+            let nextIndex = currentExerciseIndex + 1
+            if nextIndex < workout.exercises.count {
+                let nextExercise = workout.exercises[nextIndex]
+                if nextExercise.name.lowercased() == "rest" {
+                    // Provide score-based coaching feedback (only if reps were detected)
+                    provideCloseGripBenchPressCoachingFeedback()
+                    completedCloseGripBenchPressSets += 1
+                    
+                    // Close camera after 3rd set if no more close-grip bench press exercises remain
+                    if completedCloseGripBenchPressSets >= 3 {
+                        let afterRestIndex = nextIndex + 1
+                        let hasMoreCloseGripBench = afterRestIndex < workout.exercises.count &&
+                            workout.exercises[afterRestIndex].name == "Close-Grip Bench Press"
+                        
+                        if !hasMoreCloseGripBench && !isCameraClosedAfterThirdSet {
+                            SharedCameraSessionManager.shared.stopCamera()
+                            isCameraClosedAfterThirdSet = true
+                        }
+                    }
+                }
+            }
+        }
         
         // Reset camera setup selection when leaving camera setup exercise
         if isCameraSetupExercise {
@@ -1553,6 +1706,17 @@ struct WorkoutActiveView: View {
         SpeechManager.shared.stopSpeaking()
         SpeechManager.shared.clearSpeechQueue()
         
+        // MARK: - Camera Management: Reopen for Close-Grip Bench Press
+        
+        // Reopen camera if navigating back to close-grip bench press after it was closed
+        let targetExercise = workout.exercises[index]
+        let isTargetCloseGripBench = targetExercise.name == "Close-Grip Bench Press"
+        let targetIsCameraSetup = targetExercise.notes?.hasPrefix("CAMERA_SETUP") ?? false
+        
+        if (isTargetCloseGripBench || targetIsCameraSetup) && isCameraClosedAfterThirdSet {
+            reopenCameraForCloseGripBenchPress()
+        }
+        
         // Clean up current exercise timers
         introTimer?.invalidate()
         introTimer = nil
@@ -1574,6 +1738,69 @@ struct WorkoutActiveView: View {
         
         if let exercise = currentExercise {
             showIntroBuffer(for: exercise)
+        }
+    }
+    
+    // MARK: - Camera Management
+    
+    /// Reopens the camera session when navigating back to close-grip bench press after it was closed.
+    /// Called automatically from `jumpToExercise()` when the target exercise is close-grip bench press.
+    private func reopenCameraForCloseGripBenchPress() {
+        SharedCameraSessionManager.shared.setupCameraSession()
+        
+        if cameraSetupSelection != nil {
+            SharedCameraSessionManager.shared.switchToWorkoutMode()
+        }
+        
+        if let session = SharedCameraSessionManager.shared.getCaptureSession(), !session.isRunning {
+            DispatchQueue.global(qos: .userInitiated).async {
+                session.startRunning()
+            }
+        }
+        
+        isCameraClosedAfterThirdSet = false
+    }
+    
+    // MARK: - Close-Grip Bench Press Coaching Feedback
+    
+    /// Provides score-based coaching feedback when transitioning from close-grip bench press to rest period.
+    ///
+    /// Feedback Logic:
+    /// - **No reps detected**: Skip all feedback (user skipped set or no movement detected)
+    /// - **Score ≥ 75**: Congratulate via SpeechManager (no OpenAI API call to save costs/latency)
+    /// - **Score < 75**: Send form analysis to OpenAI for constructive feedback (prompt always leads with positive)
+    ///
+    /// Called automatically when user presses forward button to move from close-grip bench press to rest period.
+    private func provideCloseGripBenchPressCoachingFeedback() {
+        guard poseManager.repCount > 0 else {
+            return // Skip feedback if no reps detected (user skipped or moved too quickly)
+        }
+        
+        let score = currentFormScore
+        
+        if score >= 75 {
+            // High score: Direct congratulations without API call
+            let messages = [
+                "Great set! Excellent form and control.",
+                "Nice work! That was a solid set.",
+                "Well done! Great execution on that set.",
+                "That looked good! Keep up the great form.",
+                "Solid set! Your form was really dialed in."
+            ]
+            SpeechManager.shared.speakCoachingFeedback(messages.randomElement() ?? "Great set!")
+        } else {
+            // Lower score: Get constructive feedback from OpenAI
+            guard let formAnalysis = poseManager.currentFormAnalysis else {
+                SpeechManager.shared.speakCoachingFeedback("Good effort on that set. Keep focusing on your form.")
+                return
+            }
+            
+            OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(
+                formAnalysis: formAnalysis,
+                exerciseType: .closeGripBenchPress
+            ) { _ in
+                // Speech is handled internally by OpenAICoachingManager
+            }
         }
     }
     

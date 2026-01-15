@@ -63,9 +63,10 @@ enum WorkoutState {
 /// Note: Despite the name "SquatType", this enum is used for all exercise types
 /// until exercise-specific pose detection models are implemented.
 enum SquatType {
-    case bodyweight    // Bodyweight squat exercises
-    case barbell       // Barbell back squat exercises
-    case benchPress    // Bench press exercises (currently uses bodyweight analysis as fallback)
+    case bodyweight           // Bodyweight squat exercises
+    case barbell              // Barbell back squat exercises
+    case benchPress           // Regular bench press (placeholder for future implementation)
+    case closeGripBenchPress  // Close-grip bench press exercises
 }
 
 // MARK: - Inactivity Detection
@@ -131,6 +132,14 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     @Published var currentSet: Int = 0
     @Published var squatType: SquatType = .bodyweight
     
+    /// Camera view type for close-grip bench press exercises.
+    /// Used to adjust form analysis calculations based on camera angle:
+    /// - `.rack`: Top-down view (high, angled down)
+    /// - `.floor`: Bottom-up view (low, angled up)
+    /// - `.tripod`: Side view (bar level, slight angle)
+    /// Set by WorkoutActiveView when starting a close-grip bench press exercise.
+    var benchPressViewType: BenchPressViewType = .tripod
+    
     // MARK: - Automatic Set Detection Properties
     private var inactivityDetector = InactivityDetector()
     private var consecutiveGoodReps = 0
@@ -152,6 +161,17 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private let shallowDepthThreshold: Float = 0.48  // top when nose <= 0.48
     // State flag to ensure we saw a deep phase before counting on return to shallow
     private var reachedDeepThisCycle: Bool = false
+    
+    // MARK: - Close-Grip Bench Press Rep Detection State
+    
+    /// Tracks whether the bar has reached chest (bottom position) in the current rep cycle.
+    /// Used for rep detection: top (lockout) → bottom (chest touch) → top (lockout).
+    private var reachedBottomThisCycleBenchPress: Bool = false
+    
+    /// Timestamps for tracking eccentric (lowering) and concentric (pressing) phases.
+    /// Used to measure tempo: eccentric should be ≥1s, concentric should be ≤2s.
+    private var benchPressEccentricStartTime: CFTimeInterval?
+    private var benchPressBottomTime: CFTimeInterval?
     
     // MARK: - Audio Feedback Properties
     private var lastSpokenRep: Int = 0
@@ -298,8 +318,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         case .barbell:
             return analyzeBarbellSquatForm(points)
         case .benchPress:
-            // Use bodyweight analysis as fallback until bench press-specific form analysis is implemented
+            // Regular bench press - use bodyweight analysis as fallback until implemented
             return analyzeBodyweightSquatForm(points)
+        case .closeGripBenchPress:
+            // Close-grip bench press with view-specific analysis
+            return analyzeCloseGripBenchPressForm(points)
         }
     }
     
@@ -361,6 +384,318 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             avgBottomDepth: nil,
             deepRepRatio: nil
         )
+    }
+    
+    // MARK: - Close-Grip Bench Press Form Analysis
+    
+    /// Analyzes close-grip bench press form with view-specific adjustments for camera angle.
+    ///
+    /// Form Metrics (weighted scoring):
+    /// - **Grip width (20%)**: Should be just outside ribs (0.8-1.0x shoulder width)
+    /// - **Elbow position (20%)**: Should be flush to sides (not flared out)
+    /// - **Full ROM (30%)**: Elbows locked at top, bar touches chest at bottom
+    /// - **Eccentric tempo (15%)**: Lowering phase should be ≥1 second
+    /// - **Concentric tempo (15%)**: Pressing phase should be ≤2 seconds
+    ///
+    /// View-specific adjustments account for camera angle differences:
+    /// - Rack view (top-down): Adjusts for compressed width perception
+    /// - Floor view (bottom-up): Adjusts for expanded width perception
+    /// - Tripod view (side): Standard calculations
+    private func analyzeCloseGripBenchPressForm(_ points: [String: CGPoint]) -> FormAnalysis {
+        // Calculate close-grip bench press specific metrics
+        let gripWidthScore = calculateCloseGripWidthScore(points)
+        let elbowPositionScore = calculateElbowPositionScore(points)
+        let romScore = calculateBenchPressROMScore(points)
+        
+        // Get tempo scores (from accumulated tracking data)
+        let eccentricScore = calculateBenchPressEccentricScore()
+        let concentricScore = calculateBenchPressConcentricScore()
+        
+        // Calculate overall score with weights:
+        // - Grip width: 20%
+        // - Elbow position: 20%
+        // - Full ROM: 30%
+        // - Eccentric tempo: 15%
+        // - Concentric tempo: 15%
+        let overallScore = (gripWidthScore * 0.20) +
+                           (elbowPositionScore * 0.20) +
+                           (romScore * 0.30) +
+                           (eccentricScore * 0.15) +
+                           (concentricScore * 0.15)
+        
+        // Detect issues
+        var issues: [String] = []
+        if gripWidthScore < 0.6 {
+            issues.append("Grip Too Wide")
+        }
+        if elbowPositionScore < 0.6 {
+            issues.append("Elbows Flaring")
+        }
+        if romScore < 0.6 {
+            issues.append("Incomplete ROM")
+        }
+        if eccentricScore < 0.6 {
+            issues.append("Eccentric Too Fast")
+        }
+        if concentricScore < 0.6 {
+            issues.append("Concentric Too Slow")
+        }
+        
+        // Generate summary
+        let summary = generateCloseGripBenchPressSummary(
+            gripScore: gripWidthScore,
+            elbowScore: elbowPositionScore,
+            romScore: romScore,
+            overallScore: overallScore
+        )
+        
+        // Use the depth field to store wrist Y position for rep detection
+        let depth = calculateBenchPressDepth(points)
+        
+        return FormAnalysis(
+            depth: depth,
+            backAngle: 0.0, // Not relevant for bench press
+            kneeAlignment: 0.0, // Not relevant for bench press
+            overallScore: overallScore,
+            issues: issues,
+            summary: summary,
+            repCount: repCount,
+            avgEccentricMs: tempoRepSamples > 0 ? Float(sumEccentricMs / Double(tempoRepSamples)) : nil,
+            avgPauseMs: tempoRepSamples > 0 ? Float(sumPauseMs / Double(tempoRepSamples)) : nil,
+            avgConcentricMs: tempoRepSamples > 0 ? Float(sumConcentricMs / Double(tempoRepSamples)) : nil,
+            avgBottomDepth: nil,
+            deepRepRatio: nil
+        )
+    }
+    
+    /// Calculates grip width score for close-grip bench press.
+    /// Ideal grip is 0.8-1.0x shoulder width (just outside ribs).
+    /// Applies view-specific adjustments for camera angle differences.
+    private func calculateCloseGripWidthScore(_ points: [String: CGPoint]) -> Float {
+        guard let leftWrist = points["leftWrist"],
+              let rightWrist = points["rightWrist"],
+              let leftShoulder = points["leftShoulder"],
+              let rightShoulder = points["rightShoulder"] else {
+            return 0.5 // Default score if points not detected
+        }
+        
+        // Calculate grip width relative to shoulder width
+        let gripWidth = abs(leftWrist.x - rightWrist.x)
+        let shoulderWidth = abs(leftShoulder.x - rightShoulder.x)
+        
+        guard shoulderWidth > 0 else { return 0.5 }
+        
+        // Ideal grip width for close-grip is 0.8-1.0x shoulder width (just outside ribs)
+        // Regular bench press would be 1.5x+ shoulder width
+        let gripRatio = Float(gripWidth / shoulderWidth)
+        
+        // View-specific adjustments
+        let adjustedGripRatio: Float
+        switch benchPressViewType {
+        case .rack:
+            // Top-down view may compress perceived width
+            adjustedGripRatio = gripRatio * 1.1
+        case .floor:
+            // Bottom-up view may expand perceived width
+            adjustedGripRatio = gripRatio * 0.95
+        case .tripod:
+            // Side view is most accurate
+            adjustedGripRatio = gripRatio
+        }
+        
+        // Score calculation: ideal is 0.8-1.0, penalize outside this range
+        if adjustedGripRatio >= 0.8 && adjustedGripRatio <= 1.0 {
+            return 1.0 // Perfect close-grip width
+        } else if adjustedGripRatio < 0.8 {
+            // Grip too narrow
+            return max(0.3, adjustedGripRatio / 0.8)
+        } else {
+            // Grip too wide
+            let overWidth = adjustedGripRatio - 1.0
+            return max(0.3, 1.0 - (overWidth * 2.0))
+        }
+    }
+    
+    /// Calculates elbow position score for close-grip bench press.
+    /// Ideal position: elbows flush to sides (not flared out).
+    /// Applies view-specific adjustments for camera angle differences.
+    private func calculateElbowPositionScore(_ points: [String: CGPoint]) -> Float {
+        guard let leftElbow = points["leftElbow"],
+              let rightElbow = points["rightElbow"],
+              let leftShoulder = points["leftShoulder"],
+              let rightShoulder = points["rightShoulder"],
+              let leftHip = points["leftHip"],
+              let rightHip = points["rightHip"] else {
+            return 0.5 // Default score if points not detected
+        }
+        
+        // Calculate elbow distance from torso midline
+        let torsoMidlineX = (leftShoulder.x + rightShoulder.x + leftHip.x + rightHip.x) / 4.0
+        let shoulderWidth = abs(leftShoulder.x - rightShoulder.x)
+        
+        guard shoulderWidth > 0 else { return 0.5 }
+        
+        // Calculate how far elbows are from the body
+        let leftElbowOffset = abs(leftElbow.x - torsoMidlineX)
+        let rightElbowOffset = abs(rightElbow.x - torsoMidlineX)
+        let avgElbowOffset = (leftElbowOffset + rightElbowOffset) / 2.0
+        
+        // Normalize to shoulder width
+        let elbowFlareRatio = Float(avgElbowOffset / shoulderWidth)
+        
+        // View-specific adjustments
+        let adjustedFlareRatio: Float
+        switch benchPressViewType {
+        case .rack:
+            // Top-down view makes elbows appear more tucked
+            adjustedFlareRatio = elbowFlareRatio * 1.15
+        case .floor:
+            // Bottom-up view makes elbows appear more flared
+            adjustedFlareRatio = elbowFlareRatio * 0.9
+        case .tripod:
+            adjustedFlareRatio = elbowFlareRatio
+        }
+        
+        // For close-grip, elbows should be tucked (ratio < 0.5)
+        // Score calculation: ideal is 0.3-0.5 (flush to sides)
+        if adjustedFlareRatio <= 0.5 {
+            return 1.0 // Perfect elbow position
+        } else if adjustedFlareRatio <= 0.7 {
+            // Slightly flared
+            return 0.8 - ((adjustedFlareRatio - 0.5) * 1.0)
+        } else {
+            // Significantly flared
+            return max(0.3, 0.6 - ((adjustedFlareRatio - 0.7) * 1.0))
+        }
+    }
+    
+    /// Calculates range of motion score for close-grip bench press.
+    /// Checks for full lockout at top and chest touch at bottom.
+    /// Uses view-specific reference points based on camera angle.
+    private func calculateBenchPressROMScore(_ points: [String: CGPoint]) -> Float {
+        guard let leftWrist = points["leftWrist"],
+              let rightWrist = points["rightWrist"],
+              let leftElbow = points["leftElbow"],
+              let rightElbow = points["rightElbow"],
+              let leftShoulder = points["leftShoulder"],
+              let rightShoulder = points["rightShoulder"] else {
+            return 0.5 // Default score if points not detected
+        }
+        
+        // Calculate average positions
+        let avgWristY = Float((leftWrist.y + rightWrist.y) / 2.0)
+        let avgElbowY = Float((leftElbow.y + rightElbow.y) / 2.0)
+        let avgShoulderY = Float((leftShoulder.y + rightShoulder.y) / 2.0)
+        
+        // View-specific ROM assessment
+        switch benchPressViewType {
+        case .rack:
+            // Top-down view: Use Y position relative to shoulders
+            // At lockout: wrists should be above (lower Y) than shoulders
+            // At bottom: wrists should be at or below shoulder level
+            let lockoutScore: Float = avgWristY < avgShoulderY ? 1.0 : max(0.3, 1.0 - (avgWristY - avgShoulderY) * 2)
+            return lockoutScore
+            
+        case .floor:
+            // Bottom-up view: Similar assessment but inverted Y
+            let lockoutScore: Float = avgWristY > avgShoulderY ? 1.0 : max(0.3, 1.0 - (avgShoulderY - avgWristY) * 2)
+            return lockoutScore
+            
+        case .tripod:
+            // Side view: Assess elbow extension
+            // At lockout: wrist should be significantly above elbow (lower Y in Vision coords)
+            let elbowExtension = avgElbowY - avgWristY
+            if elbowExtension > 0.1 {
+                return 1.0 // Good lockout
+            } else if elbowExtension > 0 {
+                return 0.7 // Partial lockout
+            } else {
+                return max(0.3, 0.5 + elbowExtension) // Incomplete extension
+            }
+        }
+    }
+    
+    /// Calculates bench press depth using average wrist Y position for rep detection.
+    /// Higher Y = deeper/lower bar position in Vision coordinate system.
+    private func calculateBenchPressDepth(_ points: [String: CGPoint]) -> Float {
+        guard let leftWrist = points["leftWrist"],
+              let rightWrist = points["rightWrist"] else {
+            return 0.5
+        }
+        
+        // Average wrist Y position (higher Y = deeper/lower bar position in Vision coords)
+        return Float((leftWrist.y + rightWrist.y) / 2.0)
+    }
+    
+    /// Calculates eccentric (lowering) tempo score.
+    /// Target: ≥1000ms (1 second). Penalizes faster lowering.
+    private func calculateBenchPressEccentricScore() -> Float {
+        guard tempoRepSamples > 0 else { return 0.7 } // Default to decent score if no data
+        
+        let avgEccentricMs = sumEccentricMs / Double(tempoRepSamples)
+        
+        // Target: ≥1000ms (1 second)
+        if avgEccentricMs >= 1000 {
+            return 1.0
+        } else if avgEccentricMs >= 700 {
+            return 0.8
+        } else if avgEccentricMs >= 500 {
+            return 0.6
+        } else {
+            return max(0.3, Float(avgEccentricMs / 1000.0))
+        }
+    }
+    
+    /// Calculates concentric (pressing) tempo score.
+    /// Target: ≤2000ms (2 seconds). Penalizes slower pressing.
+    private func calculateBenchPressConcentricScore() -> Float {
+        guard tempoRepSamples > 0 else { return 0.7 } // Default to decent score if no data
+        
+        let avgConcentricMs = sumConcentricMs / Double(tempoRepSamples)
+        
+        // Target: ≤2000ms (2 seconds)
+        if avgConcentricMs <= 2000 {
+            return 1.0
+        } else if avgConcentricMs <= 2500 {
+            return 0.8
+        } else if avgConcentricMs <= 3000 {
+            return 0.6
+        } else {
+            return max(0.3, Float(2000.0 / avgConcentricMs))
+        }
+    }
+    
+    /// Generate summary for close-grip bench press form analysis
+    private func generateCloseGripBenchPressSummary(gripScore: Float, elbowScore: Float, romScore: Float, overallScore: Float) -> String {
+        var summaryParts: [String] = []
+        
+        // Add positive feedback first
+        if gripScore >= 0.8 {
+            summaryParts.append("good grip width")
+        }
+        if elbowScore >= 0.8 {
+            summaryParts.append("elbows tucked well")
+        }
+        if romScore >= 0.8 {
+            summaryParts.append("full range of motion")
+        }
+        
+        // Add areas for improvement
+        if gripScore < 0.6 {
+            summaryParts.append("grip too wide")
+        }
+        if elbowScore < 0.6 {
+            summaryParts.append("elbows flaring out")
+        }
+        if romScore < 0.6 {
+            summaryParts.append("incomplete lockout or depth")
+        }
+        
+        if summaryParts.isEmpty {
+            return "Solid close-grip bench press form"
+        }
+        
+        return summaryParts.joined(separator: ", ")
     }
     
     private func extractKeyPoints(from observation: VNHumanBodyPoseObservation) -> [String: CGPoint] {
@@ -644,6 +979,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         deepFrameCount = 0
         totalDepthSamples = 0
         currentRepBottomDepthMax = 0
+        // Reset close-grip bench press rep detection state
+        reachedBottomThisCycleBenchPress = false
+        benchPressEccentricStartTime = nil
+        benchPressBottomTime = nil
         print("🔄 Rep count and state reset")
     }
     
@@ -672,6 +1011,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         deepFrameCount = 0
         totalDepthSamples = 0
         currentRepBottomDepthMax = 0
+        // Reset close-grip bench press rep detection state
+        reachedBottomThisCycleBenchPress = false
+        benchPressEccentricStartTime = nil
+        benchPressBottomTime = nil
         print("🔄 Rep counting state reset")
     }
     
@@ -714,6 +1057,17 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return false
         }
         
+        // Use different validation logic based on exercise type
+        switch squatType {
+        case .closeGripBenchPress:
+            return validateCloseGripBenchPressRep(formAnalysis: formAnalysis, now: now)
+        case .bodyweight, .barbell, .benchPress:
+            return validateSquatRep(formAnalysis: formAnalysis, now: now)
+        }
+    }
+    
+    /// Validate squat rep (bodyweight, barbell, or regular bench press fallback)
+    private func validateSquatRep(formAnalysis: FormAnalysis, now: Date) -> Bool {
         let depth = formAnalysis.depth
         
         // State machine for rep counting - MORE SENSITIVE
@@ -737,6 +1091,114 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         if depth >= (deepDepthThreshold - 0.03) && !reachedDeepThisCycle {
             print("🏋️ Near-deep phase detected: depth=\(depth) (near threshold: \(deepDepthThreshold - 0.03))")
             reachedDeepThisCycle = true
+        }
+        
+        return false
+    }
+    
+    /// Validates close-grip bench press rep using state machine pattern detection.
+    ///
+    /// Movement Pattern: Top (lockout) → Bottom (chest touch) → Top (lockout)
+    ///
+    /// Uses wrist Y position from form analysis depth field:
+    /// - Higher Y = bar closer to chest (bottom position)
+    /// - Lower Y = bar at lockout (top position)
+    ///
+    /// View-specific thresholds account for camera angle differences:
+    /// - Rack view: Standard Y axis (Y increases as bar goes down)
+    /// - Floor view: Inverted Y axis (Y decreases as bar goes down)
+    /// - Tripod view: Standard Y axis with adjusted thresholds
+    ///
+    /// Also tracks tempo: measures eccentric (top→bottom) and concentric (bottom→top) phases.
+    private func validateCloseGripBenchPressRep(formAnalysis: FormAnalysis, now: Date) -> Bool {
+        let wristY = formAnalysis.depth // For bench press, depth field stores wrist Y position
+        
+        // Bench press thresholds (based on wrist Y position)
+        // Higher Y = bar closer to chest (bottom position)
+        // Lower Y = bar at lockout (top position)
+        // View-specific thresholds
+        let (bottomThreshold, topThreshold): (Float, Float)
+        switch benchPressViewType {
+        case .rack:
+            // Top-down view: Y increases as bar goes down
+            bottomThreshold = 0.65
+            topThreshold = 0.45
+        case .floor:
+            // Bottom-up view: Y decreases as bar goes down (inverted)
+            bottomThreshold = 0.35
+            topThreshold = 0.55
+        case .tripod:
+            // Side view: similar to rack but slightly different range
+            bottomThreshold = 0.60
+            topThreshold = 0.42
+        }
+        
+        // State machine for bench press rep counting
+        // Step 1: Detect bottom position (bar at chest)
+        if benchPressViewType == .floor {
+            // Floor view has inverted Y axis
+            if wristY <= bottomThreshold {
+                if !reachedBottomThisCycleBenchPress {
+                    print("🏋️ Bench press bottom detected (floor view): wristY=\(wristY) (threshold: \(bottomThreshold))")
+                    reachedBottomThisCycleBenchPress = true
+                    // Start tracking concentric tempo
+                    benchPressBottomTime = CACurrentMediaTime()
+                }
+                return false
+            }
+            
+            // Step 2: Detect top position (lockout) after reaching bottom
+            if reachedBottomThisCycleBenchPress && wristY >= topThreshold {
+                print("✅ Bench press rep validated (floor view)! Bottom(\(bottomThreshold)) -> Top(\(wristY)) (threshold: \(topThreshold))")
+                
+                // Calculate tempo for this rep
+                if let bottomTime = benchPressBottomTime {
+                    let concentricMs = (CACurrentMediaTime() - bottomTime) * 1000
+                    sumConcentricMs += concentricMs
+                    tempoRepSamples += 1
+                    print("📊 Bench press concentric time: \(Int(concentricMs))ms")
+                }
+                
+                lastRepValidationTime = now
+                reachedBottomThisCycleBenchPress = false
+                benchPressEccentricStartTime = CACurrentMediaTime() // Start tracking next eccentric
+                return true
+            }
+        } else {
+            // Rack and Tripod views: standard Y axis
+            if wristY >= bottomThreshold {
+                if !reachedBottomThisCycleBenchPress {
+                    print("🏋️ Bench press bottom detected: wristY=\(wristY) (threshold: \(bottomThreshold))")
+                    reachedBottomThisCycleBenchPress = true
+                    // Calculate eccentric tempo
+                    if let eccentricStart = benchPressEccentricStartTime {
+                        let eccentricMs = (CACurrentMediaTime() - eccentricStart) * 1000
+                        sumEccentricMs += eccentricMs
+                        print("📊 Bench press eccentric time: \(Int(eccentricMs))ms")
+                    }
+                    // Start tracking concentric tempo
+                    benchPressBottomTime = CACurrentMediaTime()
+                }
+                return false
+            }
+            
+            // Step 2: Detect top position (lockout) after reaching bottom
+            if reachedBottomThisCycleBenchPress && wristY <= topThreshold {
+                print("✅ Bench press rep validated! Bottom(\(bottomThreshold)) -> Top(\(wristY)) (threshold: \(topThreshold))")
+                
+                // Calculate concentric tempo for this rep
+                if let bottomTime = benchPressBottomTime {
+                    let concentricMs = (CACurrentMediaTime() - bottomTime) * 1000
+                    sumConcentricMs += concentricMs
+                    tempoRepSamples += 1
+                    print("📊 Bench press concentric time: \(Int(concentricMs))ms")
+                }
+                
+                lastRepValidationTime = now
+                reachedBottomThisCycleBenchPress = false
+                benchPressEccentricStartTime = CACurrentMediaTime() // Start tracking next eccentric
+                return true
+            }
         }
         
         return false

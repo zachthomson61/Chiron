@@ -270,6 +270,9 @@ final class SegmentationProcessor: ObservableObject {
             score = enhanceBarbellQualityScore(baseScore: score, maskBuffer: maskBuffer, pixelBuffer: pixelBuffer, bboxH: bh, minY: minY, height: height)
         case .benchPress:
             score = enhanceBenchPressQualityScore(baseScore: score, bboxW: bw, bboxH: bh, minX: minX, maxX: maxX, minY: minY, maxY: maxY, width: width, height: height)
+        case .closeGripBenchPress:
+            // Use same quality scoring as regular bench press
+            score = enhanceBenchPressQualityScore(baseScore: score, bboxW: bw, bboxH: bh, minX: minX, maxX: maxX, minY: minY, maxY: maxY, width: width, height: height)
         case .bodyweight:
             break // Use base scoring
         }

@@ -84,14 +84,76 @@ class OpenAICoachingManager: ObservableObject {
             - Knees tracking over toes without collapsing in
             """
         case .benchPress:
-            squatLabel = "close-grip bench press"
+            squatLabel = "bench press"
             coachingFocus = """
-            This is a close-grip bench press. Key priorities:
+            This is a bench press. Key priorities:
             - Shoulder blades retracted and tight against the bench
             - Feet flat on the floor for stability
             - Controlled bar path down to mid-chest
-            - Elbows stay close to the body
             - Full lockout at the top
+            """
+        case .closeGripBenchPress:
+            squatLabel = "close-grip bench press"
+            coachingFocus = """
+            This is a close-grip bench press targeting triceps. Key priorities:
+            - Grip just outside your ribs (narrower than regular bench press)
+            - Elbows should be flush to your sides throughout the movement
+            - Full range of motion: lock out elbows at top, bar touches chest above nipple line at bottom
+            - Slow eccentric (lowering) phase of 1 second or more
+            - Fast concentric (pressing) phase of 2 seconds or less
+            """
+        }
+        
+        // Generate exercise-specific cue examples for the prompt
+        let cueExamples: String
+        let responseExamples: String
+        
+        switch exerciseType {
+        case .barbell:
+            cueExamples = """
+            - "brace your core before you descend"
+            - "keep that bar over mid foot"
+            - "squeeze your upper back and keep the bar steady"
+            """
+            responseExamples = """
+            "There we go, good depth - now keep that bar over mid foot"
+            "Alright, strong effort, squeeze your upper back and keep your chest proud"
+            "Much better, I see that depth - now brace your core before you descend"
+            """
+        case .bodyweight:
+            cueExamples = """
+            - "sit back a bit more"
+            - "keep your chest proud"
+            - "knees track over your toes"
+            """
+            responseExamples = """
+            "There we go, good depth - now drive through those heels"
+            "Alright, nice control, just keep that chest proud"
+            "Much better, I see that depth - now push those knees out"
+            """
+        case .benchPress:
+            cueExamples = """
+            - "keep your shoulder blades pinched"
+            - "control the bar on the way down"
+            - "lock out fully at the top"
+            """
+            responseExamples = """
+            "There we go, solid press - keep your shoulder blades pinched tight"
+            "Alright, nice control there, just lock out fully at the top"
+            "Much better, good tempo - now keep those feet planted"
+            """
+        case .closeGripBenchPress:
+            cueExamples = """
+            - "keep your grip just outside your ribs"
+            - "tuck those elbows to your sides"
+            - "take a bit more time on the way down"
+            - "lock out fully at the top"
+            """
+            responseExamples = """
+            "There we go, nice tricep work - just keep those elbows tucked to your sides"
+            "Alright, good control there, now keep your grip nice and narrow"
+            "Much better, solid lockout - take a bit more time lowering the bar"
+            "Nice work, elbows look good - just touch the bar a little higher on your chest"
             """
         }
         
@@ -107,34 +169,21 @@ class OpenAICoachingManager: ObservableObject {
         MOVEMENT_SUMMARY:
         \(summary)
 
+        IMPORTANT: Always start with something positive about what they did well, even if there are issues to address. Be encouraging first, then provide coaching.
+
         Respond like you're standing right there coaching a beginner. Use simple, everyday language - no technical terms.
 
-        Start with quick acknowledgment: "There we go" / "Alright" / "Much better"
-        Add specific observation: "good depth" / "nice control" / "solid tempo"
-        Transition naturally: "now" / "just" / "but let's"
-        Give one specific cue using simple language appropriate for \(squatLabel):
-        \(exerciseType == .barbell ? """
-        - "brace your core before you descend"
-        - "keep that bar over mid foot"
-        - "squeeze your upper back and keep the bar steady"
-        """ : """
-        - "sit back a bit more"
-        - "keep your chest proud"
-        - "knees track over your toes"
-        """)
+        Structure your response:
+        1. Start with positive acknowledgment: "There we go" / "Alright" / "Much better" / "Nice work"
+        2. Add specific praise for something they did well: "good depth" / "nice control" / "solid tempo" / "elbows looked good"
+        3. Transition naturally: "now" / "just" / "one thing to focus on"
+        4. Give one specific cue using simple language appropriate for \(squatLabel):
+        \(cueExamples)
 
         Examples for \(squatLabel):
-        \(exerciseType == .barbell ? """
-        "There we go, good depth - now keep that bar over mid foot"
-        "Alright, strong effort, squeeze your upper back and keep your chest proud"
-        "Much better, I see that depth - now brace your core before you descend"
-        """ : """
-        "There we go, good depth - now drive through those heels"
-        "Alright, nice control, just keep that chest proud"
-        "Much better, I see that depth - now push those knees out"
-        """)
+        \(responseExamples)
 
-        Keep it 12-18 words, conversational, specific. Avoid technical terms like valgus, varus, eccentric, concentric.
+        Keep it 12-18 words, conversational, specific. Avoid technical terms like eccentric, concentric, valgus, varus.
         """
 
         print("🤖 Natural: preparing OpenAI request for unified feedback")
@@ -225,9 +274,18 @@ class OpenAICoachingManager: ObservableObject {
     // MARK: - Fallback Feedback
     
     /// Generates fallback feedback when OpenAI API fails or returns generic responses.
+    ///
     /// Provides exercise-specific cues based on form issues detected.
+    /// **Always leads with something positive** before providing coaching cues.
+    ///
+    /// For close-grip bench press, focuses on:
+    /// - Grip width (just outside ribs)
+    /// - Elbow position (flush to sides)
+    /// - ROM (full lockout and chest touch)
+    /// - Tempo (slow eccentric, fast concentric)
     private func generateFallbackFeedback(from analysis: FormAnalysis, exerciseType: SquatType) -> String {
-        if exerciseType == .barbell {
+        switch exerciseType {
+        case .barbell:
             if analysis.issues.contains("Insufficient Depth") || analysis.depth < 0.45 {
                 return "There we go, now sit back and keep the bar over mid foot"
             }
@@ -241,7 +299,40 @@ class OpenAICoachingManager: ObservableObject {
                 return "Nice depth, keep that bar steady and drive up through mid foot"
             }
             return "Nice control there - brace your core and keep that bar over mid foot"
-        } else {
+            
+        case .closeGripBenchPress:
+            // Close-grip bench press fallback cues - always lead with positive
+            if analysis.issues.contains("Grip Too Wide") {
+                return "Nice effort there - just bring your grip in a bit closer to your ribs"
+            }
+            if analysis.issues.contains("Elbows Flaring") {
+                return "Good control on that set - now keep those elbows tucked to your sides"
+            }
+            if analysis.issues.contains("Incomplete ROM") {
+                return "Solid effort there - just lock out fully at the top and touch your chest at the bottom"
+            }
+            if analysis.issues.contains("Eccentric Too Fast") {
+                return "Nice work, good power - take a bit more time lowering the bar"
+            }
+            if analysis.issues.contains("Concentric Too Slow") {
+                return "Good control there - try to press up a little faster"
+            }
+            if analysis.overallScore >= 0.75 {
+                return "Great set, that looked solid - keep that same form"
+            }
+            return "Nice effort there - focus on keeping those elbows tucked to your sides"
+            
+        case .benchPress:
+            // Regular bench press fallback cues
+            if analysis.issues.contains("Incomplete ROM") {
+                return "Good effort there - just lock out fully at the top"
+            }
+            if analysis.overallScore >= 0.75 {
+                return "Nice set, good control - keep those shoulder blades pinched"
+            }
+            return "Nice control there - keep your feet planted and shoulder blades tight"
+            
+        case .bodyweight:
             // Bodyweight fallback cues
             if analysis.issues.contains("Insufficient Depth") || analysis.depth < 0.45 {
                 return "There we go, nice control - now sit back a little deeper"
@@ -294,7 +385,14 @@ class OpenAICoachingManager: ObservableObject {
     ///   - exerciseType: .bodyweight or .barbell for exercise-specific coaching
     ///   - completion: Callback with the feedback string (speech is handled internally)
     func analyzeAndGetNaturalFeedback(formAnalysis: FormAnalysis, exerciseType: SquatType, completion: @escaping (String) -> Void) {
-        print("🤖 Starting natural feedback analysis for \(exerciseType == .barbell ? "barbell" : "bodyweight") squat")
+        let exerciseLabel: String
+        switch exerciseType {
+        case .barbell: exerciseLabel = "barbell squat"
+        case .bodyweight: exerciseLabel = "bodyweight squat"
+        case .benchPress: exerciseLabel = "bench press"
+        case .closeGripBenchPress: exerciseLabel = "close-grip bench press"
+        }
+        print("🤖 Starting natural feedback analysis for \(exerciseLabel)")
         
         // Check for valid data first
         if formAnalysis.repCount <= 0 || formAnalysis.summary.isEmpty {
