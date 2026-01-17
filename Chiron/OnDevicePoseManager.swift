@@ -311,6 +311,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         // Extract key points
         let points = extractKeyPoints(from: observation)
         
+        // #region agent log
+        try? "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D,G\",\"location\":\"OnDevicePoseManager.swift:314\",\"message\":\"analyzeForm called\",\"data\":{\"squatType\":\"\(squatType)\",\"repCount\":\(repCount)},\"timestamp\":\(Int(Date().timeIntervalSince1970 * 1000))}".write(toFile: "/Users/zach.thomson/Desktop/Chiron/.cursor/debug.log", atomically: false, encoding: .utf8)
+        // #endregion
+        
         // Use optimized analysis based on squat type
         switch squatType {
         case .bodyweight:
@@ -322,6 +326,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return analyzeBodyweightSquatForm(points)
         case .closeGripBenchPress:
             // Close-grip bench press with view-specific analysis
+            // #region agent log
+            try? "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\",\"location\":\"OnDevicePoseManager.swift:325\",\"message\":\"Analyzing close-grip bench press form\",\"data\":{\"benchPressViewType\":\"\(benchPressViewType)\"},\"timestamp\":\(Int(Date().timeIntervalSince1970 * 1000))}".write(toFile: "/Users/zach.thomson/Desktop/Chiron/.cursor/debug.log", atomically: false, encoding: .utf8)
+            // #endregion
             return analyzeCloseGripBenchPressForm(points)
         }
     }

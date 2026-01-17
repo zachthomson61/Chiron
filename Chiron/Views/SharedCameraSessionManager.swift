@@ -165,11 +165,6 @@ extension SharedCameraSessionManager: AVCaptureVideoDataOutputSampleBufferDelega
         
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         
-        // Debug: Log that we're analyzing frames
-        if Int.random(in: 0..<60) == 0 {  // Log occasionally
-            print("📹 SharedCameraSessionManager: Analyzing frame in workout mode")
-        }
-        
         // Analyze pose on device
         poseManager.analyzeFrame(pixelBuffer)
         
