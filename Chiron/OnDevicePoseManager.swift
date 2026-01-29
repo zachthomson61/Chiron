@@ -132,6 +132,13 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     @Published var currentSet: Int = 0
     @Published var squatType: SquatType = .bodyweight
     
+    /// Stores form analysis at rep completion for score calculation.
+    /// 
+    /// **Purpose:** Ensures form score can be calculated even if pose detection is temporarily lost
+    /// immediately after rep completion. The view layer uses this as a fallback when `currentFormAnalysis`
+    /// is unavailable during score calculation.
+    @Published var lastRepFormAnalysis: FormAnalysis?
+    
     /// Camera view type for close-grip bench press exercises.
     /// Used to adjust form analysis calculations based on camera angle:
     /// - `.rack`: Top-down view (high, angled down)
@@ -172,6 +179,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// Used to measure tempo: eccentric should be ≥1s, concentric should be ≤2s.
     private var benchPressEccentricStartTime: CFTimeInterval?
     private var benchPressBottomTime: CFTimeInterval?
+    
+    /// Stores wrist Y position at bottom of rep for relative lockout detection.
+    /// Used in tripod view to detect lockout even if absolute threshold isn't met.
+    /// Cleared after rep validation.
+    private var benchPressBottomWristY: Float?
     
     // MARK: - Audio Feedback Properties
     private var lastSpokenRep: Int = 0
@@ -271,9 +283,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     }
                 }
                 
-                // Check for set transitions
-                checkForSetEnd()
-                checkForNextSetStart()
+                // Check for set transitions (must be on main thread for state updates)
+                DispatchQueue.main.async {
+                    self.checkForSetEnd()
+                    self.checkForNextSetStart()
+                }
                 
             } else {
                 DispatchQueue.main.async {
@@ -287,16 +301,22 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     
     private func handlePoseDetection(request: VNRequest, error: Error?) {
         guard let observations = request.results as? [VNHumanBodyPoseObservation] else {
-            poseDetected = false
+            DispatchQueue.main.async {
+                self.poseDetected = false
+            }
             return
         }
         
         guard let observation = observations.first else {
-            poseDetected = false
+            DispatchQueue.main.async {
+                self.poseDetected = false
+            }
             return
         }
         
-        poseDetected = true
+        DispatchQueue.main.async {
+            self.poseDetected = true
+        }
         
         // Analyze form
         let formAnalysis = analyzeForm(observation)
@@ -311,10 +331,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         // Extract key points
         let points = extractKeyPoints(from: observation)
         
-        // #region agent log
-        try? "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D,G\",\"location\":\"OnDevicePoseManager.swift:314\",\"message\":\"analyzeForm called\",\"data\":{\"squatType\":\"\(squatType)\",\"repCount\":\(repCount)},\"timestamp\":\(Int(Date().timeIntervalSince1970 * 1000))}".write(toFile: "/Users/zach.thomson/Desktop/Chiron/.cursor/debug.log", atomically: false, encoding: .utf8)
-        // #endregion
-        
         // Use optimized analysis based on squat type
         switch squatType {
         case .bodyweight:
@@ -326,9 +342,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return analyzeBodyweightSquatForm(points)
         case .closeGripBenchPress:
             // Close-grip bench press with view-specific analysis
-            // #region agent log
-            try? "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\",\"location\":\"OnDevicePoseManager.swift:325\",\"message\":\"Analyzing close-grip bench press form\",\"data\":{\"benchPressViewType\":\"\(benchPressViewType)\"},\"timestamp\":\(Int(Date().timeIntervalSince1970 * 1000))}".write(toFile: "/Users/zach.thomson/Desktop/Chiron/.cursor/debug.log", atomically: false, encoding: .utf8)
-            // #endregion
             return analyzeCloseGripBenchPressForm(points)
         }
     }
@@ -430,6 +443,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                            (eccentricScore * 0.15) +
                            (concentricScore * 0.15)
         
+        
         // Detect issues
         var issues: [String] = []
         if gripWidthScore < 0.6 {
@@ -476,8 +490,15 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     }
     
     /// Calculates grip width score for close-grip bench press.
-    /// Ideal grip is 0.8-1.0x shoulder width (just outside ribs).
-    /// Applies view-specific adjustments for camera angle differences.
+    /// 
+    /// **Ideal Grip:** 0.8-1.0x shoulder width (just outside ribs)
+    /// 
+    /// **Scoring (Lenient):**
+    /// - Acceptable range: 0.7-1.2x shoulder width (score: 1.0)
+    /// - Too narrow: Minimum score 0.5 (was 0.3)
+    /// - Too wide: Minimum score 0.5 (was 0.3)
+    /// 
+    /// **View Adjustments:** Applies camera angle corrections for rack/floor/tripod views.
     private func calculateCloseGripWidthScore(_ points: [String: CGPoint]) -> Float {
         guard let leftWrist = points["leftWrist"],
               let rightWrist = points["rightWrist"],
@@ -511,21 +532,29 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
         
         // Score calculation: ideal is 0.8-1.0, penalize outside this range
-        if adjustedGripRatio >= 0.8 && adjustedGripRatio <= 1.0 {
-            return 1.0 // Perfect close-grip width
-        } else if adjustedGripRatio < 0.8 {
-            // Grip too narrow
-            return max(0.3, adjustedGripRatio / 0.8)
+        // Made more lenient: wider acceptable range and less harsh penalties
+        if adjustedGripRatio >= 0.7 && adjustedGripRatio <= 1.2 {
+            return 1.0 // Perfect or acceptable close-grip width
+        } else if adjustedGripRatio < 0.7 {
+            // Grip too narrow - more lenient
+            return max(0.5, adjustedGripRatio / 0.7)
         } else {
-            // Grip too wide
-            let overWidth = adjustedGripRatio - 1.0
-            return max(0.3, 1.0 - (overWidth * 2.0))
+            // Grip too wide - more lenient
+            let overWidth = adjustedGripRatio - 1.2
+            return max(0.5, 1.0 - (overWidth * 1.0))
         }
     }
     
     /// Calculates elbow position score for close-grip bench press.
-    /// Ideal position: elbows flush to sides (not flared out).
-    /// Applies view-specific adjustments for camera angle differences.
+    /// 
+    /// **Ideal Position:** Elbows flush to sides (not flared out)
+    /// 
+    /// **Scoring (Lenient):**
+    /// - Acceptable range: flare ratio ≤ 0.6 (score: 1.0)
+    /// - Slightly flared (0.6-0.8): Score 0.7-1.0
+    /// - Significantly flared (>0.8): Minimum score 0.5 (was 0.3)
+    /// 
+    /// **View Adjustments:** Applies camera angle corrections for rack/floor/tripod views.
     private func calculateElbowPositionScore(_ points: [String: CGPoint]) -> Float {
         guard let leftElbow = points["leftElbow"],
               let rightElbow = points["rightElbow"],
@@ -565,20 +594,28 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         
         // For close-grip, elbows should be tucked (ratio < 0.5)
         // Score calculation: ideal is 0.3-0.5 (flush to sides)
-        if adjustedFlareRatio <= 0.5 {
-            return 1.0 // Perfect elbow position
-        } else if adjustedFlareRatio <= 0.7 {
-            // Slightly flared
-            return 0.8 - ((adjustedFlareRatio - 0.5) * 1.0)
+        // Made more lenient: accept wider range and less harsh penalties
+        if adjustedFlareRatio <= 0.6 {
+            return 1.0 // Perfect or acceptable elbow position
+        } else if adjustedFlareRatio <= 0.8 {
+            // Slightly flared - more lenient
+            return max(0.7, 1.0 - ((adjustedFlareRatio - 0.6) * 0.75))
         } else {
-            // Significantly flared
-            return max(0.3, 0.6 - ((adjustedFlareRatio - 0.7) * 1.0))
+            // Significantly flared - more lenient
+            return max(0.5, 0.85 - ((adjustedFlareRatio - 0.8) * 0.7))
         }
     }
     
     /// Calculates range of motion score for close-grip bench press.
-    /// Checks for full lockout at top and chest touch at bottom.
-    /// Uses view-specific reference points based on camera angle.
+    /// 
+    /// **Checks:** Full lockout at top and chest touch at bottom
+    /// 
+    /// **Scoring (Lenient for Tripod View):**
+    /// - Good lockout: Elbow extension > 0.05 (score: 1.0)
+    /// - Partial lockout: Extension > 0 (score: 0.8-1.0, was 0.7)
+    /// - Incomplete extension: Minimum score 0.6 (was 0.3)
+    /// 
+    /// **View-Specific:** Uses different reference points for rack/floor/tripod camera angles.
     private func calculateBenchPressROMScore(_ points: [String: CGPoint]) -> Float {
         guard let leftWrist = points["leftWrist"],
               let rightWrist = points["rightWrist"],
@@ -611,13 +648,14 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         case .tripod:
             // Side view: Assess elbow extension
             // At lockout: wrist should be significantly above elbow (lower Y in Vision coords)
+            // Made more lenient: accept smaller extension and give higher minimum scores
             let elbowExtension = avgElbowY - avgWristY
-            if elbowExtension > 0.1 {
+            if elbowExtension > 0.05 {
                 return 1.0 // Good lockout
             } else if elbowExtension > 0 {
-                return 0.7 // Partial lockout
+                return max(0.8, 0.7 + (elbowExtension * 2.0)) // Partial lockout - more lenient
             } else {
-                return max(0.3, 0.5 + elbowExtension) // Incomplete extension
+                return max(0.6, 0.7 + elbowExtension) // Incomplete extension - more lenient
             }
         }
     }
@@ -635,40 +673,56 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     }
     
     /// Calculates eccentric (lowering) tempo score.
-    /// Target: ≥1000ms (1 second). Penalizes faster lowering.
+    /// 
+    /// **Target:** ≥1000ms (1 second) for controlled lowering
+    /// 
+    /// **Scoring (Lenient):**
+    /// - ≥800ms: Score 1.0 (was ≥1000ms)
+    /// - ≥600ms: Score 0.9
+    /// - ≥400ms: Score 0.75
+    /// - <400ms: Minimum score 0.6 (was 0.3)
+    /// 
+    /// **Default:** Returns 0.8 if no tempo data available (was 0.7)
     private func calculateBenchPressEccentricScore() -> Float {
-        guard tempoRepSamples > 0 else { return 0.7 } // Default to decent score if no data
+        guard tempoRepSamples > 0 else { return 0.8 }
         
         let avgEccentricMs = sumEccentricMs / Double(tempoRepSamples)
         
-        // Target: ≥1000ms (1 second)
-        if avgEccentricMs >= 1000 {
+        if avgEccentricMs >= 800 {
             return 1.0
-        } else if avgEccentricMs >= 700 {
-            return 0.8
-        } else if avgEccentricMs >= 500 {
-            return 0.6
+        } else if avgEccentricMs >= 600 {
+            return 0.9
+        } else if avgEccentricMs >= 400 {
+            return 0.75
         } else {
-            return max(0.3, Float(avgEccentricMs / 1000.0))
+            return max(0.6, Float(avgEccentricMs / 800.0))
         }
     }
     
     /// Calculates concentric (pressing) tempo score.
-    /// Target: ≤2000ms (2 seconds). Penalizes slower pressing.
+    /// 
+    /// **Target:** ≤2000ms (2 seconds) for explosive pressing
+    /// 
+    /// **Scoring (Lenient):**
+    /// - ≤3000ms: Score 1.0 (was ≤2000ms)
+    /// - ≤4000ms: Score 0.9
+    /// - ≤5000ms: Score 0.75
+    /// - >5000ms: Minimum score 0.6 (was 0.3)
+    /// 
+    /// **Default:** Returns 0.8 if no tempo data available (was 0.7)
     private func calculateBenchPressConcentricScore() -> Float {
-        guard tempoRepSamples > 0 else { return 0.7 } // Default to decent score if no data
+        guard tempoRepSamples > 0 else { return 0.8 }
         
         let avgConcentricMs = sumConcentricMs / Double(tempoRepSamples)
         
-        // Target: ≤2000ms (2 seconds)
-        if avgConcentricMs <= 2000 {
+        if avgConcentricMs <= 3000 {
             return 1.0
-        } else if avgConcentricMs <= 2500 {
-            return 0.8
-        } else if avgConcentricMs <= 3000 {
-            return 0.6
+        } else if avgConcentricMs <= 4000 {
+            return 0.9
+        } else if avgConcentricMs <= 5000 {
+            return 0.75
         } else {
-            return max(0.3, Float(2000.0 / avgConcentricMs))
+            return max(0.6, Float(3000.0 / avgConcentricMs))
         }
     }
     
@@ -964,7 +1018,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     // MARK: - Automatic Set Detection Methods
     
     func resetRepCount() {
-        repCount = 0
+        DispatchQueue.main.async {
+            self.repCount = 0
+            self.lastRepFormAnalysis = nil
+        }
         consecutiveGoodReps = 0
         lastRepTime = nil
         setStartTime = nil
@@ -990,19 +1047,29 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         reachedBottomThisCycleBenchPress = false
         benchPressEccentricStartTime = nil
         benchPressBottomTime = nil
+        benchPressBottomWristY = nil
+        
+        // Initialize bench press tracking if this is a bench press exercise
+        if squatType == .closeGripBenchPress {
+            initializeBenchPressRepTracking()
+        }
+        
         print("🔄 Rep count and state reset")
     }
     
     // Add method to reset rep counting state
     func resetRepCountingState() {
-        repCount = 0
+        DispatchQueue.main.async {
+            self.repCount = 0
+            self.workoutState = .waiting
+            self.lastRepFormAnalysis = nil
+        }
         consecutiveGoodReps = 0
         lastRepTime = nil
         setStartTime = nil
         lastRepValidationTime = nil
         lastSpokenRep = 0
         reachedDeepThisCycle = false
-        workoutState = .waiting
         inactivityDetector.resetTimer()
         // Reset tempo tracking
         repStartTime = nil
@@ -1022,7 +1089,27 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         reachedBottomThisCycleBenchPress = false
         benchPressEccentricStartTime = nil
         benchPressBottomTime = nil
+        benchPressBottomWristY = nil
+        
+        // Initialize bench press tracking if this is a bench press exercise
+        if squatType == .closeGripBenchPress {
+            initializeBenchPressRepTracking()
+        }
+        
         print("🔄 Rep counting state reset")
+    }
+    
+    /// Initializes bench press rep tracking state for proper first-rep detection.
+    /// Sets up eccentric start time so the first rep's eccentric phase is tracked.
+    /// Called when starting a close-grip bench press exercise.
+    func initializeBenchPressRepTracking() {
+        // Initialize eccentric start time immediately so first rep is tracked
+        // This ensures we can measure eccentric tempo from the very first rep
+        benchPressEccentricStartTime = CACurrentMediaTime()
+        reachedBottomThisCycleBenchPress = false
+        benchPressBottomTime = nil
+        benchPressBottomWristY = nil
+        print("🏋️ Bench press rep tracking initialized - ready for first rep")
     }
     
     func getCurrentRepCount() -> Int {
@@ -1038,21 +1125,26 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     }
     
     func startNewSet() {
-        currentSet += 1
-        workoutState = .waiting
-        resetRepCount()
-        print("🎯 Starting new set: \(currentSet)")
-        
-        // Provide audio feedback
-        SpeechManager.shared.speak("Starting set \(currentSet)", priority: .normal)
+        DispatchQueue.main.async {
+            self.currentSet += 1
+            self.workoutState = .waiting
+            self.resetRepCount()
+            print("🎯 Starting new set: \(self.currentSet)")
+            
+            // Provide audio feedback
+            SpeechManager.shared.speak("Starting set \(self.currentSet)", priority: .normal)
+        }
     }
     
     // Enhanced rep validation logic - MORE SENSITIVE
     private func validateRep() -> Bool {
-        guard let formAnalysis = currentFormAnalysis else { return false }
+        guard let formAnalysis = currentFormAnalysis else {
+            return false
+        }
         
         // Require minimum confidence in pose detection
-        if formAnalysis.overallScore < poseConfidenceThreshold {
+        // Made more lenient: only reject if score is very low
+        if formAnalysis.overallScore < (poseConfidenceThreshold * 0.5) {
             return false
         }
         
@@ -1065,11 +1157,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
         
         // Use different validation logic based on exercise type
-        switch squatType {
+        return switch squatType {
         case .closeGripBenchPress:
-            return validateCloseGripBenchPressRep(formAnalysis: formAnalysis, now: now)
+            validateCloseGripBenchPressRep(formAnalysis: formAnalysis, now: now)
         case .bodyweight, .barbell, .benchPress:
-            return validateSquatRep(formAnalysis: formAnalysis, now: now)
+            validateSquatRep(formAnalysis: formAnalysis, now: now)
         }
     }
     
@@ -1123,21 +1215,38 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         // Bench press thresholds (based on wrist Y position)
         // Higher Y = bar closer to chest (bottom position)
         // Lower Y = bar at lockout (top position)
-        // View-specific thresholds
+        // View-specific thresholds - made more lenient for better detection
         let (bottomThreshold, topThreshold): (Float, Float)
         switch benchPressViewType {
         case .rack:
             // Top-down view: Y increases as bar goes down
-            bottomThreshold = 0.65
-            topThreshold = 0.45
+            // Made more lenient: bottom 0.55 (was 0.65), top 0.40 (was 0.45)
+            bottomThreshold = 0.55
+            topThreshold = 0.40
         case .floor:
             // Bottom-up view: Y decreases as bar goes down (inverted)
-            bottomThreshold = 0.35
-            topThreshold = 0.55
+            // Made more lenient: bottom 0.45 (was 0.35), top 0.60 (was 0.55)
+            bottomThreshold = 0.45
+            topThreshold = 0.60
         case .tripod:
-            // Side view: similar to rack but slightly different range
-            bottomThreshold = 0.60
-            topThreshold = 0.42
+            // Side view: adjusted thresholds for tripod camera angle
+            // Bottom: 0.52 (bar touches chest)
+            // Top: 0.50 (lockout position - more lenient than original 0.48)
+            // Top threshold increased because lockout wristY is typically 0.48-0.52 in tripod view
+            // Also uses relative check (wristY decreased by ≥0.05 from bottom) as fallback
+            bottomThreshold = 0.52
+            topThreshold = 0.50
+        }
+        
+        // Initialize eccentric tracking if we're at top position and it's not set
+        // This ensures the first rep's eccentric is properly tracked
+        if benchPressEccentricStartTime == nil {
+            let isAtTop = (benchPressViewType == .floor && wristY >= topThreshold) ||
+                          (benchPressViewType != .floor && wristY <= topThreshold)
+            if isAtTop {
+                benchPressEccentricStartTime = CACurrentMediaTime()
+                print("🏋️ Initialized eccentric tracking at top position: wristY=\(wristY)")
+            }
         }
         
         // State machine for bench press rep counting
@@ -1148,6 +1257,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 if !reachedBottomThisCycleBenchPress {
                     print("🏋️ Bench press bottom detected (floor view): wristY=\(wristY) (threshold: \(bottomThreshold))")
                     reachedBottomThisCycleBenchPress = true
+                    // Calculate eccentric tempo
+                    if let eccentricStart = benchPressEccentricStartTime {
+                        let eccentricMs = (CACurrentMediaTime() - eccentricStart) * 1000
+                        sumEccentricMs += eccentricMs
+                        print("📊 Bench press eccentric time: \(Int(eccentricMs))ms")
+                    }
                     // Start tracking concentric tempo
                     benchPressBottomTime = CACurrentMediaTime()
                 }
@@ -1177,6 +1292,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 if !reachedBottomThisCycleBenchPress {
                     print("🏋️ Bench press bottom detected: wristY=\(wristY) (threshold: \(bottomThreshold))")
                     reachedBottomThisCycleBenchPress = true
+                    benchPressBottomWristY = wristY // Store bottom position for relative check
                     // Calculate eccentric tempo
                     if let eccentricStart = benchPressEccentricStartTime {
                         let eccentricMs = (CACurrentMediaTime() - eccentricStart) * 1000
@@ -1190,8 +1306,19 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             }
             
             // Step 2: Detect top position (lockout) after reaching bottom
-            if reachedBottomThisCycleBenchPress && wristY <= topThreshold {
-                print("✅ Bench press rep validated! Bottom(\(bottomThreshold)) -> Top(\(wristY)) (threshold: \(topThreshold))")
+            // Use both absolute threshold and relative check (wristY decreased from bottom)
+            let meetsAbsoluteThreshold = wristY <= topThreshold
+            let meetsRelativeCheck: Bool
+            if let bottomWristY = benchPressBottomWristY {
+                // Consider lockout if wristY has decreased by at least 0.05 from bottom
+                meetsRelativeCheck = (bottomWristY - wristY) >= 0.05
+            } else {
+                meetsRelativeCheck = false
+            }
+            
+            if reachedBottomThisCycleBenchPress && (meetsAbsoluteThreshold || meetsRelativeCheck) {
+                let validationMethod = meetsAbsoluteThreshold ? "absolute" : "relative"
+                print("✅ Bench press rep validated! Bottom(\(bottomThreshold)) -> Top(\(wristY)) (threshold: \(topThreshold), method: \(validationMethod))")
                 
                 // Calculate concentric tempo for this rep
                 if let bottomTime = benchPressBottomTime {
@@ -1203,20 +1330,28 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 
                 lastRepValidationTime = now
                 reachedBottomThisCycleBenchPress = false
+                benchPressBottomWristY = nil // Clear bottom position
                 benchPressEccentricStartTime = CACurrentMediaTime() // Start tracking next eccentric
+                
                 return true
             }
+            
         }
         
         return false
     }
     
-    // Add debug logging to track rep detection
+    /// Handles rep detection: increments rep count and stores form analysis for score calculation.
+    /// Stores the form analysis at rep completion so it's available even if pose is temporarily lost.
     private func handleRepDetected() {
         repCount += 1
         consecutiveGoodReps += 1
         lastRepTime = Date()
         inactivityDetector.updateLastRep()
+        
+        // Store the form analysis at rep completion so it's available for score calculation
+        // even if pose is temporarily lost after rep completion
+        lastRepFormAnalysis = currentFormAnalysis
         
         print("🎯 Rep \(repCount) detected at depth cycle completion")
         
@@ -1227,7 +1362,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     }
     
     private func handleSetStart() {
-        workoutState = .exercising
+        // Ensure we're on main thread for @Published property updates
+        DispatchQueue.main.async {
+            self.workoutState = .exercising
+        }
         setStartTime = Date()
         // Reset aggregations at the start of a set
         issueCounts.removeAll()
@@ -1249,39 +1387,44 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     }
     
     private func handleSetEnd() {
-        guard workoutState == .exercising else { return }
-        
-        workoutState = .resting
-        restStartTime = Date()
-        
-        print("🏁 Set ended automatically")
-        
-        // Reset rep count for next set (but keep total workout state)
-        let completedReps = repCount
-        repCount = 0
-        consecutiveGoodReps = 0
-        reachedDeepThisCycle = false
-        lastRepValidationTime = nil
-        print("🔄 Reset rep count for next set (completed \(completedReps) reps)")
-        
-        // Get single natural feedback and speak it once
-        if let analysis = currentFormAnalysis {
-            OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(
-                formAnalysis: analysis,
-                exerciseType: squatType
-            ) { naturalFeedback in
-                print("🎯 Received natural feedback for set completion: \(naturalFeedback)")
-                // Speech is already handled inside analyzeAndGetNaturalFeedback
-            }
+        // Ensure we're on main thread for @Published property updates
+        DispatchQueue.main.async {
+            guard self.workoutState == .exercising else { return }
+            
+            self.workoutState = .resting
+            // Reset rep count for next set (but keep total workout state)
+            let completedReps = self.repCount
+            self.repCount = 0
+            self.consecutiveGoodReps = 0
+            self.reachedDeepThisCycle = false
+            self.lastRepValidationTime = nil
+            print("🔄 Reset rep count for next set (completed \(completedReps) reps)")
         }
         
-        // Start rest period timer
-        DispatchQueue.main.asyncAfter(deadline: .now() + restPeriodDuration) {
-            self.handleRestPeriodEnd()
+        restStartTime = Date()
+        print("🏁 Set ended automatically")
+        
+        // Get single natural feedback and speak it once
+        DispatchQueue.main.async {
+            if let analysis = self.currentFormAnalysis {
+                OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(
+                    formAnalysis: analysis,
+                    exerciseType: self.squatType
+                ) { naturalFeedback in
+                    print("🎯 Received natural feedback for set completion: \(naturalFeedback)")
+                    // Speech is already handled inside analyzeAndGetNaturalFeedback
+                }
+            }
+            
+            // Start rest period timer
+            DispatchQueue.main.asyncAfter(deadline: .now() + self.restPeriodDuration) {
+                self.handleRestPeriodEnd()
+            }
         }
     }
     
     private func handleRestPeriodEnd() {
+        // Already on main thread (called from DispatchQueue.main.asyncAfter)
         guard workoutState == .resting else { return }
         
         workoutState = .waiting

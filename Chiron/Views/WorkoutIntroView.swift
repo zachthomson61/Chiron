@@ -165,6 +165,16 @@ struct WorkoutIntroView: View {
     /// When repCount increases, the form score is updated from the current analysis.
     @State private var lastObservedRepCount: Int = 0
     
+    /// Tracks whether pose tracking is active (pose detected but waiting for rep completion).
+    /// Used to show "TRACKING" state with pulsing animation.
+    @State private var isTrackingActive: Bool = false
+    
+    /// Stores individual rep scores for calculating moving average set score.
+    @State private var repScores: [Double] = []
+    
+    /// Controls pulsing animation for tracking state indicator.
+    @State private var trackingPulseScale: CGFloat = 1.0
+    
     // MARK: - Test View State
     
     /// Whether the test view camera preview is currently active.
@@ -371,6 +381,14 @@ struct WorkoutIntroView: View {
         default:
             return Color.red
         }
+    }
+    
+    /// Determines if we're in "tracking" state - pose detected but waiting for rep completion.
+    /// Shows pulsing ring with "TRACKING" text instead of a score.
+    private var isInTrackingState: Bool {
+        let hasPose = poseManager.poseDetected && poseManager.currentFormAnalysis != nil
+        // Show tracking when: pose detected AND (no reps yet OR waiting for next rep)
+        return hasPose && isTrackingActive && poseManager.repCount == lastObservedRepCount
     }
     
     /// Total workout duration estimate (seconds)
@@ -830,13 +848,14 @@ struct WorkoutIntroView: View {
     // MARK: - Form Score Indicator
     
     /// Circular progress ring displaying form score (1-100) for close-grip bench press.
-    /// - Updates only when a new rep is detected
-    /// - Shows grey ring with hyphen when no pose is detected
-    /// - Fills clockwise from top (0° rotation) when score is available
-    /// - Color changes based on score range (red/yellow/green/emerald)
+    /// Three states:
+    /// - No pose detected: grey ring with hyphen
+    /// - Tracking (pose detected, waiting for rep): pulsing ring with "TRACKING" text
+    /// - Score available: filled ring with score, snaps on rep completion
     private var formScoreIndicator: some View {
         let hasPose = poseManager.poseDetected && poseManager.currentFormAnalysis != nil
-        let showScore = hasPose && currentFormScore > 0
+        let showScore = hasPose && currentFormScore > 0 && !isInTrackingState
+        let showTracking = isInTrackingState
         
         return ZStack {
             // Background for contrast
@@ -847,36 +866,57 @@ struct WorkoutIntroView: View {
             Circle()
                 .stroke(showScore ? Color.gray.opacity(0.5) : Color.gray.opacity(0.3), lineWidth: 5)
             
-            // Progress ring (only show when score > 0 and pose detected)
+            // Tracking state: pulsing ring
+            if showTracking {
+                Circle()
+                    .stroke(Color.blue.opacity(0.6), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    .scaleEffect(trackingPulseScale)
+                    .opacity(trackingPulseScale == 1.0 ? 0.8 : 1.0)
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) {
+                            trackingPulseScale = 1.08
+                        }
+                    }
+                    .onDisappear {
+                        trackingPulseScale = 1.0
+                    }
+            }
+            
+            // Progress ring (only show when score > 0 and not in tracking state)
             if showScore {
                 Circle()
                     .trim(from: 0, to: CGFloat(currentFormScore) / 100.0)
                     .stroke(formScoreColor, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                    .animation(.easeOut(duration: 0.2), value: currentFormScore)
+                    .animation(.spring(response: 0.15, dampingFraction: 0.8), value: currentFormScore)
             }
             
             // Center content
             VStack(spacing: 2) {
-                // Score text or hyphen
-                if showScore {
+                if showTracking {
+                    // Tracking state: show "TRACKING" text
+                    Text("...")
+                        .font(.neueMontrealBold(size: 14))
+                        .foregroundColor(.blue.opacity(0.9))
+                } else if showScore {
+                    // Score available: show numeric score
                     Text("\(currentFormScore)")
                         .font(.neueMontrealBold(size: 16))
                         .foregroundColor(.textPrimary)
                 } else {
-                    // Show hyphen when no pose detected
+                    // No pose detected: show hyphen
                     Text("-")
                         .font(.neueMontrealBold(size: 16))
                         .foregroundColor(.textSecondary.opacity(0.6))
                 }
-                // "FORM" label always visible
-                Text("FORM")
-                    .font(.neueMontrealBold(size: 10))
-                    .foregroundColor(showScore ? .textPrimary.opacity(0.8) : .textSecondary.opacity(0.5))
+                // Label changes based on state
+                Text(showTracking ? "TRACKING" : "FORM")
+                    .font(.neueMontrealBold(size: showTracking ? 8 : 10))
+                    .foregroundColor(showScore ? .textPrimary.opacity(0.8) : (showTracking ? .blue.opacity(0.8) : .textSecondary.opacity(0.5)))
             }
         }
         .frame(width: 56, height: 56)
-        .shadow(color: showScore ? formScoreColor.opacity(0.5) : Color.black.opacity(0.2), radius: 4)
+        .shadow(color: showScore ? formScoreColor.opacity(0.5) : (showTracking ? Color.blue.opacity(0.3) : Color.black.opacity(0.2)), radius: 4)
     }
     
     // MARK: - Bottom Exercise Card
@@ -1947,8 +1987,11 @@ struct WorkoutIntroView: View {
     private func startFormScoreTimer() {
         stopFormScoreTimer()
         
-        // Reset rep tracking
+        // Reset rep tracking and form score state
         lastObservedRepCount = poseManager.repCount
+        isTrackingActive = false
+        repScores = []
+        trackingPulseScale = 1.0
         
         #if DEBUG
         print("🎯 Starting form score timer (1 Hz, updates on rep detection)")
@@ -1963,19 +2006,41 @@ struct WorkoutIntroView: View {
     private func stopFormScoreTimer() {
         formScoreUpdateTimer?.invalidate()
         formScoreUpdateTimer = nil
+        isTrackingActive = false
+        trackingPulseScale = 1.0
     }
     
     /// Checks if a new rep was detected and updates the form score accordingly.
     /// 
     /// Behavior:
-    /// - When repCount increases: Updates form score from current pose analysis (if pose is detected)
-    /// - When no pose detected: Leaves score unchanged (ring shows grey with hyphen)
+    /// - When pose detected but no new rep: Enter "tracking" state (pulsing ring)
+    /// - When repCount increases: Snap to new rep score, apply moving average for set score
+    /// - When no pose detected: Leave tracking state, show grey ring
     /// 
-    /// This ensures the form score only updates on rep completion, not continuously.
+    /// Uses exponential moving average (alpha = 0.55) for smoother set score transitions.
     private func checkForRepAndUpdateScore() {
         let currentRepCount = poseManager.repCount
         let poseDetected = poseManager.poseDetected
         let hasValidAnalysis = poseManager.currentFormAnalysis != nil
+        
+        // Update tracking state based on pose detection
+        if poseDetected && hasValidAnalysis {
+            // Pose detected - enter tracking state if not already showing a score
+            if !isTrackingActive && currentRepCount == lastObservedRepCount {
+                isTrackingActive = true
+                #if DEBUG
+                print("📡 Tracking active - pose detected, waiting for rep completion")
+                #endif
+            }
+        } else {
+            // No pose detected - exit tracking state
+            if isTrackingActive {
+                isTrackingActive = false
+                #if DEBUG
+                print("📡 Tracking inactive - no pose detected")
+                #endif
+            }
+        }
         
         // Check if a new rep was detected
         if currentRepCount > lastObservedRepCount {
@@ -1985,14 +2050,35 @@ struct WorkoutIntroView: View {
             if poseDetected && hasValidAnalysis {
                 let rawScore = Double(rawFormScore)
                 if rawScore > 0 {
-                    smoothedFormScore = rawScore
+                    // Apply exponential moving average for set score
+                    updateFormScoreWithMovingAverage(newRepScore: rawScore)
+                    
+                    // Exit tracking state after score update (snap to score)
+                    isTrackingActive = false
                     
                     #if DEBUG
-                    print("📊 Rep \(currentRepCount) detected - form score updated: \(Int(rawScore))")
+                    print("📊 Rep \(currentRepCount) detected - form score snapped to: \(Int(smoothedFormScore)) (raw: \(Int(rawScore)))")
                     #endif
                 }
             }
         }
+    }
+    
+    /// Updates the form score using exponential moving average.
+    /// Alpha = 0.55 provides faster but still smooth transitions between rep scores.
+    private func updateFormScoreWithMovingAverage(newRepScore: Double) {
+        let alpha = 0.55 // Smoothing factor for faster but still smooth changes
+        
+        if smoothedFormScore == 0 || repScores.isEmpty {
+            // First rep: set score directly (snap)
+            smoothedFormScore = newRepScore
+        } else {
+            // Apply exponential moving average
+            smoothedFormScore = alpha * newRepScore + (1 - alpha) * smoothedFormScore
+        }
+        
+        // Store rep score for reference
+        repScores.append(newRepScore)
     }
     
     private func togglePause() {

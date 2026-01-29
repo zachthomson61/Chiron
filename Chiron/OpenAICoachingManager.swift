@@ -396,9 +396,8 @@ class OpenAICoachingManager: ObservableObject {
         
         // Check for valid data first
         if formAnalysis.repCount <= 0 || formAnalysis.summary.isEmpty {
-            let noDataFeedback = "I didn't catch that set - make sure you're visible in the frame."
-            speakFeedback(noDataFeedback)
-            completion(noDataFeedback)
+            // No data detected - return without feedback
+            completion("")
             return
         }
         

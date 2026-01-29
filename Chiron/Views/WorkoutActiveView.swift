@@ -141,8 +141,39 @@ struct WorkoutActiveView: View {
     
     // MARK: - Form Score State
     
-    /// Form score (1-100) displayed in the ring UI.
-    /// Updated only when a new rep is detected (repCount increases).
+    // Form Score Behavior for Close-Grip Bench Press:
+    // ===============================================
+    // 1. TRACKING STATE (before first score):
+    //    - Shown when pose is detected but no rep has completed yet
+    //    - Displays pulsing blue ring with "TRACKING" text
+    //    - Only active when smoothedFormScore == 0
+    //
+    // 2. SCORE DISPLAY (after first rep):
+    //    - Once a score is calculated, it persists in the UI
+    //    - Remains visible even when pose detection is temporarily lost
+    //    - Updates with moving average when new reps are detected
+    //    - Tracking state is permanently disabled once score exists
+    //
+    // 3. SCORE CALCULATION:
+    //    - Uses exponential moving average (alpha = 0.55)
+    //    - First rep: score snaps directly (no averaging)
+    //    - Subsequent reps: weighted average of new score and existing smoothed score
+    //    - Falls back to lastRepFormAnalysis if currentFormAnalysis is unavailable
+    //
+    // 4. PERSISTENCE:
+    //    - Score only disappears when explicitly reset (e.g., starting new set)
+    //    - Never reverts to tracking state once a score exists
+    //    - Never reverts to grey state when pose is lost (score remains visible)
+    
+    /// Exponential moving average of form scores across all reps in the current set.
+    /// 
+    /// **Behavior:**
+    /// - Persists once calculated and remains visible even when pose detection is temporarily lost
+    /// - Updated only when a new rep is detected and completes
+    /// - Uses exponential moving average (alpha = 0.55) for smooth transitions
+    /// - First rep: score snaps directly; subsequent reps: weighted average
+    /// 
+    /// **Display:** Shown as numeric score (1-100) in the circular progress ring UI
     @State private var smoothedFormScore: Double = 0.0
     
     /// Timer that checks for rep completion every 1 second.
@@ -153,6 +184,19 @@ struct WorkoutActiveView: View {
     /// When repCount increases, the form score is updated from the current analysis.
     @State private var lastObservedRepCount: Int = 0
     
+    /// Tracks whether pose tracking is active (pose detected but waiting for rep completion).
+    /// 
+    /// **Important:** Only active when `smoothedFormScore == 0`. Once a score exists,
+    /// tracking is permanently disabled so the score can persist.
+    @State private var isTrackingActive: Bool = false
+    
+    /// Stores individual rep scores for reference (not used in calculation).
+    /// The moving average is calculated directly from `smoothedFormScore`.
+    @State private var repScores: [Double] = []
+    
+    /// Controls pulsing animation for tracking state indicator.
+    @State private var trackingPulseScale: CGFloat = 1.0
+    
     /// Tracks whether the camera was closed after completing all close-grip bench press sets.
     /// Set to true after the 3rd set, reset to false when navigating back to any close-grip bench press exercise.
     @State private var isCameraClosedAfterThirdSet: Bool = false
@@ -160,6 +204,18 @@ struct WorkoutActiveView: View {
     /// Tracks the number of completed close-grip bench press sets (excluding camera setup exercises).
     /// Used to determine when to close the camera after the 3rd set.
     @State private var completedCloseGripBenchPressSets: Int = 0
+    
+    /// View model for managing AI coaching feedback during rest periods
+    @StateObject private var restViewModel = RestViewModel()
+    
+    /// Previous exercise name - used to detect close-grip bench press → rest transition
+    @State private var previousExerciseName: String?
+    
+    /// Start time of the current close-grip bench press set (for duration calculation)
+    @State private var closeGripBenchSetStartTime: Date?
+    
+    /// Whether coaching feedback was just provided (to avoid interrupting with rest announcement)
+    @State private var justProvidedCoaching: Bool = false
     
     /// Workout log service (singleton) - accessed via WorkoutLogService.shared
     
@@ -345,15 +401,25 @@ struct WorkoutActiveView: View {
     /// Raw form score (1-100) calculated from pose manager's analysis.
     /// Returns 0 if no analysis is available.
     /// Form score is calculated locally by OnDevicePoseManager - no OpenAI needed for real-time display.
+    /// Raw form score (1-100) from the current or last rep's form analysis.
+    /// 
+    /// **Fallback Logic:**
+    /// - Prefers current form analysis if available
+    /// - Falls back to last rep's analysis if current is unavailable
+    /// - This ensures score calculation even if pose is temporarily lost after rep completion
     private var rawFormScore: Int {
-        guard let analysis = poseManager.currentFormAnalysis else {
+        let analysis = poseManager.currentFormAnalysis ?? poseManager.lastRepFormAnalysis
+        guard let analysis = analysis else {
             return 0
         }
         return max(1, min(100, Int(analysis.overallScore * 100)))
     }
     
     /// Current form score (1-100) displayed in the ring UI.
-    /// Updated only when a new rep is detected.
+    /// 
+    /// **Source:** Derived from `smoothedFormScore` (exponential moving average)
+    /// **Update Frequency:** Only updates when a new rep is detected and completes
+    /// **Persistence:** Remains visible once calculated, even when pose detection is lost
     private var currentFormScore: Int {
         return max(0, min(100, Int(smoothedFormScore.rounded())))
     }
@@ -375,6 +441,20 @@ struct WorkoutActiveView: View {
         default:
             return Color.red
         }
+    }
+    
+    /// Determines if we're in "tracking" state - pose detected but waiting for rep completion.
+    /// 
+    /// **Tracking State Behavior:**
+    /// - Only shown when no form score has been calculated yet (smoothedFormScore == 0)
+    /// - Displays pulsing blue ring with "TRACKING" text
+    /// - Once a score exists, tracking is permanently disabled so the score can persist
+    /// - This ensures the form score remains visible even when pose detection is temporarily lost
+    private var isInTrackingState: Bool {
+        let hasPose = poseManager.poseDetected && poseManager.currentFormAnalysis != nil
+        // Show tracking only if: pose detected AND actively tracking AND no score exists yet
+        // Once a score exists, it persists and we don't show tracking anymore
+        return hasPose && isTrackingActive && poseManager.repCount == lastObservedRepCount && smoothedFormScore == 0
     }
     
     var body: some View {
@@ -609,13 +689,26 @@ struct WorkoutActiveView: View {
     // MARK: - Form Score Indicator
     
     /// Circular progress ring displaying form score (1-100) for close-grip bench press.
-    /// - Updates only when a new rep is detected
-    /// - Shows grey ring with hyphen when no pose is detected
-    /// - Fills clockwise from top (0° rotation) when score is available
-    /// - Color changes based on score range (red/yellow/green/emerald)
+    /// 
+    /// **Three Display States:**
+    /// 1. **No pose detected**: Grey ring with hyphen "-"
+    /// 2. **Tracking (before first score)**: Pulsing blue ring with "TRACKING" text
+    ///    - Only shown when no score has been calculated yet
+    /// 3. **Score available**: Filled colored ring with numeric score
+    ///    - Persists once calculated, even when pose detection is temporarily lost
+    ///    - Updates with moving average when new reps are detected
+    /// 
+    /// **Persistence Logic:**
+    /// - Once a score exists, it remains visible regardless of pose detection state
+    /// - Score only disappears when explicitly reset (e.g., starting a new set)
+    /// - Tracking state is permanently disabled once a score exists
     private var formScoreIndicator: some View {
         let hasPose = poseManager.poseDetected && poseManager.currentFormAnalysis != nil
-        let showScore = hasPose && currentFormScore > 0
+        // Show score if we have a calculated score (persists even when pose is temporarily lost)
+        let showScore = currentFormScore > 0
+        // Only show tracking when we have pose, are actively tracking, AND don't have a score yet
+        // Once a score exists, it takes priority and persists
+        let showTracking = isInTrackingState && hasPose && smoothedFormScore == 0
         
         return ZStack {
             // Background for contrast
@@ -626,36 +719,57 @@ struct WorkoutActiveView: View {
             Circle()
                 .stroke(showScore ? Color.gray.opacity(0.5) : Color.gray.opacity(0.3), lineWidth: 5)
             
-            // Progress ring (only show when score > 0 and pose detected)
+            // Tracking state: pulsing ring
+            if showTracking {
+                Circle()
+                    .stroke(Color.blue.opacity(0.6), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    .scaleEffect(trackingPulseScale)
+                    .opacity(trackingPulseScale == 1.0 ? 0.8 : 1.0)
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) {
+                            trackingPulseScale = 1.08
+                        }
+                    }
+                    .onDisappear {
+                        trackingPulseScale = 1.0
+                    }
+            }
+            
+            // Progress ring (only show when score > 0 and not in tracking state)
             if showScore {
                 Circle()
                     .trim(from: 0, to: CGFloat(currentFormScore) / 100.0)
                     .stroke(formScoreColor, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                    .animation(.easeOut(duration: 0.2), value: currentFormScore)
+                    .animation(.spring(response: 0.15, dampingFraction: 0.8), value: currentFormScore)
             }
             
             // Center content
             VStack(spacing: 2) {
-                // Score text or hyphen
-                if showScore {
+                if showTracking {
+                    // Tracking state: show "TRACKING" text
+                    Text("...")
+                        .font(.neueMontrealBold(size: 14))
+                        .foregroundColor(.blue.opacity(0.9))
+                } else if showScore {
+                    // Score available: show numeric score
                     Text("\(currentFormScore)")
                         .font(.neueMontrealBold(size: 16))
                         .foregroundColor(.textPrimary)
                 } else {
-                    // Show hyphen when no pose detected
+                    // No pose detected: show hyphen
                     Text("-")
                         .font(.neueMontrealBold(size: 16))
                         .foregroundColor(.textSecondary.opacity(0.6))
                 }
-                // "FORM" label always visible
-                Text("FORM")
-                    .font(.neueMontrealBold(size: 10))
-                    .foregroundColor(showScore ? .textPrimary.opacity(0.8) : .textSecondary.opacity(0.5))
+                // Label changes based on state
+                Text(showTracking ? "TRACKING" : "FORM")
+                    .font(.neueMontrealBold(size: showTracking ? 8 : 10))
+                    .foregroundColor(showScore ? .textPrimary.opacity(0.8) : (showTracking ? .blue.opacity(0.8) : .textSecondary.opacity(0.5)))
             }
         }
         .frame(width: 56, height: 56)
-        .shadow(color: showScore ? formScoreColor.opacity(0.5) : Color.black.opacity(0.2), radius: 4)
+        .shadow(color: showScore ? formScoreColor.opacity(0.5) : (showTracking ? Color.blue.opacity(0.3) : Color.black.opacity(0.2)), radius: 4)
     }
     
     /// Overall workout progress (0.0 to 1.0)
@@ -916,6 +1030,49 @@ struct WorkoutActiveView: View {
                                 .clipShape(Circle())
                         }
                     }
+                } else if isRestExercise && previousExerciseName == "Close-Grip Bench Press" {
+                    // Rest card after close-grip bench press - show coaching UI
+                    // Reps/time display (rest duration)
+                    Text(formatRepsTime(exercise))
+                        .font(.neueMontrealRegular(size: 18))
+                        .foregroundColor(.textSecondary)
+                    
+                    // Timer for rest period
+                    if isTimeBasedExercise {
+                        timeBasedTimerView
+                    }
+                    
+                    // AI Coaching feedback section
+                    coachingFeedbackView
+                    
+                    // Next exercise button and overview
+                    HStack {
+                        // Overview button
+                        Button(action: {
+                            showOverview = true
+                        }) {
+                            Image(systemName: "list.bullet")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.textPrimary)
+                                .frame(width: 44, height: 44)
+                                .background(Color.white.opacity(0.1))
+                                .clipShape(Circle())
+                        }
+                        
+                        Spacer()
+                        
+                        // Next exercise arrow button
+                        Button(action: {
+                            moveToNextExercise()
+                        }) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.textPrimary)
+                                .frame(width: 44, height: 44)
+                                .background(Color.white.opacity(0.2))
+                                .clipShape(Circle())
+                        }
+                    }
                 } else {
                     // Regular exercise UI
                     // Reps/time display
@@ -1158,6 +1315,117 @@ struct WorkoutActiveView: View {
         return min(1.0, Double(elapsed) / Double(currentExerciseDuration))
     }
     
+    // MARK: - AI Coaching Feedback View
+    
+    /// Displays AI coaching feedback during rest periods after close-grip bench press.
+    /// Shows loading, success, or error states based on RestViewModel.
+    @ViewBuilder
+    private var coachingFeedbackView: some View {
+        VStack(spacing: 12) {
+            switch restViewModel.state {
+            case .idle:
+                // No coaching requested yet
+                EmptyView()
+                
+            case .loading:
+                // Loading state
+                HStack(spacing: 12) {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .textPrimary))
+                    Text("Generating coaching...")
+                        .font(.neueMontrealRegular(size: 14))
+                        .foregroundColor(.textSecondary)
+                }
+                .padding(.vertical, 8)
+                
+            case .success(let response):
+                // Success state - show coaching card
+                VStack(alignment: .leading, spacing: 12) {
+                    // Headline
+                    Text(response.headline)
+                        .font(.neueMontrealBold(size: 18))
+                        .foregroundColor(.textPrimary)
+                    
+                    // What you did well
+                    if !response.did_well.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("What you did well")
+                                .font(.neueMontrealSemiBold(size: 12))
+                                .foregroundColor(.textSecondary)
+                            
+                            ForEach(response.did_well, id: \.self) { item in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(.green)
+                                    Text(item)
+                                        .font(.neueMontrealRegular(size: 14))
+                                        .foregroundColor(.textPrimary)
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Focus for next set (only if there are items)
+                    if !response.fix_next.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Focus for next set")
+                                .font(.neueMontrealSemiBold(size: 12))
+                                .foregroundColor(.textSecondary)
+                            
+                            ForEach(response.fix_next, id: \.self) { item in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: "arrow.right.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(.orange)
+                                    Text(item)
+                                        .font(.neueMontrealRegular(size: 14))
+                                        .foregroundColor(.textPrimary)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(12)
+                .background(Color.white.opacity(0.1))
+                .cornerRadius(12)
+                
+            case .error(let errorMessage):
+                // Error state with retry button
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.orange)
+                        Text("Coaching unavailable")
+                            .font(.neueMontrealRegular(size: 14))
+                            .foregroundColor(.textSecondary)
+                    }
+                    
+                    #if DEBUG
+                    Text(errorMessage)
+                        .font(.neueMontrealRegular(size: 10))
+                        .foregroundColor(.textSecondary.opacity(0.7))
+                        .lineLimit(2)
+                    #endif
+                    
+                    Button(action: {
+                        restViewModel.retry()
+                    }) {
+                        Text("Retry")
+                            .font(.neueMontrealSemiBold(size: 14))
+                            .foregroundColor(.textPrimary)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.white.opacity(0.2))
+                            .cornerRadius(8)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+        }
+        .padding(.top, 8)
+    }
     
     /// Whether the current exercise is in the Warm-up phase.
     private var isWarmUpExercise: Bool {
@@ -1385,6 +1653,9 @@ struct WorkoutActiveView: View {
             // Configure exercise type for form analysis
             poseManager.squatType = .closeGripBenchPress
             
+            // Track set start time for duration calculation (used in AI coaching summary)
+            closeGripBenchSetStartTime = Date()
+            
             // Map camera setup selection to view type for view-specific form analysis adjustments
             if let cameraSetup = cameraSetupSelection {
                 switch cameraSetup {
@@ -1523,8 +1794,11 @@ struct WorkoutActiveView: View {
     private func startFormScoreTimer() {
         stopFormScoreTimer()
         
-        // Reset rep tracking
+        // Reset rep tracking and form score state
         lastObservedRepCount = poseManager.repCount
+        isTrackingActive = false
+        repScores = []
+        trackingPulseScale = 1.0
         
         #if DEBUG
         print("🎯 Starting form score timer (1 Hz, updates on rep detection)")
@@ -1539,36 +1813,106 @@ struct WorkoutActiveView: View {
     private func stopFormScoreTimer() {
         formScoreUpdateTimer?.invalidate()
         formScoreUpdateTimer = nil
+        isTrackingActive = false
+        trackingPulseScale = 1.0
     }
     
     /// Checks if a new rep was detected and updates the form score accordingly.
     /// 
-    /// Behavior:
-    /// - When repCount increases: Updates form score from current pose analysis (if pose is detected)
-    /// - When no pose detected: Leaves score unchanged (ring shows grey with hyphen)
+    /// Monitors rep count changes and updates form score using exponential moving average.
     /// 
-    /// This ensures the form score only updates on rep completion, not continuously.
+    /// **State Management:**
+    /// - **Before first score**: Enters "tracking" state when pose is detected (pulsing blue ring)
+    /// - **On rep completion**: Calculates score from form analysis, applies moving average, snaps to new score
+    /// - **After score exists**: Score persists regardless of pose detection state; tracking is permanently disabled
+    /// 
+    /// **Score Persistence:**
+    /// - Once calculated, the score remains visible even when pose is temporarily lost
+    /// - Only updates when a new rep is detected and completes
+    /// - Uses `lastRepFormAnalysis` as fallback if `currentFormAnalysis` is unavailable
+    ///   (ensures score calculation even if pose is lost immediately after rep completion)
+    /// 
+    /// **Moving Average:**
+    /// - Uses exponential moving average (alpha = 0.55) for smoother set score transitions
+    /// - First rep: score snaps directly (no averaging)
+    /// - Subsequent reps: weighted average of new rep score and existing smoothed score
     private func checkForRepAndUpdateScore() {
         let currentRepCount = poseManager.repCount
         let poseDetected = poseManager.poseDetected
         let hasValidAnalysis = poseManager.currentFormAnalysis != nil
         
+        // Update tracking state based on pose detection
+        // Only enter tracking state if we don't have a score yet
+        // Once a score exists, it persists and we don't show tracking anymore
+        if poseDetected && hasValidAnalysis {
+            // Pose detected - enter tracking state only if we don't have a score yet
+            if smoothedFormScore == 0 && !isTrackingActive && currentRepCount == lastObservedRepCount {
+                isTrackingActive = true
+                #if DEBUG
+                print("📡 Tracking active - pose detected, waiting for rep completion")
+                #endif
+            }
+        } else {
+            // No pose detected - exit tracking state only if we don't have a score
+            // If we have a score, keep it visible (don't reset tracking state)
+            if isTrackingActive && smoothedFormScore == 0 {
+                isTrackingActive = false
+                #if DEBUG
+                print("📡 Tracking inactive - no pose detected")
+                #endif
+            }
+        }
+        
         // Check if a new rep was detected
         if currentRepCount > lastObservedRepCount {
             lastObservedRepCount = currentRepCount
             
-            // Only update score if pose is detected and we have valid analysis
-            if poseDetected && hasValidAnalysis {
-                let rawScore = Double(rawFormScore)
-                if rawScore > 0 {
-                    smoothedFormScore = rawScore
-                    
-                    #if DEBUG
-                    print("📊 Rep \(currentRepCount) detected - form score updated: \(Int(rawScore))")
-                    #endif
-                }
+            // Calculate score from form analysis
+            // Use last rep's analysis if current analysis isn't available
+            // This ensures we can calculate score even if pose is temporarily lost after rep completion
+            let rawScore = Double(rawFormScore)
+            
+            if rawScore > 0 {
+                // Apply exponential moving average for set score
+                updateFormScoreWithMovingAverage(newRepScore: rawScore)
+                
+                // Exit tracking state after score update (score now persists)
+                isTrackingActive = false
+                
+                #if DEBUG
+                print("📊 Rep \(currentRepCount) detected - form score updated to: \(Int(smoothedFormScore))")
+                #endif
             }
         }
+    }
+    
+    /// Updates the form score using exponential moving average (EMA).
+    /// 
+    /// **Formula:** `smoothedScore = alpha * newRepScore + (1 - alpha) * smoothedScore`
+    /// 
+    /// **Parameters:**
+    /// - `alpha = 0.55`: Smoothing factor providing faster but still smooth transitions
+    ///   - Higher alpha = more responsive to new scores
+    ///   - Lower alpha = smoother but slower to reflect changes
+    /// 
+    /// **Behavior:**
+    /// - First rep: Score snaps directly (no averaging)
+    /// - Subsequent reps: Score updates with weighted average
+    /// 
+    /// **Result:** The smoothed score persists and remains visible until the next rep updates it.
+    private func updateFormScoreWithMovingAverage(newRepScore: Double) {
+        let alpha = 0.55
+        
+        if smoothedFormScore == 0 || repScores.isEmpty {
+            // First rep: set score directly (snap)
+            smoothedFormScore = newRepScore
+        } else {
+            // Apply exponential moving average
+            smoothedFormScore = alpha * newRepScore + (1 - alpha) * smoothedFormScore
+        }
+        
+        // Store rep score for reference
+        repScores.append(newRepScore)
     }
     
     private func togglePause() {
@@ -1587,20 +1931,42 @@ struct WorkoutActiveView: View {
         }
     }
     
+    /// Moves to the next exercise in the workout.
+    ///
+    /// Handles:
+    /// - Stopping current speech and clearing queue
+    /// - Tracking previous exercise name for rest card coaching
+    /// - Providing coaching feedback when transitioning from close-grip bench press to rest
+    /// - Managing camera closure after 3rd set
+    /// - Resetting exercise timers and state
     private func moveToNextExercise() {
         // Stop any ongoing speech and clear the queue
         SpeechManager.shared.stopSpeaking()
         SpeechManager.shared.clearSpeechQueue()
         
-        // MARK: - Close-Grip Bench Press: Coaching & Camera Management
+        // MARK: - Track Previous Exercise Name
+        // Save the current exercise name before incrementing index (for rest card coaching detection)
+        previousExerciseName = currentExercise?.name
+        
+        // Reset rest coaching state when leaving a rest exercise
+        if isRestExercise {
+            restViewModel.reset()
+        }
         
         // MARK: - Close-Grip Bench Press: Coaching Feedback
-        // Provide coaching feedback when transitioning from close-grip bench press to rest period
-        if isCloseGripBenchPressExercise {
+        // Provide coaching feedback when transitioning from close-grip bench press to rest period.
+        // IMPORTANT: Only provide coaching if the exercise was actually active (not during intro buffer).
+        // The intro buffer period should not trigger coaching since no actual exercise was performed.
+        if isCloseGripBenchPressExercise && !isShowingIntro {
             let nextIndex = currentExerciseIndex + 1
+            
             if nextIndex < workout.exercises.count {
                 let nextExercise = workout.exercises[nextIndex]
+                
+                // If next exercise is rest, provide coaching feedback
                 if nextExercise.name.lowercased() == "rest" {
+                    // Set flag to prevent rest announcement from interrupting coaching
+                    justProvidedCoaching = true
                     provideCloseGripBenchPressCoachingFeedback()
                     completedCloseGripBenchPressSets += 1
                     
@@ -1928,14 +2294,19 @@ struct WorkoutActiveView: View {
     
     // MARK: - Close-Grip Bench Press Coaching Feedback
     
-    /// Provides score-based coaching feedback when transitioning from close-grip bench press to rest period.
+    /// Provides AI coaching feedback when transitioning from close-grip bench press to rest period.
+    /// Provides coaching feedback for close-grip bench press sets.
     ///
-    /// Feedback Logic:
-    /// - **No reps detected**: Skip all feedback (user skipped set or no movement detected)
-    /// - **Score ≥ 75**: Congratulate via SpeechManager (no OpenAI API call to save costs/latency)
-    /// - **Score < 75**: Send form analysis to OpenAI for constructive feedback (prompt always leads with positive)
+    /// Uses the OpenAI Responses API with structured JSON output for consistent coaching.
+    ///
+    /// **Feedback Logic:**
+    /// - **No reps detected (repCount == 0)**: Provides generic encouragement message
+    /// - **Score ≥ 75**: Praise-only mode - no critical feedback, only positive reinforcement
+    /// - **Score < 75**: Mixed mode - 1 positive item + 1-2 corrective cues
     ///
     /// Called automatically when user presses forward button to move from close-grip bench press to rest period.
+    /// The coaching is fetched asynchronously via `RestViewModel`, which handles loading/success/error states
+    /// and speaks the feedback automatically.
     private func provideCloseGripBenchPressCoachingFeedback() {
         // Handle case when no reps were detected - provide generic encouragement
         if poseManager.repCount == 0 {
@@ -1944,36 +2315,26 @@ struct WorkoutActiveView: View {
                 "Take your time and focus on the next set.",
                 "Rest up and let's get after it!"
             ]
-            SpeechManager.shared.speakCoachingFeedback(messages.randomElement() ?? "Let's get ready!")
+            let message = messages.randomElement() ?? "Let's get ready!"
+            SpeechManager.shared.speakCoachingFeedback(message)
             return
         }
         
-        let score = currentFormScore
-        
-        if score >= 75 {
-            // High score: Direct congratulations without API call
-            let messages = [
-                "Great set! Excellent form and control.",
-                "Nice work! That was a solid set.",
-                "Well done! Great execution on that set.",
-                "That looked good! Keep up the great form.",
-                "Solid set! Your form was really dialed in."
-            ]
-            SpeechManager.shared.speakCoachingFeedback(messages.randomElement() ?? "Great set!")
-        } else {
-            // Lower score: Get constructive feedback from OpenAI
-            guard let formAnalysis = poseManager.currentFormAnalysis else {
-                SpeechManager.shared.speakCoachingFeedback("Good effort on that set. Keep focusing on your form.")
-                return
-            }
-            
-            OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(
-                formAnalysis: formAnalysis,
-                exerciseType: .closeGripBenchPress
-            ) { _ in
-                // Speech is handled internally by OpenAICoachingManager
-            }
+        // Get form analysis for the completed set
+        guard let formAnalysis = poseManager.currentFormAnalysis else {
+            SpeechManager.shared.speakCoachingFeedback("Good effort on that set. Keep focusing on your form.")
+            return
         }
+        
+        // Create compact summary for OpenAI API
+        let summary = CloseGripBenchSummary.from(
+            formAnalysis: formAnalysis,
+            setStartTime: closeGripBenchSetStartTime,
+            setEndTime: Date()
+        )
+        
+        // Fetch coaching via RestViewModel (handles loading/success/error states and speech)
+        restViewModel.fetchCoaching(summary: summary)
     }
     
     // MARK: - Parsing Functions
@@ -2459,11 +2820,35 @@ struct WorkoutActiveView: View {
     /// Handles rest period exercises with proper speech announcements.
     ///
     /// Rest periods skip the intro buffer and immediately start with a spoken announcement.
-    /// Uses generateRestAnnouncement() to ensure duration matches the card exactly.
+    /// Uses `generateRestAnnouncement()` to ensure duration matches the card exactly.
+    ///
+    /// **Speech Coordination:**
+    /// If coaching was just provided (via `justProvidedCoaching` flag), the rest announcement
+    /// is queued instead of interrupting the ongoing coaching speech. This ensures smooth
+    /// audio flow: coaching finishes first, then rest announcement plays.
     private func handleRestPeriod(for exercise: WorkoutExercise) {
-        // Stop any ongoing speech
-        SpeechManager.shared.stopSpeaking()
-        SpeechManager.shared.clearSpeechQueue()
+        // If coaching was just provided, queue the rest announcement instead of interrupting
+        if justProvidedCoaching {
+            // Reset the flag
+            justProvidedCoaching = false
+            
+            // Queue rest announcement to play after coaching finishes
+            // Parse rest duration from exercise.reps (format: ":45" -> 45 seconds)
+            let restDuration = parseTimeFromReps(exercise.reps)
+            let announcement = generateRestAnnouncement(duration: restDuration)
+            
+            // Queue the rest announcement (will play after current speech)
+            SpeechManager.shared.speakCoachingFeedback(announcement)
+        } else {
+            // Normal rest period (not after close-grip bench) - stop and speak immediately
+            SpeechManager.shared.stopSpeaking()
+            SpeechManager.shared.clearSpeechQueue()
+            
+            // Parse rest duration from exercise.reps (format: ":45" -> 45 seconds)
+            let restDuration = parseTimeFromReps(exercise.reps)
+            let announcement = generateRestAnnouncement(duration: restDuration)
+            SpeechManager.shared.speakCoachingFeedback(announcement)
+        }
         
         // No intro buffer for rest periods
         isShowingIntro = false
@@ -2473,14 +2858,6 @@ struct WorkoutActiveView: View {
             isSlideUpTabExpanded = false
             dragOffset = 0
         }
-        
-        // Parse rest duration from exercise.reps (format: ":45" -> 45 seconds)
-        let restDuration = parseTimeFromReps(exercise.reps)
-        
-        // Generate rest announcement with weighted random variation
-        // Uses exact duration or rounds to nearest 5 seconds to match pre-generated audio
-        let announcement = generateRestAnnouncement(duration: restDuration)
-        SpeechManager.shared.speakCoachingFeedback(announcement)
         
         // Start rest timer immediately (no buffer)
         startExercise()
@@ -2696,6 +3073,7 @@ private final class TestViewVideoDelegate: NSObject, AVCaptureVideoDataOutputSam
         processor?.process(sampleBuffer: sampleBuffer, mirrored: true, rotated: true)
     }
 }
+
 
 #Preview {
     WorkoutActiveView(workout: WorkoutLibrary.pythonWrangler)
