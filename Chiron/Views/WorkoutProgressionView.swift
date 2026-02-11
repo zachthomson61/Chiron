@@ -105,6 +105,12 @@ struct WorkoutProgressionView: View {
             "Superset 1",
             "Superset 2",
             "Finisher",
+            "Vertical Pull",
+            "Horizontal Row",
+            "Rear Delt Work",
+            "Brachialis Bicep Work",
+            "Long Head Bicep Work",
+            "Trap Work",
             "Cool Down"
         ]
         let orderedPhases = predefinedOrder.filter { phases.contains($0) }
@@ -586,13 +592,13 @@ private struct PhaseSeparatorBar: View {
     
     var body: some View {
         HStack {
-            // Show rounds only for multi-round phases, excluding Warm-up, Cool Down, and Finisher
+            // Show rounds for multi-round phases and "1 ROUND" for single-round phases (e.g. Trap Work), excluding Warm-up, Cool Down, and Finisher
             if let rounds = rounds,
-               rounds > 1,
+               rounds >= 1,
                phaseName != "Warm-up",
                phaseName != "Cool Down",
                phaseName != "Finisher" {
-                Text("\(phaseName.uppercased()) - \(rounds) ROUNDS")
+                Text("\(phaseName.uppercased()) - \(rounds) ROUND\(rounds == 1 ? "" : "S")")
                     .font(.neueMontrealSemiBold(size: 14))
                     .foregroundColor(.textPrimary)
             } else {
@@ -944,8 +950,12 @@ private struct WorkoutProgressionExerciseRow: View {
         // Special handling for Rest cards
         if exercise.name == "Rest" {
             if exercise.reps.hasPrefix(":") {
-                let seconds = String(exercise.reps.dropFirst())
-                return "\(seconds) seconds"
+                let secondsString = String(exercise.reps.dropFirst())
+                if let seconds = Int(secondsString), seconds >= 60 {
+                    let minutes = seconds / 60
+                    return minutes == 1 ? "1 min" : "\(minutes) min"
+                }
+                return "\(secondsString) seconds"
             }
             return exercise.reps
         }

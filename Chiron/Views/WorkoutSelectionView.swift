@@ -24,10 +24,6 @@ struct WorkoutSelectionView: View {
                             Text("Select Workout")
                                 .font(.neueMontrealBold(size: 32))
                                 .foregroundColor(.textPrimary)
-                            
-                            Text("Choose a workout to get started")
-                                .font(.neueMontrealRegular(size: 16))
-                                .foregroundColor(.textSecondary)
                         }
                         .padding(.top, 20)
                         .padding(.bottom, 24)
@@ -68,7 +64,7 @@ struct WorkoutSelectionView: View {
                                     .buttonStyle(.plain)
                                 }
                             }
-                            .padding(.horizontal, 20)
+                            .padding(.horizontal, 16)
                             .padding(.bottom, 20)
                         }
                     }
@@ -120,40 +116,45 @@ private struct WorkoutCard: View {
     let workout: PredeterminedWorkout
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             // Workout name
             Text(workout.name)
                 .font(.neueMontrealBold(size: 18))
                 .foregroundColor(.textPrimary)
                 .lineLimit(2)
+                .minimumScaleFactor(0.8)
             
             // Description
             Text(workout.description)
                 .font(.neueMontrealRegular(size: 13))
                 .foregroundColor(.textSecondary)
-                .lineLimit(2)
+                .lineLimit(3)
+                .lineSpacing(2)
             
-            Spacer()
+            Spacer(minLength: 12)
             
-            // Bottom row: Duration and difficulty
+            // Bottom row: Duration and difficulty (anchored at bottom)
             HStack {
-                // Duration
+                // Duration (kept on one line)
                 HStack(spacing: 4) {
                     Image(systemName: "clock")
                         .font(.system(size: 12))
                     Text("\(workout.duration) min")
                         .font(.neueMontrealRegular(size: 12))
+                        .lineLimit(1)
                 }
                 .foregroundColor(.textSecondary)
+                .fixedSize(horizontal: true, vertical: false)
                 
                 Spacer()
                 
-                // Difficulty pill
+                // Difficulty pill (fixed size so "Intermediate" etc. always fits)
                 DifficultyPill(difficulty: workout.difficulty)
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
-        .padding(16)
-        .frame(height: 140)
+        .padding(12)
+        .frame(height: 158)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white.opacity(0.06))
         .cornerRadius(16)
@@ -174,6 +175,8 @@ private struct DifficultyPill: View {
         Text(difficulty.rawValue)
             .font(.neueMontrealSemiBold(size: 11))
             .foregroundColor(pillForegroundColor)
+            .lineLimit(1)
+            .minimumScaleFactor(0.65)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(pillBackgroundColor)

@@ -23,7 +23,776 @@ import Foundation
 struct WorkoutLibrary {
     /// All available predetermined workouts.
     static let workouts: [PredeterminedWorkout] = [
-        pythonWrangler
+        pythonWrangler,
+        carbonPull
+    ]
+
+    /// Carbon Pull - 60-minute High-Intensity Pull
+    static let carbonPull = PredeterminedWorkout(
+        name: "Carbon Pull",
+        description: "High-Intensity Pull •\nFat Loss Focus",
+        duration: 60,
+        difficulty: .intermediate,
+        exercises: carbonPullExercises,
+        equipment: [
+            "Cable Machine",
+            "Dumbbells",
+            "Preacher Bench (optional)"
+        ],
+        videoName: "BarbellRow",
+        category: "Back"
+    )
+
+    /// Carbon Pull workout: Warm-up, Vertical Pull, Horizontal Row, Rear Delt, Brachialis, Long Head Bicep, Trap Work, Cool Down.
+    private static let carbonPullExercises: [WorkoutExercise] = [
+        // Warm-up (same 8 as Python Wrangler)
+        WorkoutExercise(
+            name: "Cross-Body Arm Swings",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Slow Tempo",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Arm Circles",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Slow Tempo",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Thread the Needle",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Thread the Needle",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Overhead Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Overhead Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        // Vertical Pull - 2 rounds
+        WorkoutExercise(
+            name: "Neutral Grip Cable Pulldown",
+            category: .compound,
+            sets: 1,
+            reps: "6-8",
+            restTime: 0,
+            notes: nil,
+            phase: "Vertical Pull"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":180",
+            restTime: 0,
+            notes: nil,
+            phase: "Vertical Pull"
+        ),
+        WorkoutExercise(
+            name: "Neutral Grip Cable Pulldown",
+            category: .compound,
+            sets: 1,
+            reps: "6-8",
+            restTime: 0,
+            notes: nil,
+            phase: "Vertical Pull"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":180",
+            restTime: 0,
+            notes: nil,
+            phase: "Vertical Pull"
+        ),
+        // Horizontal Row - 2 rounds
+        WorkoutExercise(
+            name: "Close-Grip Cable Row",
+            category: .compound,
+            sets: 1,
+            reps: "8-10",
+            restTime: 0,
+            notes: nil,
+            phase: "Horizontal Row"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":120",
+            restTime: 0,
+            notes: nil,
+            phase: "Horizontal Row"
+        ),
+        WorkoutExercise(
+            name: "Close-Grip Cable Row",
+            category: .compound,
+            sets: 1,
+            reps: "8-10",
+            restTime: 0,
+            notes: nil,
+            phase: "Horizontal Row"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":120",
+            restTime: 0,
+            notes: nil,
+            phase: "Horizontal Row"
+        ),
+        // Rear Delt Work - 2 rounds
+        WorkoutExercise(
+            name: "Reverse Cable Fly",
+            category: .isolation,
+            sets: 1,
+            reps: "12-15",
+            restTime: 0,
+            notes: nil,
+            phase: "Rear Delt Work"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":60",
+            restTime: 0,
+            notes: nil,
+            phase: "Rear Delt Work"
+        ),
+        WorkoutExercise(
+            name: "Reverse Cable Fly",
+            category: .isolation,
+            sets: 1,
+            reps: "12-15",
+            restTime: 0,
+            notes: nil,
+            phase: "Rear Delt Work"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":60",
+            restTime: 0,
+            notes: nil,
+            phase: "Rear Delt Work"
+        ),
+        // Brachialis Bicep Work - 2 rounds
+        WorkoutExercise(
+            name: "Hammer Preacher Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "8-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Brachialis Bicep Work"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Brachialis Bicep Work"
+        ),
+        WorkoutExercise(
+            name: "Hammer Preacher Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "8-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Brachialis Bicep Work"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Brachialis Bicep Work"
+        ),
+        // Long Head Bicep Work - 2 rounds
+        WorkoutExercise(
+            name: "Incline DB Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "10-15",
+            restTime: 0,
+            notes: nil,
+            phase: "Long Head Bicep Work"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":60",
+            restTime: 0,
+            notes: nil,
+            phase: "Long Head Bicep Work"
+        ),
+        WorkoutExercise(
+            name: "Incline DB Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "10-15",
+            restTime: 0,
+            notes: nil,
+            phase: "Long Head Bicep Work"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":60",
+            restTime: 0,
+            notes: nil,
+            phase: "Long Head Bicep Work"
+        ),
+        // Trap Work - 1 round
+        WorkoutExercise(
+            name: "Wide Cable Shrug-In",
+            category: .compound,
+            sets: 1,
+            reps: "8-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Trap Work"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":120",
+            restTime: 0,
+            notes: nil,
+            phase: "Trap Work"
+        ),
+        // Cool Down (same 4 as Python Wrangler)
+        WorkoutExercise(
+            name: "Cross-body Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Cross-body Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Cool Down"
+        )
+    ]
+
+    /// Shared exercise list for arm-focused predetermined workouts (Python Wrangler only).
+    private static let armWorkoutExercises: [WorkoutExercise] = [
+        // Warm-up exercises
+        WorkoutExercise(
+            name: "Cross-Body Arm Swings",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Slow Tempo",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Arm Circles",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Slow Tempo",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Thread the Needle",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Thread the Needle",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Overhead Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Overhead Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        // Explosive Tricep Primer - Camera Setup for Close-Grip Bench Press
+        WorkoutExercise(
+            name: "Close-Grip Bench Press",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Explosive Tricep Primer"
+        ),
+        WorkoutExercise(
+            name: "Close-Grip Bench Press",
+            category: .compound,
+            sets: 1,
+            reps: "6-8",
+            restTime: 120,
+            notes: "Explosive tempo",
+            phase: "Explosive Tricep Primer"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":45",
+            restTime: 0,
+            notes: nil,
+            phase: "Explosive Tricep Primer"
+        ),
+        WorkoutExercise(
+            name: "Close-Grip Bench Press",
+            category: .compound,
+            sets: 1,
+            reps: "6-8",
+            restTime: 120,
+            notes: "Explosive tempo",
+            phase: "Explosive Tricep Primer"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":45",
+            restTime: 0,
+            notes: nil,
+            phase: "Explosive Tricep Primer"
+        ),
+        WorkoutExercise(
+            name: "Close-Grip Bench Press",
+            category: .compound,
+            sets: 1,
+            reps: "6-8",
+            restTime: 120,
+            notes: "Explosive tempo",
+            phase: "Explosive Tricep Primer"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":45",
+            restTime: 0,
+            notes: nil,
+            phase: "Explosive Tricep Primer"
+        ),
+        // Explosive Bicep Primer
+        WorkoutExercise(
+            name: "Alternating DB Curls",
+            category: .isolation,
+            sets: 1,
+            reps: "6-8",
+            restTime: 90,
+            notes: "Explosive tempo",
+            phase: "Explosive Bicep Primer"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":45",
+            restTime: 0,
+            notes: nil,
+            phase: "Explosive Bicep Primer"
+        ),
+        WorkoutExercise(
+            name: "Alternating DB Curls",
+            category: .isolation,
+            sets: 1,
+            reps: "6-8",
+            restTime: 90,
+            notes: "Explosive tempo",
+            phase: "Explosive Bicep Primer"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":45",
+            restTime: 0,
+            notes: nil,
+            phase: "Explosive Bicep Primer"
+        ),
+        WorkoutExercise(
+            name: "Alternating DB Curls",
+            category: .isolation,
+            sets: 1,
+            reps: "6-8",
+            restTime: 90,
+            notes: "Explosive tempo",
+            phase: "Explosive Bicep Primer"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":45",
+            restTime: 0,
+            notes: nil,
+            phase: "Explosive Bicep Primer"
+        ),
+        // Superset 1
+        WorkoutExercise(
+            name: "Incline DB Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Rope Tricep Pushdown",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Incline DB Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Rope Tricep Pushdown",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Incline DB Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Rope Tricep Pushdown",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        // Superset 2
+        WorkoutExercise(
+            name: "EZ-Bar Drag Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "Overhead Rope Extension",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "EZ-Bar Drag Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "Overhead Rope Extension",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "EZ-Bar Drag Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "Overhead Rope Extension",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        // Finisher
+        WorkoutExercise(
+            name: "Barbell Bicep Curl",
+            category: .isolation,
+            sets: 1,
+            reps: ":21",
+            restTime: 0,
+            notes: nil,
+            phase: "Finisher"
+        ),
+        WorkoutExercise(
+            name: "Bench Dip",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Finisher"
+        ),
+        WorkoutExercise(
+            name: "Hammer Curl Hold",
+            category: .isolation,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: nil,
+            phase: "Finisher"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Finisher"
+        ),
+        // Cool Down
+        WorkoutExercise(
+            name: "Cross-body Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Cross-body Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Cool Down"
+        )
     ]
     
     /// Python Wrangler - 45-minute Explosive Hypertrophy Arm Workout
@@ -41,449 +810,7 @@ struct WorkoutLibrary {
         description: "Explosive Muscle Building Arm Workout",
         duration: 45,
         difficulty: .intermediate,
-        exercises: [
-            // Warm-up exercises
-            WorkoutExercise(
-                name: "Cross-Body Arm Swings",
-                category: .mobility,
-                sets: 1,
-                reps: ":30",
-                restTime: 0,
-                notes: "Slow Tempo",
-                phase: "Warm-up"
-            ),
-            WorkoutExercise(
-                name: "Arm Circles",
-                category: .mobility,
-                sets: 1,
-                reps: ":30",
-                restTime: 0,
-                notes: "Slow Tempo",
-                phase: "Warm-up"
-            ),
-            WorkoutExercise(
-                name: "Thread the Needle",
-                category: .mobility,
-                sets: 1,
-                reps: ":30",
-                restTime: 0,
-                notes: "Right Side",
-                phase: "Warm-up"
-            ),
-            WorkoutExercise(
-                name: "Thread the Needle",
-                category: .mobility,
-                sets: 1,
-                reps: ":30",
-                restTime: 0,
-                notes: "Left Side",
-                phase: "Warm-up"
-            ),
-            WorkoutExercise(
-                name: "Overhead Tricep Stretch",
-                category: .mobility,
-                sets: 1,
-                reps: ":30",
-                restTime: 0,
-                notes: "Right Side",
-                phase: "Warm-up"
-            ),
-            WorkoutExercise(
-                name: "Overhead Tricep Stretch",
-                category: .mobility,
-                sets: 1,
-                reps: ":30",
-                restTime: 0,
-                notes: "Left Side",
-                phase: "Warm-up"
-            ),
-            WorkoutExercise(
-                name: "Standing Wall Bicep Stretch",
-                category: .mobility,
-                sets: 1,
-                reps: ":30",
-                restTime: 0,
-                notes: "Right Side",
-                phase: "Warm-up"
-            ),
-            WorkoutExercise(
-                name: "Standing Wall Bicep Stretch",
-                category: .mobility,
-                sets: 1,
-                reps: ":30",
-                restTime: 0,
-                notes: "Left Side",
-                phase: "Warm-up"
-            ),
-            // Explosive Tricep Primer - Camera Setup for Close-Grip Bench Press
-            // Notes format: "CAMERA_SETUP|RACK|instruction1|instruction2|...|FLOOR|instruction1|instruction2|...|TRIPOD|instruction1|instruction2|..."
-            // These instructions are displayed as bullet points in the UI. Audio uses exact predefined text in playCameraSetupInstructions().
-            WorkoutExercise(
-                name: "Close-Grip Bench Press",
-                category: .compound,
-                sets: 1,
-                reps: "",
-                restTime: 0,
-                notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
-                phase: "Explosive Tricep Primer"
-            ),
-            // Explosive Tricep Primer - Round 1
-            WorkoutExercise(
-                name: "Close-Grip Bench Press",
-                category: .compound,
-                sets: 1,
-                reps: "6-8",
-                restTime: 120,
-                notes: "Explosive tempo",
-                phase: "Explosive Tricep Primer"
-            ),
-            WorkoutExercise(
-                name: "Rest",
-                category: .mobility,
-                sets: 1,
-                reps: ":45",
-                restTime: 0,
-                notes: nil,
-                phase: "Explosive Tricep Primer"
-            ),
-            // Explosive Tricep Primer - Round 2
-            WorkoutExercise(
-                name: "Close-Grip Bench Press",
-                category: .compound,
-                sets: 1,
-                reps: "6-8",
-                restTime: 120,
-                notes: "Explosive tempo",
-                phase: "Explosive Tricep Primer"
-            ),
-            WorkoutExercise(
-                name: "Rest",
-                category: .mobility,
-                sets: 1,
-                reps: ":45",
-                restTime: 0,
-                notes: nil,
-                phase: "Explosive Tricep Primer"
-            ),
-            // Explosive Tricep Primer - Round 3
-            WorkoutExercise(
-                name: "Close-Grip Bench Press",
-                category: .compound,
-                sets: 1,
-                reps: "6-8",
-                restTime: 120,
-                notes: "Explosive tempo",
-                phase: "Explosive Tricep Primer"
-            ),
-            WorkoutExercise(
-                name: "Rest",
-                category: .mobility,
-                sets: 1,
-                reps: ":45",
-                restTime: 0,
-                notes: nil,
-                phase: "Explosive Tricep Primer"
-            ),
-            // Explosive Bicep Primer - Round 1
-            WorkoutExercise(
-                name: "Alternating DB Curls",
-                category: .isolation,
-                sets: 1,
-                reps: "6-8",
-                restTime: 90,
-                notes: "Explosive tempo",
-                phase: "Explosive Bicep Primer"
-            ),
-            WorkoutExercise(
-                name: "Rest",
-                category: .mobility,
-                sets: 1,
-                reps: ":45",
-                restTime: 0,
-                notes: nil,
-                phase: "Explosive Bicep Primer"
-            ),
-            // Explosive Bicep Primer - Round 2
-            WorkoutExercise(
-                name: "Alternating DB Curls",
-                category: .isolation,
-                sets: 1,
-                reps: "6-8",
-                restTime: 90,
-                notes: "Explosive tempo",
-                phase: "Explosive Bicep Primer"
-            ),
-            WorkoutExercise(
-                name: "Rest",
-                category: .mobility,
-                sets: 1,
-                reps: ":45",
-                restTime: 0,
-                notes: nil,
-                phase: "Explosive Bicep Primer"
-            ),
-            // Explosive Bicep Primer - Round 3
-            WorkoutExercise(
-                name: "Alternating DB Curls",
-                category: .isolation,
-                sets: 1,
-                reps: "6-8",
-                restTime: 90,
-                notes: "Explosive tempo",
-                phase: "Explosive Bicep Primer"
-            ),
-            WorkoutExercise(
-                name: "Rest",
-                category: .mobility,
-                sets: 1,
-                reps: ":45",
-                restTime: 0,
-                notes: nil,
-                phase: "Explosive Bicep Primer"
-            ),
-            // Superset 1 - Round 1
-            WorkoutExercise(
-                name: "Incline DB Curl",
-                category: .isolation,
-                sets: 1,
-                reps: "10-12",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 1"
-            ),
-            WorkoutExercise(
-                name: "Rope Tricep Pushdown",
-                category: .isolation,
-                sets: 1,
-                reps: "10-12",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 1"
-            ),
-            WorkoutExercise(
-                name: "Rest",
-                category: .mobility,
-                sets: 1,
-                reps: ":90",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 1"
-            ),
-            // Superset 1 - Round 2
-            WorkoutExercise(
-                name: "Incline DB Curl",
-                category: .isolation,
-                sets: 1,
-                reps: "10-12",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 1"
-            ),
-            WorkoutExercise(
-                name: "Rope Tricep Pushdown",
-                category: .isolation,
-                sets: 1,
-                reps: "10-12",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 1"
-            ),
-            WorkoutExercise(
-                name: "Rest",
-                category: .mobility,
-                sets: 1,
-                reps: ":90",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 1"
-            ),
-            // Superset 1 - Round 3
-            WorkoutExercise(
-                name: "Incline DB Curl",
-                category: .isolation,
-                sets: 1,
-                reps: "10-12",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 1"
-            ),
-            WorkoutExercise(
-                name: "Rope Tricep Pushdown",
-                category: .isolation,
-                sets: 1,
-                reps: "10-12",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 1"
-            ),
-            WorkoutExercise(
-                name: "Rest",
-                category: .mobility,
-                sets: 1,
-                reps: ":90",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 1"
-            ),
-            // Superset 2 - Round 1
-            WorkoutExercise(
-                name: "EZ-Bar Drag Curl",
-                category: .isolation,
-                sets: 1,
-                reps: "10-12",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 2"
-            ),
-            WorkoutExercise(
-                name: "Overhead Rope Extension",
-                category: .isolation,
-                sets: 1,
-                reps: "10-12",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 2"
-            ),
-            WorkoutExercise(
-                name: "Rest",
-                category: .mobility,
-                sets: 1,
-                reps: ":90",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 2"
-            ),
-            // Superset 2 - Round 2
-            WorkoutExercise(
-                name: "EZ-Bar Drag Curl",
-                category: .isolation,
-                sets: 1,
-                reps: "10-12",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 2"
-            ),
-            WorkoutExercise(
-                name: "Overhead Rope Extension",
-                category: .isolation,
-                sets: 1,
-                reps: "10-12",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 2"
-            ),
-            WorkoutExercise(
-                name: "Rest",
-                category: .mobility,
-                sets: 1,
-                reps: ":90",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 2"
-            ),
-            // Superset 2 - Round 3
-            WorkoutExercise(
-                name: "EZ-Bar Drag Curl",
-                category: .isolation,
-                sets: 1,
-                reps: "10-12",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 2"
-            ),
-            WorkoutExercise(
-                name: "Overhead Rope Extension",
-                category: .isolation,
-                sets: 1,
-                reps: "10-12",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 2"
-            ),
-            WorkoutExercise(
-                name: "Rest",
-                category: .mobility,
-                sets: 1,
-                reps: ":90",
-                restTime: 0,
-                notes: nil,
-                phase: "Superset 2"
-            ),
-            // Finisher
-            WorkoutExercise(
-                name: "Barbell Bicep Curl",
-                category: .isolation,
-                sets: 1,
-                reps: ":21",
-                restTime: 0,
-                notes: nil,
-                phase: "Finisher"
-            ),
-            WorkoutExercise(
-                name: "Bench Dip",
-                category: .isolation,
-                sets: 1,
-                reps: "10-12",
-                restTime: 0,
-                notes: nil,
-                phase: "Finisher"
-            ),
-            WorkoutExercise(
-                name: "Hammer Curl Hold",
-                category: .isolation,
-                sets: 1,
-                reps: ":30",
-                restTime: 0,
-                notes: nil,
-                phase: "Finisher"
-            ),
-            WorkoutExercise(
-                name: "Rest",
-                category: .mobility,
-                sets: 1,
-                reps: ":90",
-                restTime: 0,
-                notes: nil,
-                phase: "Finisher"
-            ),
-            // Cool Down
-            WorkoutExercise(
-                name: "Cross-body Tricep Stretch",
-                category: .mobility,
-                sets: 1,
-                reps: ":30",
-                restTime: 0,
-                notes: "Right Side",
-                phase: "Cool Down"
-            ),
-            WorkoutExercise(
-                name: "Cross-body Tricep Stretch",
-                category: .mobility,
-                sets: 1,
-                reps: ":30",
-                restTime: 0,
-                notes: "Left Side",
-                phase: "Cool Down"
-            ),
-            WorkoutExercise(
-                name: "Standing Wall Bicep Stretch",
-                category: .mobility,
-                sets: 1,
-                reps: ":30",
-                restTime: 0,
-                notes: "Right Side",
-                phase: "Cool Down"
-            ),
-            WorkoutExercise(
-                name: "Standing Wall Bicep Stretch",
-                category: .mobility,
-                sets: 1,
-                reps: ":30",
-                restTime: 0,
-                notes: "Left Side",
-                phase: "Cool Down"
-            )
-        ],
+        exercises: armWorkoutExercises,
         equipment: [
             "Barbell",
             "Dumbbells",
