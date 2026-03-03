@@ -1,2 +1,11 @@
 .cursor/debug.log
 xcuserdata/
+
+# Dependencies
+node_modules/
+
+# macOS / Xcode
+.DS_Store
+*.xcuserstate
+DerivedData/
+build/
