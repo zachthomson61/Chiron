@@ -173,8 +173,14 @@ struct WorkoutProgressionView: View {
                                     
                                     // Exercises in this phase
                                     ForEach(exercisesToShow, id: \.id) { exercise in
-                                        // Find the actual index in the full workout exercises array
                                         let exerciseIndex = workout.exercises.firstIndex(where: { $0.id == exercise.id }) ?? 0
+                                        // For camera setup rows in sections that have exercise selection, "Jump to Here" goes to exercise selection first
+                                        let jumpToExerciseIndex: Int = {
+                                            guard exercise.notes?.hasPrefix("CAMERA_SETUP") == true, exerciseIndex > 0 else { return exerciseIndex }
+                                            let prev = workout.exercises[exerciseIndex - 1]
+                                            guard prev.notes?.hasPrefix("EXERCISE_SELECTION") == true, prev.phase == exercise.phase else { return exerciseIndex }
+                                            return exerciseIndex - 1
+                                        }()
                                         
                                         WorkoutProgressionExerciseRow(
                                             exercise: exercise,
@@ -184,7 +190,6 @@ struct WorkoutProgressionView: View {
                                             isCurrentExercise: currentExerciseIndex == exerciseIndex,
                                             isFromActiveView: isFromActiveView,
                                             onTap: {
-                                                // Toggle expansion: if already expanded, collapse; otherwise expand
                                                 if expandedExerciseId == exercise.id {
                                                     expandedExerciseId = nil
                                                 } else {
@@ -193,7 +198,7 @@ struct WorkoutProgressionView: View {
                                             },
                                             onJumpToExercise: {
                                                 if let onJumpToExercise = onJumpToExercise {
-                                                    onJumpToExercise(exerciseIndex)
+                                                    onJumpToExercise(jumpToExerciseIndex)
                                                     dismiss()
                                                 }
                                             },
@@ -476,43 +481,37 @@ struct WorkoutProgressionView: View {
     ///   - exercises: All exercises in the phase
     /// - Returns: Exercises to display based on expansion state
     private func getExercisesToShow(for phase: String, exercises: [WorkoutExercise]) -> [WorkoutExercise] {
-        // Filter out camera setup exercises if coaching is disabled
         let filteredExercises = exercises.filter { exercise in
-            guard let notes = exercise.notes, notes.hasPrefix("CAMERA_SETUP") else {
-                return true // Keep non-camera-setup exercises
+            guard let notes = exercise.notes else { return true }
+            // Exclude exercise selection from overview; only camera setup row is shown per section
+            if notes.hasPrefix("EXERCISE_SELECTION") { return false }
+            if notes.hasPrefix("CAMERA_SETUP") {
+                return CameraCoachingPreferencesManager.shared.isCameraCoachingEnabled(for: exercise.name)
             }
-            // Check if camera coaching is enabled for this exercise
-            return CameraCoachingPreferencesManager.shared.isCameraCoachingEnabled(for: exercise.name)
+            return true
         }
         
-        // Cool Down always shows all exercises (no collapsing/expanding)
         if phase == "Cool Down" {
             return filteredExercises
         }
         
-        // If phase has rounds and hasn't been expanded, show only first round
         guard hasRounds(phase, exercises: filteredExercises) && !expandedPhases.contains(phase) else {
             return filteredExercises
         }
         
-        // Find unique exercise names (excluding Rest and camera setup exercises) to determine round structure
-        // Camera setup exercises should always be included in the first round
         let uniqueExerciseNames = Set(filteredExercises.filter { exercise in
             exercise.name != "Rest" && !(exercise.notes?.hasPrefix("CAMERA_SETUP") ?? false)
         }.map { $0.name })
         let exercisesPerRound = uniqueExerciseNames.count
         
-        // Collect exercises up to and including the first Rest
-        // Always include camera setup exercises, then collect regular exercises up to exercisesPerRound
         var firstRound: [WorkoutExercise] = []
         var exerciseCount = 0
         
         for exercise in filteredExercises {
             if exercise.name == "Rest" {
                 firstRound.append(exercise)
-                break // Stop after first Rest
+                break
             } else {
-                // Always include camera setup exercises
                 let isCameraSetup = exercise.notes?.hasPrefix("CAMERA_SETUP") ?? false
                 if isCameraSetup {
                     firstRound.append(exercise)
@@ -569,6 +568,22 @@ private struct CameraSetupThumbnail: View {
             .frame(width: 80, height: 80)
             .overlay(
                 Image(systemName: "camera.viewfinder")
+                    .font(.system(size: 32))
+                    .foregroundColor(.textSecondary.opacity(0.5))
+            )
+    }
+}
+
+// MARK: - Exercise Selection Thumbnail
+
+/// Exercise selection card thumbnail with list icon.
+private struct ExerciseSelectionThumbnail: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.white.opacity(0.1))
+            .frame(width: 80, height: 80)
+            .overlay(
+                Image(systemName: "list.bullet.rectangle")
                     .font(.system(size: 32))
                     .foregroundColor(.textSecondary.opacity(0.5))
             )
@@ -661,6 +676,12 @@ private struct WorkoutProgressionExerciseRow: View {
         return notes.hasPrefix("CAMERA_SETUP")
     }
     
+    /// Whether this exercise is an exercise selection step.
+    private var isExerciseSelectionExercise: Bool {
+        guard let notes = exercise.notes else { return false }
+        return notes.hasPrefix("EXERCISE_SELECTION")
+    }
+    
     /// Parse camera setup instructions from notes.
     /// Notes format: "CAMERA_SETUP|instruction1|instruction2|..."
     private var cameraSetupInstructions: [String] {
@@ -695,23 +716,26 @@ private struct WorkoutProgressionExerciseRow: View {
         VStack(alignment: .leading, spacing: 0) {
             // Exercise header (always visible) - entire row is tappable
             HStack(alignment: .center, spacing: 12) {
-                // Exercise thumbnail placeholder (or Rest icon, or Camera icon for camera setup)
                 if exercise.name == "Rest" {
                     RestThumbnail()
+                } else if isExerciseSelectionExercise {
+                    ExerciseSelectionThumbnail()
                 } else if isCameraSetupExercise {
                     CameraSetupThumbnail()
                 } else {
                     ExerciseThumbnailPlaceholder()
                 }
                 
-                // Exercise details
                 VStack(alignment: .leading, spacing: 6) {
                     Text(exercise.name)
                         .font(.neueMontrealBold(size: 18))
                         .foregroundColor(.textPrimary)
                     
-                    // For camera setup exercises, show "Camera Setup" subtitle
-                    if isCameraSetupExercise {
+                    if isExerciseSelectionExercise {
+                        Text("Exercise Selection")
+                            .font(.neueMontrealRegular(size: 14))
+                            .foregroundColor(.textSecondary)
+                    } else if isCameraSetupExercise {
                         Text("Camera Setup")
                             .font(.neueMontrealRegular(size: 14))
                             .foregroundColor(.textSecondary)
@@ -764,10 +788,8 @@ private struct WorkoutProgressionExerciseRow: View {
             .padding(.vertical, 12)
             .contentShape(Rectangle())
             .onTapGesture {
-                // Rest and Camera Setup exercises are expandable when opened from active view
-                // to show "Jump to Here" button. When opened from intro view, they remain non-expandable.
                 if !isFromActiveView {
-                    guard exercise.name != "Rest", !isCameraSetupExercise else { return }
+                    guard exercise.name != "Rest", !isCameraSetupExercise, !isExerciseSelectionExercise else { return }
                 }
                 onTap()
             }
@@ -787,8 +809,7 @@ private struct WorkoutProgressionExerciseRow: View {
             //   - Regular exercises: Guide and History buttons (2-column grid)
             if isExpanded {
                 VStack(spacing: 24) {
-                    // Rest and Camera Setup cards: Show "Jump to Here" when opened from active view
-                    if (exercise.name == "Rest" || isCameraSetupExercise) && isFromActiveView {
+                    if (exercise.name == "Rest" || isCameraSetupExercise || isExerciseSelectionExercise) && isFromActiveView {
                         OverviewActionButton(
                             icon: "arrow.right.circle.fill",
                             title: "Jump to Here",
@@ -797,8 +818,7 @@ private struct WorkoutProgressionExerciseRow: View {
                         )
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
-                    } else if exercise.name == "Rest" || isCameraSetupExercise {
-                        // Rest and Camera Setup from intro view: Not expandable (defensive check)
+                    } else if exercise.name == "Rest" || isCameraSetupExercise || isExerciseSelectionExercise {
                         EmptyView()
                     } else {
                         // Video player for regular exercises

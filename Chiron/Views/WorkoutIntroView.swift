@@ -145,6 +145,9 @@ struct WorkoutIntroView: View {
     /// Resets to `nil` when navigating to/from camera setup exercise.
     @State private var cameraSetupSelection: CameraSetupType? = nil
     
+    /// Selected exercise for coaching in multi-exercise sections (Superset 1, Superset 2, Finisher).
+    @State private var selectedExerciseForSection: String? = nil
+    
     // MARK: - Close-Grip Bench Press Form Score State
     
     /// Observes pose manager for real-time form analysis and rep count updates.
@@ -923,8 +926,7 @@ struct WorkoutIntroView: View {
     
     private var bottomExerciseCard: some View {
         VStack(spacing: 0) {
-            // Slide-up indicator (hidden for camera setup exercises)
-            if !isCameraSetupExercise {
+            if !isCameraSetupExercise && !isExerciseSelectionExercise {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color.white.opacity(0.3))
                     .frame(width: 40, height: 4)
@@ -937,11 +939,9 @@ struct WorkoutIntroView: View {
                     }
             }
             
-            // Exercise info card (always visible)
             exerciseInfoCardContent
             
-            // Action buttons (shown when expanded, but not for camera setup exercises)
-            if isSlideUpTabExpanded && !isCameraSetupExercise {
+            if isSlideUpTabExpanded && !isCameraSetupExercise && !isExerciseSelectionExercise {
                 actionButtonsGrid
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -959,11 +959,11 @@ struct WorkoutIntroView: View {
                 topTrailingRadius: 20
             )
         )
+        .fixedSize(horizontal: false, vertical: isCameraSetupExercise || isExerciseSelectionExercise)
         .ignoresSafeArea(edges: .bottom)
         .offset(y: dragOffset)
         .gesture(
-            // Disable drag gesture for camera setup exercises
-            isCameraSetupExercise ? nil : DragGesture()
+            (isCameraSetupExercise || isExerciseSelectionExercise) ? nil : DragGesture()
                 .onChanged { value in
                     isDragging = true
                     
@@ -1008,9 +1008,7 @@ struct WorkoutIntroView: View {
                 }
         )
         .onTapGesture {
-            // Toggle expansion on tap (buttons will handle their own taps)
-            // Disabled for camera setup exercises
-            if !isDragging && !isCameraSetupExercise {
+            if !isDragging && !isCameraSetupExercise && !isExerciseSelectionExercise {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     isSlideUpTabExpanded.toggle()
                     dragOffset = 0
@@ -1028,52 +1026,16 @@ struct WorkoutIntroView: View {
                     .foregroundColor(.textPrimary)
                     .multilineTextAlignment(.center)
                 
-                // Camera Setup UI
-                if isCameraSetupExercise {
-                    // Camera setup title: shows "Camera Setup" or "Camera Setup — [Type]" when selected
-                    Text(cameraSetupSelection == nil ? "Camera Setup" : "Camera Setup — \(cameraSetupSelection!.displayName)")
-                        .font(.neueMontrealSemiBold(size: 20))
-                        .foregroundColor(.textPrimary)
+                // Exercise Selection UI (multi-exercise sections)
+                if isExerciseSelectionExercise {
+                    Text("Which exercise would you like coaching on?")
+                        .font(.neueMontrealRegular(size: 14))
+                        .foregroundColor(.textSecondary)
                         .padding(.top, 4)
                     
-                    // Show selection UI or setup cues based on user's choice
-                    if cameraSetupSelection == nil {
-                        VStack(spacing: 12) {
-                            Text("Select One")
-                                .font(.neueMontrealRegular(size: 14))
-                                .foregroundColor(.textSecondary)
-                            
-                            cameraSetupSelectionView
-                        }
-                    } else {
-                        // Camera setup instructions with icons
-                        VStack(alignment: .leading, spacing: 12) {
-                            ForEach(Array(cameraSetupInstructions.enumerated()), id: \.offset) { index, instruction in
-                                HStack(alignment: .top, spacing: 12) {
-                                    // Icon based on instruction content - smaller for 3rd bullet (index 2)
-                                    let iconSize: CGFloat = index == 2 ? 14 : 18
-                                    let frameSize: CGFloat = index == 2 ? 20 : 24
-                                    Image(systemName: iconForCameraSetupInstruction(instruction, index: index))
-                                        .font(.system(size: iconSize, weight: .medium))
-                                        .foregroundColor(.primaryPurple)
-                                        .frame(width: frameSize, height: frameSize)
-                                    
-                                    Text(instruction)
-                                        .font(.neueMontrealRegular(size: 16))
-                                        .foregroundColor(.textPrimary)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.8)
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 12)
-                        .padding(.bottom, 8)
-                    }
+                    exerciseSelectionCardView
                     
-                    // Navigation buttons: Overview, Back, Test View / End Test, and Forward
                     HStack {
-                        // Overview button (leftmost)
                         Button(action: {
                             showOverview = true
                         }) {
@@ -1085,32 +1047,73 @@ struct WorkoutIntroView: View {
                                 .clipShape(Circle())
                         }
                         
-                        // Back arrow button
-                        //
-                        // Visibility: Show button if either:
-                        //   1. Not on first exercise (can navigate back), OR
-                        //   2. On camera setup exercise with a selection made (can return to selection view)
-                        //
-                        // Behavior:
-                        //   - If on camera setup exercise AND a selection has been made:
-                        //     → Reset selection to nil (returns to selection view showing Rack Attachment/Floor options)
-                        //   - Otherwise, if not on first exercise:
-                        //     → Navigate to previous exercise
+                        if currentExerciseIndex > 0 {
+                            Button(action: {
+                                moveToPreviousExercise()
+                            }) {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundColor(.textPrimary)
+                                    .frame(width: 44, height: 44)
+                                    .background(Color.white.opacity(0.2))
+                                    .clipShape(Circle())
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        Button(action: {
+                            moveToNextExercise()
+                        }) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.textPrimary)
+                                .frame(width: 44, height: 44)
+                                .background(Color.white.opacity(0.2))
+                                .clipShape(Circle())
+                        }
+                    }
+                
+                // Camera Setup UI
+                } else if isCameraSetupExercise {
+                    VStack(spacing: 16) {
+                        Text(cameraSetupSelection == nil ? "Camera Setup" : "Camera Setup — \(cameraSetupSelection!.displayName)")
+                            .font(.neueMontrealSemiBold(size: 20))
+                            .foregroundColor(.textPrimary)
+                            .padding(.top, 4)
+                        
+                        if cameraSetupSelection == nil {
+                            VStack(spacing: 12) {
+                                Text("Select One")
+                                    .font(.neueMontrealRegular(size: 14))
+                                    .foregroundColor(.textSecondary)
+                                
+                                cameraSetupSelectionView
+                            }
+                        }
+                        
+                        HStack {
+                        Button(action: {
+                            showOverview = true
+                        }) {
+                            Image(systemName: "list.bullet")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.textPrimary)
+                                .frame(width: 44, height: 44)
+                                .background(Color.white.opacity(0.1))
+                                .clipShape(Circle())
+                        }
+                        
                         if currentExerciseIndex > 0 || (isCameraSetupExercise && cameraSetupSelection != nil) {
                             Button(action: {
                                 if isTestViewActive {
-                                    // End test view first
                                     endTestView()
                                 }
                                 if isCameraSetupExercise && cameraSetupSelection != nil {
-                                    // User has selected a camera setup option (Rack Attachment or Floor)
-                                    // and is viewing the setup instructions. Pressing back should return
-                                    // them to the selection view, not navigate to the previous exercise.
                                     cameraSetupSelection = nil
                                     SpeechManager.shared.stopSpeaking()
                                     SpeechManager.shared.clearSpeechQueue()
                                 } else if currentExerciseIndex > 0 {
-                                    // Normal navigation: move to previous exercise
                                     moveToPreviousExercise()
                                 }
                             }) {
@@ -1123,7 +1126,6 @@ struct WorkoutIntroView: View {
                             }
                         }
                         
-                        // Test View / End Test button - only shown when a camera setup option has been selected
                         if cameraSetupSelection != nil {
                             Button(action: {
                                 if isTestViewActive {
@@ -1144,10 +1146,8 @@ struct WorkoutIntroView: View {
                         
                         Spacer()
                         
-                        // Next exercise arrow button
                         Button(action: {
                             if isTestViewActive {
-                                // End test view when moving to next exercise
                                 endTestView()
                             }
                             moveToNextExercise()
@@ -1160,6 +1160,8 @@ struct WorkoutIntroView: View {
                                 .clipShape(Circle())
                         }
                     }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
                 } else {
                     // Regular exercise UI
                     // Reps/time display
@@ -1449,10 +1451,22 @@ struct WorkoutIntroView: View {
     }
     
     /// Whether the current exercise is a camera setup exercise.
-    /// Camera setup exercises are identified by checking if notes contains "CAMERA_SETUP".
     private var isCameraSetupExercise: Bool {
         guard let notes = currentExercise?.notes else { return false }
         return notes.hasPrefix("CAMERA_SETUP")
+    }
+    
+    /// Whether the current exercise is an exercise selection step.
+    private var isExerciseSelectionExercise: Bool {
+        guard let notes = currentExercise?.notes else { return false }
+        return notes.hasPrefix("EXERCISE_SELECTION")
+    }
+    
+    /// Parses exercise options from the EXERCISE_SELECTION notes format.
+    private var exerciseSelectionOptions: [String] {
+        guard let notes = currentExercise?.notes, notes.hasPrefix("EXERCISE_SELECTION") else { return [] }
+        let components = notes.components(separatedBy: "|")
+        return Array(components.dropFirst())
     }
     
     /// Whether to show camera setup for the current exercise.
@@ -1640,10 +1654,13 @@ struct WorkoutIntroView: View {
         // Start with intro buffer
         if let exercise = currentExercise {
             let isCameraSetup = exercise.notes?.hasPrefix("CAMERA_SETUP") ?? false
-            if isCameraSetup {
-                cameraSetupSelection = nil // Reset to show selection UI
+            let isExerciseSelection = exercise.notes?.hasPrefix("EXERCISE_SELECTION") ?? false
+            if isExerciseSelection {
+                selectedExerciseForSection = nil
+                showIntroBuffer(for: exercise)
+            } else if isCameraSetup {
+                cameraSetupSelection = nil
                 if !CameraCoachingPreferencesManager.shared.isCameraCoachingEnabled(for: exercise.name) {
-                    // Skip this camera setup exercise since coaching is disabled
                     moveToNextExercise()
                 } else {
                     showIntroBuffer(for: exercise)
@@ -1668,7 +1685,29 @@ struct WorkoutIntroView: View {
         SpeechManager.shared.stopSpeaking()
         SpeechManager.shared.clearSpeechQueue()
         
-        // Skip intro buffer for camera setup exercises - show selection UI immediately
+        let isExerciseSelection = exercise.notes?.hasPrefix("EXERCISE_SELECTION") ?? false
+        if isExerciseSelection {
+            isShowingIntro = false
+            selectedExerciseForSection = nil
+            withAnimation {
+                isSlideUpTabExpanded = false
+                dragOffset = 0
+            }
+            let exerciseIndex = exerciseIndexAtStart
+            if Thread.isMainThread {
+                if currentExerciseIndex == exerciseIndex {
+                    SpeechManager.shared.speakCoachingFeedback("Which exercise would you like coaching on?")
+                }
+            } else {
+                DispatchQueue.main.async { [exerciseIndex] in
+                    if self.currentExerciseIndex == exerciseIndex {
+                        SpeechManager.shared.speakCoachingFeedback("Which exercise would you like coaching on?")
+                    }
+                }
+            }
+            return
+        }
+        
         let isCameraSetup = exercise.notes?.hasPrefix("CAMERA_SETUP") ?? false
         if isCameraSetup {
             isShowingIntro = false
@@ -1676,7 +1715,6 @@ struct WorkoutIntroView: View {
                 isSlideUpTabExpanded = false
                 dragOffset = 0
             }
-            // Play audio prompt for camera setup selection (only if still on this exercise)
             let exerciseIndex = exerciseIndexAtStart
             if Thread.isMainThread {
                 if currentExerciseIndex == exerciseIndex {
@@ -2140,13 +2178,15 @@ struct WorkoutIntroView: View {
             
             currentExerciseIndex += 1
             
-            // Reset camera setup selection when entering camera setup exercise (to show selection UI)
             if let exercise = currentExercise {
                 let isCameraSetup = exercise.notes?.hasPrefix("CAMERA_SETUP") ?? false
-                if isCameraSetup {
-                    cameraSetupSelection = nil // Reset to show selection UI
+                let isExerciseSelection = exercise.notes?.hasPrefix("EXERCISE_SELECTION") ?? false
+                
+                if isExerciseSelection {
+                    selectedExerciseForSection = nil
+                } else if isCameraSetup {
+                    cameraSetupSelection = nil
                     if !CameraCoachingPreferencesManager.shared.isCameraCoachingEnabled(for: exercise.name) {
-                        // Skip this camera setup exercise since coaching is disabled
                         moveToNextExercise()
                         return
                     }
@@ -2154,7 +2194,6 @@ struct WorkoutIntroView: View {
                 showIntroBuffer(for: exercise)
             }
         } else {
-            // Workout complete - end workout log
             if let logId = currentWorkoutLogId {
                 WorkoutLogService.shared.endWorkoutLog(
                     workoutLogId: logId,
@@ -2552,6 +2591,41 @@ struct WorkoutIntroView: View {
         }
         
         return "camera.fill" // Default fallback
+    }
+    
+    /// Exercise selection view for multi-exercise sections.
+    private var exerciseSelectionCardView: some View {
+        let options = exerciseSelectionOptions
+        return HStack(spacing: 16) {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, exerciseName in
+                VStack(spacing: 8) {
+                    Button(action: {
+                        selectedExerciseForSection = exerciseName
+                        moveToNextExercise()
+                    }) {
+                        Image(systemName: "figure.strengthtraining.traditional")
+                            .font(.system(size: 48, weight: .medium))
+                            .foregroundColor(selectedExerciseForSection == exerciseName ? .primaryPurple : .textPrimary)
+                            .frame(width: 100, height: 100)
+                            .background(selectedExerciseForSection == exerciseName ? Color.primaryPurple.opacity(0.2) : Color.white.opacity(0.1))
+                            .cornerRadius(12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(selectedExerciseForSection == exerciseName ? Color.primaryPurple : Color.clear, lineWidth: 2)
+                            )
+                    }
+                    Text(exerciseName)
+                        .font(.neueMontrealRegular(size: 14))
+                        .foregroundColor(.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
     }
     
     /// Camera setup selection view displaying three setup options: Mount, Floor, and Tripod.

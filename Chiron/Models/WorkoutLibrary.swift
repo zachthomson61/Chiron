@@ -118,6 +118,16 @@ struct WorkoutLibrary {
             notes: "Left Side",
             phase: "Warm-up"
         ),
+        // Vertical Pull - Camera Setup
+        WorkoutExercise(
+            name: "Neutral Grip Cable Pulldown",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Vertical Pull"
+        ),
         // Vertical Pull - 2 rounds
         WorkoutExercise(
             name: "Neutral Grip Cable Pulldown",
@@ -154,6 +164,16 @@ struct WorkoutLibrary {
             restTime: 0,
             notes: nil,
             phase: "Vertical Pull"
+        ),
+        // Horizontal Row - Camera Setup
+        WorkoutExercise(
+            name: "Close-Grip Cable Row",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Horizontal Row"
         ),
         // Horizontal Row - 2 rounds
         WorkoutExercise(
@@ -192,6 +212,16 @@ struct WorkoutLibrary {
             notes: nil,
             phase: "Horizontal Row"
         ),
+        // Rear Delt Work - Camera Setup
+        WorkoutExercise(
+            name: "Reverse Cable Fly",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Rear Delt Work"
+        ),
         // Rear Delt Work - 2 rounds
         WorkoutExercise(
             name: "Reverse Cable Fly",
@@ -228,6 +258,16 @@ struct WorkoutLibrary {
             restTime: 0,
             notes: nil,
             phase: "Rear Delt Work"
+        ),
+        // Brachialis Bicep Work - Camera Setup
+        WorkoutExercise(
+            name: "Hammer Preacher Curl",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Brachialis Bicep Work"
         ),
         // Brachialis Bicep Work - 2 rounds
         WorkoutExercise(
@@ -266,6 +306,16 @@ struct WorkoutLibrary {
             notes: nil,
             phase: "Brachialis Bicep Work"
         ),
+        // Long Head Bicep Work - Camera Setup
+        WorkoutExercise(
+            name: "Incline DB Curl",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Long Head Bicep Work"
+        ),
         // Long Head Bicep Work - 2 rounds
         WorkoutExercise(
             name: "Incline DB Curl",
@@ -302,6 +352,16 @@ struct WorkoutLibrary {
             restTime: 0,
             notes: nil,
             phase: "Long Head Bicep Work"
+        ),
+        // Trap Work - Camera Setup
+        WorkoutExercise(
+            name: "Wide Cable Shrug-In",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Trap Work"
         ),
         // Trap Work - 1 round
         WorkoutExercise(
@@ -500,7 +560,16 @@ struct WorkoutLibrary {
             notes: nil,
             phase: "Explosive Tricep Primer"
         ),
-        // Explosive Bicep Primer
+        // Explosive Bicep Primer - Camera Setup for Alternating DB Curls
+        WorkoutExercise(
+            name: "Alternating DB Curls",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Explosive Bicep Primer"
+        ),
         WorkoutExercise(
             name: "Alternating DB Curls",
             category: .isolation,
@@ -555,7 +624,25 @@ struct WorkoutLibrary {
             notes: nil,
             phase: "Explosive Bicep Primer"
         ),
-        // Superset 1
+        // Superset 1 - Exercise Selection + Camera Setup
+        WorkoutExercise(
+            name: "Superset 1",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "EXERCISE_SELECTION|Incline DB Curl|Rope Tricep Pushdown",
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Superset 1",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Superset 1"
+        ),
         WorkoutExercise(
             name: "Incline DB Curl",
             category: .isolation,
@@ -637,32 +724,23 @@ struct WorkoutLibrary {
             notes: nil,
             phase: "Superset 1"
         ),
-        // Superset 2
+        // Superset 2 - Exercise Selection + Camera Setup
         WorkoutExercise(
-            name: "EZ-Bar Drag Curl",
-            category: .isolation,
+            name: "Superset 2",
+            category: .compound,
             sets: 1,
-            reps: "10-12",
+            reps: "",
             restTime: 0,
-            notes: nil,
+            notes: "EXERCISE_SELECTION|EZ-Bar Drag Curl|Overhead Rope Extension",
             phase: "Superset 2"
         ),
         WorkoutExercise(
-            name: "Overhead Rope Extension",
-            category: .isolation,
+            name: "Superset 2",
+            category: .compound,
             sets: 1,
-            reps: "10-12",
+            reps: "",
             restTime: 0,
-            notes: nil,
-            phase: "Superset 2"
-        ),
-        WorkoutExercise(
-            name: "Rest",
-            category: .mobility,
-            sets: 1,
-            reps: ":90",
-            restTime: 0,
-            notes: nil,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
             phase: "Superset 2"
         ),
         WorkoutExercise(
@@ -719,7 +797,52 @@ struct WorkoutLibrary {
             notes: nil,
             phase: "Superset 2"
         ),
-        // Finisher
+        WorkoutExercise(
+            name: "EZ-Bar Drag Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "Overhead Rope Extension",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        // Finisher - Exercise Selection + Camera Setup
+        WorkoutExercise(
+            name: "Finisher",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "EXERCISE_SELECTION|Barbell Bicep Curl|Bench Dip|Hammer Curl Hold",
+            phase: "Finisher"
+        ),
+        WorkoutExercise(
+            name: "Finisher",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Finisher"
+        ),
         WorkoutExercise(
             name: "Barbell Bicep Curl",
             category: .isolation,
