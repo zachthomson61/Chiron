@@ -295,7 +295,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 }
             }
         } catch {
-            print("⚠️ Error analyzing frame: \(error)")
         }
     }
     
@@ -1054,7 +1053,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             initializeBenchPressRepTracking()
         }
         
-        print("🔄 Rep count and state reset")
     }
     
     // Add method to reset rep counting state
@@ -1096,7 +1094,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             initializeBenchPressRepTracking()
         }
         
-        print("🔄 Rep counting state reset")
     }
     
     /// Initializes bench press rep tracking state for proper first-rep detection.
@@ -1109,7 +1106,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         reachedBottomThisCycleBenchPress = false
         benchPressBottomTime = nil
         benchPressBottomWristY = nil
-        print("🏋️ Bench press rep tracking initialized - ready for first rep")
     }
     
     func getCurrentRepCount() -> Int {
@@ -1129,7 +1125,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             self.currentSet += 1
             self.workoutState = .waiting
             self.resetRepCount()
-            print("🎯 Starting new set: \(self.currentSet)")
             
             // Provide audio feedback
             SpeechManager.shared.speak("Starting set \(self.currentSet)", priority: .normal)
@@ -1172,7 +1167,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         // State machine for rep counting - MORE SENSITIVE
         if depth >= deepDepthThreshold {
             if !reachedDeepThisCycle {
-                print("🏋️ Deep phase detected: depth=\(depth) (threshold: \(deepDepthThreshold))")
                 reachedDeepThisCycle = true
             }
             return false
@@ -1180,7 +1174,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         
         // Check if we completed a full cycle (deep -> shallow) - MORE SENSITIVE
         if reachedDeepThisCycle && depth <= shallowDepthThreshold {
-            print("✅ Rep validated! Deep(\(deepDepthThreshold)) -> Shallow(\(depth)) (threshold: \(shallowDepthThreshold))")
             lastRepValidationTime = now
             reachedDeepThisCycle = false
             return true
@@ -1188,7 +1181,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         
         // Additional check: if we're in a deep position but haven't marked it yet, mark it
         if depth >= (deepDepthThreshold - 0.03) && !reachedDeepThisCycle {
-            print("🏋️ Near-deep phase detected: depth=\(depth) (near threshold: \(deepDepthThreshold - 0.03))")
             reachedDeepThisCycle = true
         }
         
@@ -1245,7 +1237,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                           (benchPressViewType != .floor && wristY <= topThreshold)
             if isAtTop {
                 benchPressEccentricStartTime = CACurrentMediaTime()
-                print("🏋️ Initialized eccentric tracking at top position: wristY=\(wristY)")
             }
         }
         
@@ -1255,13 +1246,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             // Floor view has inverted Y axis
             if wristY <= bottomThreshold {
                 if !reachedBottomThisCycleBenchPress {
-                    print("🏋️ Bench press bottom detected (floor view): wristY=\(wristY) (threshold: \(bottomThreshold))")
                     reachedBottomThisCycleBenchPress = true
                     // Calculate eccentric tempo
                     if let eccentricStart = benchPressEccentricStartTime {
                         let eccentricMs = (CACurrentMediaTime() - eccentricStart) * 1000
                         sumEccentricMs += eccentricMs
-                        print("📊 Bench press eccentric time: \(Int(eccentricMs))ms")
                     }
                     // Start tracking concentric tempo
                     benchPressBottomTime = CACurrentMediaTime()
@@ -1271,14 +1260,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             
             // Step 2: Detect top position (lockout) after reaching bottom
             if reachedBottomThisCycleBenchPress && wristY >= topThreshold {
-                print("✅ Bench press rep validated (floor view)! Bottom(\(bottomThreshold)) -> Top(\(wristY)) (threshold: \(topThreshold))")
                 
                 // Calculate tempo for this rep
                 if let bottomTime = benchPressBottomTime {
                     let concentricMs = (CACurrentMediaTime() - bottomTime) * 1000
                     sumConcentricMs += concentricMs
                     tempoRepSamples += 1
-                    print("📊 Bench press concentric time: \(Int(concentricMs))ms")
                 }
                 
                 lastRepValidationTime = now
@@ -1290,14 +1277,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             // Rack and Tripod views: standard Y axis
             if wristY >= bottomThreshold {
                 if !reachedBottomThisCycleBenchPress {
-                    print("🏋️ Bench press bottom detected: wristY=\(wristY) (threshold: \(bottomThreshold))")
                     reachedBottomThisCycleBenchPress = true
                     benchPressBottomWristY = wristY // Store bottom position for relative check
                     // Calculate eccentric tempo
                     if let eccentricStart = benchPressEccentricStartTime {
                         let eccentricMs = (CACurrentMediaTime() - eccentricStart) * 1000
                         sumEccentricMs += eccentricMs
-                        print("📊 Bench press eccentric time: \(Int(eccentricMs))ms")
                     }
                     // Start tracking concentric tempo
                     benchPressBottomTime = CACurrentMediaTime()
@@ -1318,14 +1303,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             
             if reachedBottomThisCycleBenchPress && (meetsAbsoluteThreshold || meetsRelativeCheck) {
                 let validationMethod = meetsAbsoluteThreshold ? "absolute" : "relative"
-                print("✅ Bench press rep validated! Bottom(\(bottomThreshold)) -> Top(\(wristY)) (threshold: \(topThreshold), method: \(validationMethod))")
                 
                 // Calculate concentric tempo for this rep
                 if let bottomTime = benchPressBottomTime {
                     let concentricMs = (CACurrentMediaTime() - bottomTime) * 1000
                     sumConcentricMs += concentricMs
                     tempoRepSamples += 1
-                    print("📊 Bench press concentric time: \(Int(concentricMs))ms")
                 }
                 
                 lastRepValidationTime = now
@@ -1353,7 +1336,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         // even if pose is temporarily lost after rep completion
         lastRepFormAnalysis = currentFormAnalysis
         
-        print("🎯 Rep \(repCount) detected at depth cycle completion")
         
         // Check if we should start the set (after minimum reps)
         if workoutState == .waiting && consecutiveGoodReps >= minRepsForSetStart {
@@ -1383,7 +1365,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         deepFrameCount = 0
         totalDepthSamples = 0
         currentRepBottomDepthMax = 0
-        print("🎯 Set started automatically with \(repCount) reps")
     }
     
     private func handleSetEnd() {
@@ -1398,11 +1379,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             self.consecutiveGoodReps = 0
             self.reachedDeepThisCycle = false
             self.lastRepValidationTime = nil
-            print("🔄 Reset rep count for next set (completed \(completedReps) reps)")
         }
         
         restStartTime = Date()
-        print("🏁 Set ended automatically")
         
         // Get single natural feedback and speak it once
         DispatchQueue.main.async {
@@ -1411,7 +1390,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     formAnalysis: analysis,
                     exerciseType: self.squatType
                 ) { naturalFeedback in
-                    print("🎯 Received natural feedback for set completion: \(naturalFeedback)")
                     // Speech is already handled inside analyzeAndGetNaturalFeedback
                 }
             }
@@ -1428,7 +1406,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         guard workoutState == .resting else { return }
         
         workoutState = .waiting
-        print("⏰ Rest period ended, ready for next set")
     }
     
     func checkForNextSetStart() {

@@ -206,7 +206,6 @@ struct BodyweightSquatActiveWorkoutView: View {
             SharedCameraSessionManager.shared.poseManager.squatType = .bodyweight
             
             // Start automatic pose analysis
-            print("🎯 Starting automatic pose analysis")
             // Clear any previous workout data
             completedSetReps = []
             totalRepsAtLastSetEnd = 0
@@ -312,7 +311,6 @@ struct BodyweightSquatActiveWorkoutView: View {
 
             // Activity based only on rep changes
             if reps != lastRepCountSeen {
-                print("🔄 Rep count changed: \(lastRepCountSeen) -> \(reps)")
                 lastRepCountSeen = reps
                 lastActivityTime = now
                 if reps > 0 { setInProgress = true }
@@ -323,7 +321,6 @@ struct BodyweightSquatActiveWorkoutView: View {
                now - lastActivityTime >= inactivityThresholdSeconds,
                reps > 0,
                now >= feedbackCooldownUntil {
-                print("🏁 End-of-set detected. Inactivity: \(now - lastActivityTime)s, reps: \(reps)")
                 setInProgress = false
                 feedbackCooldownUntil = now + feedbackCooldownSeconds
                 handleEndOfSetFeedback()
@@ -333,7 +330,6 @@ struct BodyweightSquatActiveWorkoutView: View {
     }
 
     private func handleEndOfSetFeedback() {
-        print("🗣️ Triggering end-of-set feedback")
         // Append set summary bubble and start rest timer
         // Use the current rep count as the completed reps for this set
         if currentRepCount > 0 {
@@ -351,19 +347,16 @@ struct BodyweightSquatActiveWorkoutView: View {
         startRestTimer()
         // Get latest form analysis snapshot (if available)
         if let analysis = OnDevicePoseManager.shared.currentFormAnalysis {
-            print("📝 Using current form analysis for unified natural feedback")
             // Single, natural message (no interruptions). Speaking handled inside manager.
             // Pass .bodyweight to ensure exercise-specific coaching
             OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(
                 formAnalysis: analysis,
                 exerciseType: .bodyweight
             ) { feedback in
-                print("🗣️ Unified feedback spoken: \(feedback)")
             }
         } else {
             // Fallback if no analysis available - single natural sentence
             let fallback = "Nice control there, but let's aim for a little more depth next set."
-            print("🗣️ Speaking fallback unified feedback: \(fallback)")
             SpeechManager.shared.speakCoachingFeedback(fallback)
         }
     }
@@ -374,7 +367,6 @@ struct BodyweightSquatActiveWorkoutView: View {
     }
     
     private func finishExercise() {
-        print("🏁 Finishing exercise - checking for completed reps")
         isReadingAnalysis = true
         viewModel.currentFeedback = ""
         
@@ -386,17 +378,14 @@ struct BodyweightSquatActiveWorkoutView: View {
         
         // Check if any reps were completed (sum of all completed sets)
         let totalReps = completedSetReps.reduce(0, +) + currentRepCount
-        print("🏁 Total reps completed: \(totalReps)")
         
         if totalReps == 0 {
-            print("🏁 No reps completed - navigating immediately without summary")
             DispatchQueue.main.async {
                 self.isReadingAnalysis = false
                 // Navigate back immediately if no reps were completed
                 onFinishExercise?()
             }
         } else {
-            print("🏁 Reps completed - getting detailed analysis")
             // Get detailed coaching feedback for end of workout (API-generated only)
             // Note: We need to implement this method in SharedCameraSessionManager
             // For now, just navigate back

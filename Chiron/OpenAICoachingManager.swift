@@ -186,7 +186,6 @@ class OpenAICoachingManager: ObservableObject {
         Keep it 12-18 words, conversational, specific. Avoid technical terms like eccentric, concentric, valgus, varus.
         """
 
-        print("🤖 Natural: preparing OpenAI request for unified feedback")
 
         guard let url = URL(string: baseURL) else {
             completion(generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
@@ -217,7 +216,6 @@ class OpenAICoachingManager: ObservableObject {
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
-                print("❌ OpenAI natural feedback error: \(error)")
                 DispatchQueue.main.async {
                     completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
                 }
@@ -243,11 +241,9 @@ class OpenAICoachingManager: ObservableObject {
                         .replacingOccurrences(of: "\n", with: " ")
                         .replacingOccurrences(of: "  ", with: " ")
                     
-                    print("🤖 Natural: received feedback - \(cleanedFeedback)")
                     
                     // Check for generic or robotic responses
                     if self.isGenericResponse(cleanedFeedback) {
-                        print("🤖 Natural: detected generic response, using fallback")
                         DispatchQueue.main.async {
                             completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
                         }
@@ -257,13 +253,11 @@ class OpenAICoachingManager: ObservableObject {
                         }
                     }
                 } else {
-                    print("❌ Natural: failed to parse OpenAI response")
                     DispatchQueue.main.async {
                         completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
                     }
                 }
             } catch {
-                print("❌ Natural: parse error - \(error)")
                 DispatchQueue.main.async {
                     completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
                 }
@@ -372,7 +366,6 @@ class OpenAICoachingManager: ObservableObject {
     func speakFeedback(_ feedback: String) {
         // Use high priority to ensure immediate, uninterrupted delivery
         SpeechManager.shared.speak(feedback, priority: .high)
-        print("🎤 Speaking unified coaching feedback: \(feedback)")
     }
     
     // MARK: - Combined Analysis and Natural Feedback
@@ -392,7 +385,6 @@ class OpenAICoachingManager: ObservableObject {
         case .benchPress: exerciseLabel = "bench press"
         case .closeGripBenchPress: exerciseLabel = "close-grip bench press"
         }
-        print("🤖 Starting natural feedback analysis for \(exerciseLabel)")
         
         // Check for valid data first
         if formAnalysis.repCount <= 0 || formAnalysis.summary.isEmpty {
@@ -402,7 +394,6 @@ class OpenAICoachingManager: ObservableObject {
         }
         
         getNaturalFeedback(formAnalysis: formAnalysis, exerciseType: exerciseType) { feedback in
-            print("🤖 Received natural feedback: \(feedback)")
             // Speak the unified feedback
             self.speakFeedback(feedback)
             completion(feedback)
@@ -421,7 +412,6 @@ class OpenAICoachingManager: ObservableObject {
     // MARK: - Legacy Support (Updated)
     func getCoachingFeedback(summary: String, isDetailed: Bool = false, completion: @escaping (String) -> Void) {
         // For backward compatibility, but encourage using the new natural feedback system
-        print("🤖 Legacy coaching feedback called - consider using getNaturalFeedback instead")
         
         DispatchQueue.main.async {
             self.isRequestingFeedback = true
@@ -474,7 +464,6 @@ class OpenAICoachingManager: ObservableObject {
                 self?.isRequestingFeedback = false
                 
                 if let error = error {
-                    print("❌ OpenAI API error: \(error)")
                     completion("Nice work, keep it up.")
                     return
                 }
@@ -505,7 +494,6 @@ class OpenAICoachingManager: ObservableObject {
                         completion("Keep up the good work.")
                     }
                 } catch {
-                    print("❌ Error parsing OpenAI response: \(error)")
                     completion("Nice effort there.")
                 }
             }

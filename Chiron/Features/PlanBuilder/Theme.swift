@@ -1,7 +1,6 @@
 import SwiftUI
 #if os(iOS)
 import UIKit
-#endif
 
 // MARK: - Plan Builder Theme
 
@@ -288,3 +287,4 @@ struct PlanToggle: View {
         .tint(.planAccent)
     }
 }
+#endif

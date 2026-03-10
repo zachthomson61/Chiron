@@ -111,6 +111,14 @@ struct WorkoutProgressionView: View {
             "Brachialis Bicep Work",
             "Long Head Bicep Work",
             "Trap Work",
+            "Low Bar Smith Squat",
+            "RDL",
+            "Leg Extensions",
+            "Sitting Leg Curl",
+            "Hip Thrust (A)",
+            "Machine Leg Abduction (B)",
+            "Goblet Lateral Squat (C)",
+            "Standing Calf Raise",
             "Cool Down"
         ]
         let orderedPhases = predefinedOrder.filter { phases.contains($0) }
@@ -384,7 +392,7 @@ struct WorkoutProgressionView: View {
     
     /// Plays exercise guide audio using SpeechManager.
     private func playExerciseGuide(for exercise: WorkoutExercise) {
-        let guideText = "\(exercise.name), \(formatRepsTime(exercise))"
+        let guideText = "\(WorkoutLibrary.exerciseDisplayName(exercise.name)), \(formatRepsTime(exercise))"
         SpeechManager.shared.speakCoachingFeedback(guideText)
     }
     
@@ -452,11 +460,16 @@ struct WorkoutProgressionView: View {
     /// Example: If a phase has ["Bench Press", "Rest", "Bench Press", "Rest", "Bench Press", "Rest"],
     /// unique exercises = 1 (Bench Press), total non-rest exercises = 3, rounds = 3.
     private func getRoundsForPhase(_ phase: String, exercises: [WorkoutExercise]) -> Int? {
-        let uniqueExercises = Set(exercises.filter { $0.name != "Rest" }.map { $0.name })
+        // Exclude Rest, camera setup, and exercise selection from round count so single-set phases show as 1 round (no "Show All Rounds" button)
+        let workExercises = exercises.filter { exercise in
+            guard exercise.name != "Rest" else { return false }
+            guard exercise.notes?.hasPrefix("CAMERA_SETUP") != true else { return false }
+            guard exercise.notes?.hasPrefix("EXERCISE_SELECTION") != true else { return false }
+            return true
+        }
+        let uniqueExercises = Set(workExercises.map { $0.name })
         guard !uniqueExercises.isEmpty else { return nil }
-        
-        let exerciseCount = exercises.filter { $0.name != "Rest" }.count
-        return exerciseCount / uniqueExercises.count
+        return workExercises.count / uniqueExercises.count
     }
     
     /// Checks if a phase has a multi-round structure (more than 1 round).
@@ -727,7 +740,7 @@ private struct WorkoutProgressionExerciseRow: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(exercise.name)
+                    Text(WorkoutLibrary.exerciseDisplayName(exercise.name))
                         .font(.neueMontrealBold(size: 18))
                         .foregroundColor(.textPrimary)
                     

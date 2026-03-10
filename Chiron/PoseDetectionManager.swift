@@ -90,7 +90,6 @@ class PoseDetectionManager: ObservableObject {
         do {
             try requestHandler.perform([poseRequest])
         } catch {
-            print("Pose detection failed: \(error)")
         }
     }
     
@@ -100,7 +99,6 @@ class PoseDetectionManager: ObservableObject {
             guard let self = self else { return }
             
             if let error = error {
-                print("Pose detection error: \(error)")
                 return
             }
             

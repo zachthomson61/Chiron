@@ -41,7 +41,6 @@ final class PlanStore: ObservableObject {
                     self.savedPlans = plans
                 }
             } catch {
-                print("Failed to load plans: \(error)")
                 await MainActor.run {
                     self.savedPlans = []
                 }
@@ -62,7 +61,6 @@ final class PlanStore: ObservableObject {
                     }
                 }
             } catch {
-                print("Failed to save plan: \(error)")
             }
         }
     }
@@ -78,7 +76,6 @@ final class PlanStore: ObservableObject {
                     self.savedPlans.remove(atOffsets: indexSet)
                 }
             } catch {
-                print("Failed to delete plan: \(error)")
             }
         }
     }
@@ -91,7 +88,6 @@ final class PlanStore: ObservableObject {
                     self.savedPlans.removeAll { $0.id == id }
                 }
             } catch {
-                print("Failed to delete plan: \(error)")
             }
         }
     }

@@ -42,7 +42,6 @@ class AudioSessionManager {
         } catch {
             // Audio session configuration failure is non-fatal
             // The app will continue to function, but background audio may be interrupted
-            print("AudioSessionManager: Failed to configure audio session: \(error)")
         }
     }
 }

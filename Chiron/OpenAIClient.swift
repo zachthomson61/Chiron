@@ -130,9 +130,7 @@ actor OpenAIClient {
         // Build the request with appropriate prompt and JSON schema
         let request = try buildRequest(summary: summary, praiseOnly: praiseOnly)
         
-        #if DEBUG
         debugLog("Request URL: \(baseURL)")
-        #endif
         
         // Execute the request
         let (data, response) = try await executeRequest(request)
@@ -142,9 +140,7 @@ actor OpenAIClient {
             throw OpenAIClientError.unknownError
         }
         
-        #if DEBUG
         debugLog("HTTP Status: \(httpResponse.statusCode)")
-        #endif
         
         // Check for errors
         try handleHTTPStatus(httpResponse.statusCode, data: data)
@@ -154,9 +150,7 @@ actor OpenAIClient {
         
         // Hard-filter: if praiseOnly, ensure fix_next is empty (policy enforcement)
         if praiseOnly && !coachingResponse.fix_next.isEmpty {
-            #if DEBUG
             debugLog("Policy enforcement: Clearing fix_next for score >= 75")
-            #endif
             coachingResponse = CoachingResponse(
                 tone: "praise_only",
                 headline: coachingResponse.headline,
@@ -319,12 +313,10 @@ actor OpenAIClient {
     }
     
     private func parseResponse(_ data: Data) throws -> CoachingResponse {
-        #if DEBUG
         if let responseString = String(data: data, encoding: .utf8) {
             let truncated = String(responseString.prefix(2000))
             debugLog("Response body (first 2k chars): \(truncated)")
         }
-        #endif
         
         // Parse the Responses API response structure
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -364,16 +356,12 @@ actor OpenAIClient {
     
     // MARK: - Debug Logging
     
-    #if DEBUG
     private func debugLog(_ message: String) {
         // Never log the API key
         if apiKey.isEmpty {
-            print("🤖 OpenAIClient: \(message)")
             return
         }
         
         let safeMessage = message.replacingOccurrences(of: apiKey, with: "[REDACTED]")
-        print("🤖 OpenAIClient: \(safeMessage)")
     }
-    #endif
 }

@@ -69,10 +69,8 @@ class WorkoutLogService {
         var ref: DocumentReference?
         ref = db.collection(workoutLogsCollection).addDocument(data: workoutLog) { error in
             if let error = error {
-                print("❌ Error creating workout log: \(error.localizedDescription)")
                 completion(.failure(error))
             } else if let documentId = ref?.documentID {
-                print("✅ Workout log created with ID: \(documentId)")
                 completion(.success(documentId))
             } else {
                 let unknownError = NSError(domain: "WorkoutLogService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unknown error creating workout log"])
@@ -97,10 +95,8 @@ class WorkoutLogService {
         
         db.collection(workoutLogsCollection).document(workoutLogId).updateData(updates) { error in
             if let error = error {
-                print("❌ Error ending workout log: \(error.localizedDescription)")
                 completion(.failure(error))
             } else {
-                print("✅ Workout log ended successfully")
                 completion(.success(()))
             }
         }
@@ -148,10 +144,8 @@ class WorkoutLogService {
         var ref: DocumentReference?
         ref = db.collection(exerciseSetLogsCollection).addDocument(data: data) { error in
             if let error = error {
-                print("❌ Error saving set log: \(error.localizedDescription)")
                 completion(.failure(error))
             } else if let documentId = ref?.documentID {
-                print("✅ Set log saved with ID: \(documentId)")
                 completion(.success(documentId))
             } else {
                 let unknownError = NSError(domain: "WorkoutLogService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unknown error saving set log"])
@@ -179,25 +173,9 @@ class WorkoutLogService {
             .limit(to: limit)
             .getDocuments { snapshot, error in
                 if let error = error {
-                    let nsError = error as NSError
-                    print("❌ Error fetching exercise history: \(error.localizedDescription)")
-                    
-                    // Check if it's an index error and provide helpful instructions
-                    let errorLower = error.localizedDescription.lowercased()
-                    if errorLower.contains("index") || errorLower.contains("requires an index") || nsError.code == 9 {
-                        print("""
-                        
-                        ⚠️ FIRESTORE INDEX ERROR DETECTED ⚠️
-                        
-                        The query requires a composite index. Create an index on collection 'exerciseSetLogs' with these fields:
-                          1. exerciseName (Ascending)
-                          2. userId (Ascending) - CRITICAL: lowercase 'd', NOT 'userID' or 'UserID'
-                          3. timestamp (Descending)
-                        
-                        Go to: https://console.firebase.google.com/project/chiron-6c955/firestore/indexes
-                        
-                        """)
-                    }
+                    // If this is a Firestore index error (code 9), create a composite index on
+                    // exerciseSetLogs: exerciseName (Ascending), userId (Ascending), timestamp (Descending).
+                    // Use lowercase "userId". Create at: Firebase Console → Firestore → Indexes.
                     
                     completion(.failure(error))
                     return
@@ -212,7 +190,6 @@ class WorkoutLogService {
                     ExerciseSetLog.fromFirestore(id: doc.documentID, data: doc.data())
                 }
                 
-                print("✅ Fetched \(setLogs.count) set logs for exercise: \(exerciseName), user: \(userId)")
                 completion(.success(setLogs))
             }
     }

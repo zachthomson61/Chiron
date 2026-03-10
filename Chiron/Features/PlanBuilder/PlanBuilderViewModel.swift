@@ -30,7 +30,6 @@ final class PlanBuilderViewModel: ObservableObject {
     
     var canGeneratePlan: Bool {
         let valid = input.isValid
-        print("DEBUG: canGeneratePlan = \(valid), input.isValid = \(input.isValid)")
         return valid
     }
     
@@ -138,17 +137,8 @@ final class PlanBuilderViewModel: ObservableObject {
     }
     
     func generatePlan() async {
-        print("DEBUG: generatePlan called")
-        print("DEBUG: canGeneratePlan = \(canGeneratePlan)")
-        print("DEBUG: input.isValid = \(input.isValid)")
-        print("DEBUG: input.name = '\(input.name)'")
-        print("DEBUG: input.goals = \(input.goals)")
-        print("DEBUG: input.sessionMinutes = \(input.sessionMinutes)")
-        print("DEBUG: input.daysPerWeek = \(input.daysPerWeek)")
-        print("DEBUG: input.programDuration = \(input.programDuration)")
         
         guard canGeneratePlan else {
-            print("DEBUG: Validation failed, showing error")
             showValidationError()
             return
         }
@@ -160,26 +150,20 @@ final class PlanBuilderViewModel: ObservableObject {
             // Simulate network delay for better UX
             try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
             
-            print("DEBUG: About to generate plan from input")
             // Generate plan
             let plan = plannerEngine.generatePlan(from: input)
-            print("DEBUG: Successfully generated plan, about to save")
             
             // Clear any existing saved plans to avoid decoding issues
             try await persistence.clearAllPlans()
-            print("DEBUG: Cleared existing plans")
             
             // Save plan
             try await persistence.savePlan(plan)
-            print("DEBUG: Successfully saved plan")
             
             // Update state
             generatedPlan = plan
             navigateToPreview = true
             
         } catch {
-            print("DEBUG: Error in generatePlan: \(error)")
-            print("DEBUG: Error details: \(error.localizedDescription)")
             errorMessage = "Failed to generate plan: \(error.localizedDescription)"
             showError = true
         }
@@ -220,12 +204,6 @@ final class PlanBuilderViewModel: ObservableObject {
     }
     
     private func showValidationError() {
-        print("DEBUG: showValidationError called")
-        print("DEBUG: name.isEmpty = \(input.name.isEmpty)")
-        print("DEBUG: goals.isEmpty = \(input.goals.isEmpty)")
-        print("DEBUG: daysPerWeek = \(input.daysPerWeek)")
-        print("DEBUG: programDuration = \(input.programDuration)")
-        print("DEBUG: sessionMinutes = \(input.sessionMinutes)")
         
         if input.name.isEmpty {
             errorMessage = "Please enter a plan name"
@@ -240,7 +218,6 @@ final class PlanBuilderViewModel: ObservableObject {
         } else {
             errorMessage = "Please fill in all required fields"
         }
-        print("DEBUG: Setting error message: \(errorMessage ?? "nil")")
         showError = true
     }
 }

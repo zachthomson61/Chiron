@@ -1,7 +1,6 @@
 import SwiftUI
 #if os(iOS)
 import UIKit
-#endif
 
 extension Color {
     // MARK: - Custom Purple Color Palette
@@ -38,8 +37,8 @@ extension Color {
         if let uiColor = UIColor(named: "AccentPurple") {
             return Color(uiColor)
         }
-        #endif
         return Color(red: 91/255, green: 70/255, blue: 242/255)
+        #endif
     }
     
     /// Yellow/amber color for intermediate difficulty badges.
@@ -57,4 +56,5 @@ extension Color {
     static var expertRed: Color {
         Color(red: 220/255, green: 38/255, blue: 38/255)
     }
-} 
+}
+#endif 

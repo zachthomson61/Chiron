@@ -246,7 +246,6 @@ struct PlanPreviewView: View {
                     self.showShareSheet = true
                 }
             } catch {
-                print("Export failed: \(error)")
             }
         }
     }

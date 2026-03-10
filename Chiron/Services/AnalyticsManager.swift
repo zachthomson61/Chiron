@@ -43,9 +43,6 @@ class AnalyticsManager {
     /// Core logging function
     private func logEvent(_ event: String, properties: [String: Any]) {
         #if DEBUG
-        print("📊 Analytics Event: \(event)")
-        print("   Properties: \(properties)")
-        #endif
         
         // TODO: Send to actual analytics service (Firebase Analytics, Amplitude, etc.)
         // For now, we'll just store locally for debugging
@@ -65,6 +62,7 @@ class AnalyticsManager {
         }
         
         UserDefaults.standard.set(events, forKey: "analytics_events")
+        #endif
     }
     
     /// Get or create session ID

@@ -90,9 +90,6 @@ class RestViewModel: ObservableObject {
     /// Retries the last coaching fetch
     func retry() {
         guard let summary = lastSummary else {
-            #if DEBUG
-            print("🏋️ RestViewModel: No summary to retry")
-            #endif
             return
         }
         

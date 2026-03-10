@@ -24,7 +24,8 @@ struct WorkoutLibrary {
     /// All available predetermined workouts.
     static let workouts: [PredeterminedWorkout] = [
         pythonWrangler,
-        carbonPull
+        carbonPull,
+        carbonLegs
     ]
 
     /// Carbon Pull - 60-minute High-Intensity Pull
@@ -420,6 +421,464 @@ struct WorkoutLibrary {
             phase: "Cool Down"
         )
     ]
+
+    /// Carbon Legs - 60-minute High-Intensity Leg Workout
+    ///
+    /// Workout Structure:
+    /// - Warm-up: 8 mobility exercises (same as Carbon Pull)
+    /// - Low Bar Smith Squat (Glute Emphasis): 2 rounds with 3-minute rest
+    /// - RDL: 2 rounds with 3-minute rest
+    /// - Leg Extensions: 2 rounds with 2-minute rest
+    /// - Sitting Leg Curl: 2 rounds with 2-minute rest
+    /// - Hip Thrust (A) / Machine Leg Abduction (B) / Goblet Lateral Squat (C): 1 round each (A/B/C rotation per session)
+    /// - Standing Calf Raise: 1 round
+    /// - Cool Down: 4 stretches (same as Carbon Pull)
+    static let carbonLegs = PredeterminedWorkout(
+        name: "Carbon Legs",
+        description: "High-Intensity Legs •\nFat Loss Focus",
+        duration: 60,
+        difficulty: .intermediate,
+        exercises: carbonLegsExercises,
+        equipment: [
+            "Smith Machine",
+            "Barbell",
+            "Leg Extension Machine",
+            "Leg Curl Machine",
+            "Hip Thrust Setup",
+            "Leg Abduction Machine",
+            "Calf Raise Machine",
+            "Dumbbell"
+        ],
+        videoName: "BarbellRow",
+        category: "Legs"
+    )
+
+    /// Carbon Legs exercises: Warm-up, Low Bar Smith Squat, RDL, Leg Extensions, Sitting Leg Curl,
+    /// Hip Thrust (A) / Machine Leg Abduction (B) / Goblet Lateral Squat (C), Standing Calf Raise, Cool Down.
+    private static let carbonLegsExercises: [WorkoutExercise] = [
+        // Warm-up (same 8 as Carbon Pull)
+        WorkoutExercise(
+            name: "Cross-Body Arm Swings",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Slow Tempo",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Arm Circles",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Slow Tempo",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Thread the Needle",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Thread the Needle",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Overhead Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Overhead Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        // Low Bar Smith Squat (Glute Emphasis) - Camera Setup
+        WorkoutExercise(
+            name: "Low Bar Smith Squat (Glute Emphasis)",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Low Bar Smith Squat"
+        ),
+        // Low Bar Smith Squat (Glute Emphasis) - 2 rounds
+        WorkoutExercise(
+            name: "Low Bar Smith Squat (Glute Emphasis)",
+            category: .compound,
+            sets: 1,
+            reps: "10-13",
+            restTime: 0,
+            notes: nil,
+            phase: "Low Bar Smith Squat"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":180",
+            restTime: 0,
+            notes: nil,
+            phase: "Low Bar Smith Squat"
+        ),
+        WorkoutExercise(
+            name: "Low Bar Smith Squat (Glute Emphasis)",
+            category: .compound,
+            sets: 1,
+            reps: "10-13",
+            restTime: 0,
+            notes: nil,
+            phase: "Low Bar Smith Squat"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":180",
+            restTime: 0,
+            notes: nil,
+            phase: "Low Bar Smith Squat"
+        ),
+        // RDL - Camera Setup
+        WorkoutExercise(
+            name: "RDL",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "RDL"
+        ),
+        // RDL - 2 rounds
+        WorkoutExercise(
+            name: "RDL",
+            category: .compound,
+            sets: 1,
+            reps: "10-13",
+            restTime: 0,
+            notes: nil,
+            phase: "RDL"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":180",
+            restTime: 0,
+            notes: nil,
+            phase: "RDL"
+        ),
+        WorkoutExercise(
+            name: "RDL",
+            category: .compound,
+            sets: 1,
+            reps: "10-13",
+            restTime: 0,
+            notes: nil,
+            phase: "RDL"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":180",
+            restTime: 0,
+            notes: nil,
+            phase: "RDL"
+        ),
+        // Leg Extensions - Camera Setup
+        WorkoutExercise(
+            name: "Leg Extensions",
+            category: .isolation,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Leg Extensions"
+        ),
+        // Leg Extensions - 2 rounds
+        WorkoutExercise(
+            name: "Leg Extensions",
+            category: .isolation,
+            sets: 1,
+            reps: "12-15",
+            restTime: 0,
+            notes: nil,
+            phase: "Leg Extensions"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":120",
+            restTime: 0,
+            notes: nil,
+            phase: "Leg Extensions"
+        ),
+        WorkoutExercise(
+            name: "Leg Extensions",
+            category: .isolation,
+            sets: 1,
+            reps: "12-15",
+            restTime: 0,
+            notes: nil,
+            phase: "Leg Extensions"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":120",
+            restTime: 0,
+            notes: nil,
+            phase: "Leg Extensions"
+        ),
+        // Sitting Leg Curl - Camera Setup
+        WorkoutExercise(
+            name: "Sitting Leg Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Sitting Leg Curl"
+        ),
+        // Sitting Leg Curl - 2 rounds
+        WorkoutExercise(
+            name: "Sitting Leg Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Sitting Leg Curl"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":120",
+            restTime: 0,
+            notes: nil,
+            phase: "Sitting Leg Curl"
+        ),
+        WorkoutExercise(
+            name: "Sitting Leg Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Sitting Leg Curl"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":120",
+            restTime: 0,
+            notes: nil,
+            phase: "Sitting Leg Curl"
+        ),
+        // Hip Thrust (A) - Camera Setup
+        WorkoutExercise(
+            name: "Hip Thrust (A)",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Hip Thrust (A)"
+        ),
+        // Hip Thrust (A) - 1 round
+        WorkoutExercise(
+            name: "Hip Thrust (A)",
+            category: .compound,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Hip Thrust (A)"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":120",
+            restTime: 0,
+            notes: nil,
+            phase: "Hip Thrust (A)"
+        ),
+        // Machine Leg Abduction (B) - Camera Setup
+        WorkoutExercise(
+            name: "Machine Leg Abduction (B)",
+            category: .isolation,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Machine Leg Abduction (B)"
+        ),
+        // Machine Leg Abduction (B) - 1 round
+        WorkoutExercise(
+            name: "Machine Leg Abduction (B)",
+            category: .isolation,
+            sets: 1,
+            reps: "15-20",
+            restTime: 0,
+            notes: nil,
+            phase: "Machine Leg Abduction (B)"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Machine Leg Abduction (B)"
+        ),
+        // Goblet Lateral Squat (C) - Camera Setup
+        WorkoutExercise(
+            name: "Goblet Lateral Squat (C)",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Goblet Lateral Squat (C)"
+        ),
+        // Goblet Lateral Squat (C) - 1 round
+        WorkoutExercise(
+            name: "Goblet Lateral Squat (C)",
+            category: .compound,
+            sets: 1,
+            reps: "10-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Goblet Lateral Squat (C)"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":120",
+            restTime: 0,
+            notes: nil,
+            phase: "Goblet Lateral Squat (C)"
+        ),
+        // Standing Calf Raise - Camera Setup
+        WorkoutExercise(
+            name: "Standing Calf Raise",
+            category: .isolation,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Standing Calf Raise"
+        ),
+        // Standing Calf Raise - 1 round
+        WorkoutExercise(
+            name: "Standing Calf Raise",
+            category: .isolation,
+            sets: 1,
+            reps: "10-15",
+            restTime: 0,
+            notes: nil,
+            phase: "Standing Calf Raise"
+        ),
+        // Cool Down (same 4 as Carbon Pull)
+        WorkoutExercise(
+            name: "Cross-body Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Cross-body Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Cool Down"
+        )
+    ]
+
+    /// Exercise names used for A/B/C rotation filtering in Carbon Legs.
+    /// Session A = Hip Thrust, Session B = Machine Leg Abduction, Session C = Goblet Lateral Squat.
+    static let carbonLegsRotationExercises: [String: [String]] = [
+        "A": ["Machine Leg Abduction (B)", "Goblet Lateral Squat (C)"],
+        "B": ["Hip Thrust (A)", "Goblet Lateral Squat (C)"],
+        "C": ["Hip Thrust (A)", "Machine Leg Abduction (B)"]
+    ]
+    
+    /// Returns the exercise name for display on cards, stripping the " (A)", " (B)", " (C)" suffix
+    /// so section titles keep the letter but card titles do not.
+    static func exerciseDisplayName(_ name: String) -> String {
+        if name.hasSuffix(" (A)") { return String(name.dropLast(4)) }
+        if name.hasSuffix(" (B)") { return String(name.dropLast(4)) }
+        if name.hasSuffix(" (C)") { return String(name.dropLast(4)) }
+        return name
+    }
 
     /// Shared exercise list for arm-focused predetermined workouts (Python Wrangler only).
     private static let armWorkoutExercises: [WorkoutExercise] = [

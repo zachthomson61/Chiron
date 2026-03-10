@@ -85,7 +85,6 @@ class WorkoutViewModel: ObservableObject {
     
     // MARK: - Workout Control
     func startWorkout() {
-        print("🏋️ Starting workout: \(selectedExercise)")
         
         isWorkoutActive = true
         isDetecting = true
@@ -95,7 +94,6 @@ class WorkoutViewModel: ObservableObject {
         
         // Generate unique workout ID and start recording
         workoutId = UUID().uuidString
-        print("🆔 Generated workout ID: \(workoutId)")
         
         videoRecordingManager.startRecording(workoutId: workoutId)
         
@@ -108,11 +106,9 @@ class WorkoutViewModel: ObservableObject {
         
         // Removed intro speech - no longer needed
         
-        print("✅ Workout started successfully")
     }
     
     func finishSet() {
-        print("🏁 Finishing set")
         
         isDetecting = false
         // Removed pose detection stop
@@ -137,7 +133,6 @@ class WorkoutViewModel: ObservableObject {
         
         // Removed default set completion speech - now handled by OpenAI coaching
         
-        print("✅ Set finished successfully")
     }
     
     func startNextSet() {
@@ -172,31 +167,24 @@ class WorkoutViewModel: ObservableObject {
     
     // MARK: - Video Upload
     private func uploadWorkoutVideo() {
-        print("📤 Starting video upload for workout: \(workoutId)")
         
         guard let videoURL = videoRecordingManager.getCurrentVideoURL() else {
-            print("❌ No video URL available for upload")
             return
         }
         
         // Check if file actually exists
         let fileExists = FileManager.default.fileExists(atPath: videoURL.path)
-        print("📁 Video file exists: \(fileExists)")
         
         if !fileExists {
-            print("❌ Video file does not exist at path: \(videoURL.path)")
             // Try to get file size to see if it's a valid file
             if let fileSize = try? FileManager.default.attributesOfItem(atPath: videoURL.path)[.size] as? Int64 {
-                print("📊 File size: \(fileSize) bytes")
             } else {
-                print("📊 File size: nil bytes")
             }
             return
         }
         
         // Get file size
         if let fileSize = try? FileManager.default.attributesOfItem(atPath: videoURL.path)[.size] as? Int64 {
-            print("📊 File size: \(fileSize) bytes")
         }
         
         isUploading = true
@@ -208,10 +196,8 @@ class WorkoutViewModel: ObservableObject {
                 
                 switch result {
                 case .success(let downloadURL):
-                    print("✅ Video uploaded successfully: \(downloadURL)")
                     self?.uploadWorkoutData(downloadURL: downloadURL)
                 case .failure(let error):
-                    print("❌ Video upload failed: \(error.localizedDescription)")
                     self?.uploadProgress = 0.0
                 }
             }
@@ -244,12 +230,11 @@ class WorkoutViewModel: ObservableObject {
             DispatchQueue.main.async {
                 switch result {
                 case .success:
-                    print("Workout data uploaded successfully")
                     self?.videoRecordingManager.clearRecording()
                     // Start polling for analysis results
                     self?.startAnalysisPolling()
-                case .failure(let error):
-                    print("Workout data upload failed: \(error.localizedDescription)")
+                case .failure:
+                    break
                 }
             }
         }
@@ -258,7 +243,6 @@ class WorkoutViewModel: ObservableObject {
     // On-device analysis - no polling needed
     private func startAnalysisPolling() {
         // This method is no longer needed with on-device analysis
-        print("🎯 Using on-device pose analysis - no polling required")
     }
     
     func getAnalysisResults() -> [String: Any]? {

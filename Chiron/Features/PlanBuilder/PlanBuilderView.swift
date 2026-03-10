@@ -78,16 +78,11 @@ struct PlanBuilderView: View {
                 // Generate button pinned to bottom
                 VStack {
                     Button(action: {
-                        print("DEBUG: Create Training Plan button pressed")
-                        print("DEBUG: Button state - canGeneratePlan: \(viewModel.canGeneratePlan), isGenerating: \(viewModel.isGenerating)")
                         Task {
-                            print("DEBUG: About to call generatePlan")
                             await viewModel.generatePlan()
-                            print("DEBUG: generatePlan call completed")
                             
                             // Save the plan if generation was successful
                             if let plan = viewModel.generatedPlan {
-                                print("DEBUG: Saving plan to PlanStore")
                                 planStore.addPlan(plan)
                             }
                         }
@@ -103,7 +98,6 @@ struct PlanBuilderView: View {
                     .disabled(!viewModel.canGeneratePlan || viewModel.isGenerating)
                     .opacity(viewModel.canGeneratePlan ? 1.0 : 0.6)
                     .onAppear {
-                        print("DEBUG: Button appeared - canGeneratePlan: \(viewModel.canGeneratePlan), isGenerating: \(viewModel.isGenerating)")
                     }
                     .padding(.horizontal)
                     .padding(.bottom, 20)

@@ -57,7 +57,6 @@ class SpeechManager: NSObject, ObservableObject {
         // Setup app lifecycle notifications
         setupAppLifecycleHandling()
         
-        print("🎤 SpeechManager initialized - using local audio files with OpenAI TTS fallback")
     }
     
     // MARK: - Manifest Loading
@@ -84,22 +83,17 @@ class SpeechManager: NSObject, ObservableObject {
         guard let path = manifestPath,
               let manifestData = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let manifest = try? JSONSerialization.jsonObject(with: manifestData) as? [String: String] else {
-            print("⚠️ Could not load phrase manifest - falling back to system voice")
-            print("   Tried paths: SpeechAssets/manifest.json, manifest.json")
             return
         }
         phraseManifest = manifest
-        print("🎤 Loaded \(manifest.count) phrases from manifest")
     }
     
     // MARK: - Public Speech APIs
     func speak(_ text: String, priority: SpeechPriority = .normal, context: SpeechContext = .feedback) {
         guard speechEnabled else {
-            print("🎤 Speech disabled - would speak: \(text)")
             return
         }
         
-        print("🎤 Attempting to speak: \(text) [Priority: \(priority), Context: \(context)]")
         
         queueLock.lock()
         defer { queueLock.unlock() }
@@ -107,13 +101,11 @@ class SpeechManager: NSObject, ObservableObject {
         // Handle priority-based interruption logic
         let shouldInterrupt = shouldInterruptCurrentSpeech(newPriority: priority, newContext: context)
         if shouldInterrupt {
-            print("🎤 High priority speech interrupting current speech")
             speakQueue.removeAll { $0.priority.rawValue < priority.rawValue }
             stopSpeaking()
         }
         
         if (isSpeaking || audioPlayer != nil || (synthesizer?.isSpeaking ?? false)) && !shouldInterrupt {
-            print("🎤 Queuing utterance: \(text)")
             speakQueue.append((text, priority))
             return
         }
@@ -201,7 +193,6 @@ class SpeechManager: NSObject, ObservableObject {
         
         isSpeaking = false
         currentSpeechContext = .none
-        print("🎤 Speech stopped and cleaned up")
         
         // Disable ducking if nothing is playing
         if speakQueue.isEmpty && synthesizer == nil && audioPlayer == nil {
@@ -212,7 +203,6 @@ class SpeechManager: NSObject, ObservableObject {
     func clearSpeechQueue() {
         queueLock.lock(); defer { queueLock.unlock() }
         speakQueue.removeAll()
-        print("🎤 Speech queue cleared")
     }
     
     // MARK: - Internal Helpers
@@ -253,11 +243,9 @@ class SpeechManager: NSObject, ObservableObject {
         }
         
         // Fallback to OpenAI TTS for unknown phrases
-        print("🎤 Phrase not found in catalog, trying OpenAI TTS fallback: \(text)")
         if let apiKey = openAIAPIKey, !apiKey.isEmpty {
             Task { await speakWithOpenAITTS(text, priority: priority) }
         } else {
-            print("🎤 No OpenAI API key available, using system voice fallback")
             fallbackToSystemVoice(text)
         }
     }
@@ -461,12 +449,10 @@ class SpeechManager: NSObject, ObservableObject {
     /// Uses async file operations to avoid blocking the main thread.
     private func playPhrase(id: String, fallbackText: String) {        // Quick check: Get filename from manifest (in-memory lookup, very fast)
         guard let filename = phraseManifest[id] else {
-            print("🎤 Phrase ID not found in manifest: \(id), using OpenAI TTS fallback")
             // Use OpenAI TTS instead of system voice for better quality
             if let apiKey = openAIAPIKey, !apiKey.isEmpty {
                 Task { await speakWithOpenAITTS(fallbackText, priority: .normal) }
             } else {
-                print("🎤 No OpenAI API key available, using system voice fallback")
                 fallbackToSystemVoice(fallbackText)
             }
             return
@@ -519,7 +505,6 @@ class SpeechManager: NSObject, ObservableObject {
                 } else {
                     // File read failed - fallback to system voice (don't use OpenAI TTS to avoid network errors)
                     DispatchQueue.main.async {
-                        print("🎤 Failed to load audio file: \(path), using system voice fallback")
                         self.fallbackToSystemVoice(fallbackTextCopy)
                     }
                 }
@@ -536,18 +521,15 @@ class SpeechManager: NSObject, ObservableObject {
                 loadCompleted.unlock()
                 
                 if shouldFallback {
-                    print("🎤 Audio file load timeout: \(filename), using system voice fallback")
                     // Use system voice instead of OpenAI TTS to avoid network errors when offline
                     self.fallbackToSystemVoice(fallbackTextCopy)
                 }
             }
         } else {
             // File not found - use OpenAI TTS immediately (better than system voice)
-            print("🎤 Audio file not found: \(filename), using OpenAI TTS fallback")
             if let apiKey = openAIAPIKey, !apiKey.isEmpty {
                 Task { await speakWithOpenAITTS(fallbackText, priority: .normal) }
             } else {
-                print("🎤 No OpenAI API key available, using system voice fallback")
                 fallbackToSystemVoice(fallbackText)
             }
         }
@@ -571,7 +553,6 @@ class SpeechManager: NSObject, ObservableObject {
         guard !speakQueue.isEmpty else { return }
         speakQueue.sort { $0.priority.rawValue > $1.priority.rawValue }
         let next = speakQueue.removeFirst()
-        print("🎤 Dequeued utterance: \(next.text)")
         let delay: TimeInterval = 0.4
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             if !self.isAudioSessionActive {
@@ -590,7 +571,6 @@ class SpeechManager: NSObject, ObservableObject {
         // Don't setup if already active and properly configured
         let audioSession = AVAudioSession.sharedInstance()
         if isAudioSessionActive && audioSession.category == .playback && audioSession.categoryOptions.contains(.mixWithOthers) {
-            print("🎤 Audio session already active and properly configured")
             return
         }
         
@@ -607,12 +587,9 @@ class SpeechManager: NSObject, ObservableObject {
             if !isAudioSessionActive {
                 try audioSession.setActive(true, options: [])
                 isAudioSessionActive = true
-                print("🎤 Audio session setup successful (mixing enabled)")
             } else {
-                print("🎤 Audio session category updated (mixing enabled)")
             }
         } catch {
-            print("❌ Failed to setup audio session: \(error)")
             isAudioSessionActive = false
             setupAudioSessionFallback()
         }
@@ -626,14 +603,11 @@ class SpeechManager: NSObject, ObservableObject {
                 do {
                     try audioSession.setActive(true, options: [])
                     self.isAudioSessionActive = true
-                    print("🎤 Audio session fallback setup successful (mixing enabled, no duck)")
                 } catch {
-                    print("❌ Audio session fallback also failed: \(error)")
                     self.isAudioSessionActive = false
                 }
             }
         } catch {
-            print("❌ Audio session fallback setup failed: \(error)")
             isAudioSessionActive = false
         }
     }
@@ -659,9 +633,7 @@ class SpeechManager: NSObject, ObservableObject {
                 isAudioSessionActive = true
             }
             
-            print(enabled ? "🎤 Ducking ENABLED" : "🎤 Ducking DISABLED (mixing only)")
         } catch {
-            print("❌ Failed to toggle ducking: \(error)")
         }
     }
     
@@ -676,7 +648,6 @@ class SpeechManager: NSObject, ObservableObject {
     }
     
     @objc private func handleAppWillEnterForeground() {
-        print("🎤 App will enter foreground - resetting audio session")
         // Stop any current playback
         stopSpeaking()
         // Reset audio session state
@@ -684,7 +655,6 @@ class SpeechManager: NSObject, ObservableObject {
     }
     
     @objc private func handleAppDidBecomeActive() {
-        print("🎤 App did become active - reinitializing audio session")
         // Reinitialize audio session when app becomes active
         isAudioSessionActive = false
         setupAudioSession()
@@ -696,7 +666,6 @@ class SpeechManager: NSObject, ObservableObject {
               let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
         switch type {
         case .began:
-            print("🎤 Audio session interruption began")
             // Immediately nil out player and synthesizer to prevent access during interruption
             // Don't call stop() as the session is already interrupted
             audioPlayer?.delegate = nil
@@ -709,7 +678,6 @@ class SpeechManager: NSObject, ObservableObject {
             // Clear queue to prevent queued items from playing after interruption
             clearSpeechQueue()
         case .ended:
-            print("🎤 Audio session interruption ended")
             // Ensure player and synthesizer are nil before resetting session
             audioPlayer?.delegate = nil
             audioPlayer = nil
@@ -734,7 +702,6 @@ class SpeechManager: NSObject, ObservableObject {
     }
     
     @objc private func handleAudioSessionRouteChange(notification: Notification) {
-        print("🎤 Audio session route changed")
         setupAudioSession()
     }
     
@@ -742,7 +709,6 @@ class SpeechManager: NSObject, ObservableObject {
     private func playAudioData(_ data: Data) {
         // Ensure audio session is active before playing
         guard isAudioSessionActive else {
-            print("🎤 Audio session not active, setting up...")
             setupAudioSession()
             // Wait a bit for session to activate, then try again
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -760,7 +726,6 @@ class SpeechManager: NSObject, ObservableObject {
             // Verify audio session is still active before creating player
             let audioSession = AVAudioSession.sharedInstance()
             guard audioSession.isOtherAudioPlaying == false || audioSession.categoryOptions.contains(.mixWithOthers) else {
-                print("🎤 Audio session not ready for playback")
                 setupAudioSession()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     self.playAudioData(data)
@@ -777,7 +742,6 @@ class SpeechManager: NSObject, ObservableObject {
             
             // Prepare to play (this validates the audio data)
             guard player.prepareToPlay() else {
-                print("🎤 Failed to prepare audio player")
                 player.delegate = nil
                 fallbackToSystemVoice("Audio preparation failed")
                 return
@@ -789,7 +753,6 @@ class SpeechManager: NSObject, ObservableObject {
             
             // Play with error handling
             guard player.play() else {
-                print("🎤 Failed to start audio playback")
                 audioPlayer?.delegate = nil
                 audioPlayer = nil
                 isSpeaking = false
@@ -797,9 +760,7 @@ class SpeechManager: NSObject, ObservableObject {
                 return
             }
             
-            print("🎤 Playing local audio file")
         } catch {
-            print("🎤 Failed to create audio player: \(error)")
             audioPlayer?.delegate = nil
             audioPlayer = nil
             isSpeaking = false
@@ -811,7 +772,6 @@ class SpeechManager: NSObject, ObservableObject {
     private func speakWithOpenAITTS(_ text: String, priority: SpeechPriority) async {        // Check cache first
         let cachedAudio: Data? = audioCacheQueue.sync { audioCache[text] }
         if let cachedAudio = cachedAudio {
-            print("🎤 Playing cached OpenAI TTS audio for: \(text)")
             DispatchQueue.main.async { self.playAudioData(cachedAudio) }
             return
         }
@@ -820,11 +780,9 @@ class SpeechManager: NSObject, ObservableObject {
             let startTime = Date()
             let audioData = try await fetchOpenAITTS(text)
             let duration = Date().timeIntervalSince(startTime)
-            print("🎤 Received OpenAI TTS audio data: \(audioData.count) bytes (took \(String(format: "%.2f", duration))s)")
             audioCacheQueue.async(flags: .barrier) { self.audioCache[text] = audioData }
             DispatchQueue.main.async { self.playAudioData(audioData) }
         } catch {
-            print("🎤 OpenAI TTS failed: \(error), falling back to system voice")
             fallbackToSystemVoice(text)
         }
     }
@@ -843,25 +801,21 @@ class SpeechManager: NSObject, ObservableObject {
         request.timeoutInterval = 10.0
         let requestBody = ["model": "tts-1", "input": text, "voice": "nova"]
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-        print("🎤 Making OpenAI TTS request for: \(text)")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NSError(domain: "SpeechManager", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid response from OpenAI API"])
         }
         guard httpResponse.statusCode == 200 else {
             let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
-            print("🎤 OpenAI API error: \(httpResponse.statusCode) - \(errorMessage)")
             throw NSError(domain: "SpeechManager", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "OpenAI API error: \(errorMessage)"])
         }
         return data
     }
     
     private func fallbackToSystemVoice(_ text: String) {
-        print("🎤 Using system voice fallback for: \(text)")
         
         // Ensure audio session is active before using synthesizer
         guard isAudioSessionActive else {
-            print("🎤 Audio session not active, setting up before system voice fallback")
             setupAudioSession()
             // Retry after session is set up
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -881,7 +835,6 @@ class SpeechManager: NSObject, ObservableObject {
         DispatchQueue.main.async {
             // Verify session is still active before creating new synthesizer
             guard self.isAudioSessionActive else {
-                print("🎤 Audio session became inactive during cleanup, aborting system voice")
                 return
             }
             
@@ -1001,7 +954,6 @@ class SpeechManager: NSObject, ObservableObject {
     
     // MARK: - Minimal Speech Recognition (disabled)
     func startListening() {
-        print("🎤 Speech recognition disabled to avoid voice asset errors")
     }
     
     func stopListening() {
@@ -1012,7 +964,6 @@ class SpeechManager: NSObject, ObservableObject {
     
     private func beginListening() {
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
-            print("Speech recognition not available")
             return
         }
         audioEngine = AVAudioEngine()
@@ -1030,7 +981,6 @@ class SpeechManager: NSObject, ObservableObject {
             try audioEngine.start()
             isListening = true
         } catch {
-            print("Audio engine failed to start: \(error)")
         }
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             if let result = result {
@@ -1044,9 +994,7 @@ class SpeechManager: NSObject, ObservableObject {
     private func handleSpeechInput(_ transcript: String) {
         let lowercased = transcript.lowercased()
         if lowercased.contains("stop") || lowercased.contains("pause") {
-            print("Voice command: Stop")
         } else if lowercased.contains("next") || lowercased.contains("continue") {
-            print("Voice command: Next")
         }
     }
     
@@ -1061,7 +1009,6 @@ class SpeechManager: NSObject, ObservableObject {
     
     // MARK: - Cleanup
     func cleanup() {
-        print("🎤 Cleaning up speech system")
         stopSpeaking()
         clearSpeechQueue()
         synthesizer = nil
@@ -1069,9 +1016,7 @@ class SpeechManager: NSObject, ObservableObject {
         do {
             let audioSession = AVAudioSession.sharedInstance()
             try audioSession.setActive(false, options: [.notifyOthersOnDeactivation])
-            print("🎤 Audio session deactivated")
         } catch {
-            print("❌ Failed to deactivate audio session: \(error)")
         }
         isAudioSessionActive = false
     }
@@ -1108,7 +1053,6 @@ enum SpeechContext {
 // MARK: - Delegates
 extension SpeechManager: AVSpeechSynthesizerDelegate {
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        print("🎤 Speech synthesis finished: \(utterance.speechString)")
         DispatchQueue.main.async {
             // Only process if this is still the current synthesizer (avoid race conditions)
             guard self.synthesizer === synthesizer else { return }
@@ -1123,7 +1067,6 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
         }
     }
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
-        print("🎤 Speech synthesis started: \(utterance.speechString)")
         DispatchQueue.main.async { 
             // Only update if this is still the current synthesizer
             guard self.synthesizer === synthesizer else { return }
@@ -1131,7 +1074,6 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
         }
     }
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        print("🎤 Speech synthesis cancelled: \(utterance.speechString)")
         DispatchQueue.main.async {
             // Only process if this is still the current synthesizer (avoid race conditions)
             guard self.synthesizer === synthesizer else { return }
@@ -1149,7 +1091,6 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
 
 extension SpeechManager: AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        print("🎤 Audio finished playing")
         DispatchQueue.main.async {
             // Only process if this is still the current player (avoid race conditions)
             guard self.audioPlayer === player else { return }
@@ -1164,7 +1105,6 @@ extension SpeechManager: AVAudioPlayerDelegate {
         }
     }
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        print("🎤 Audio decode error: \(error?.localizedDescription ?? "Unknown error")")
         DispatchQueue.main.async {
             // Only process if this is still the current player (avoid race conditions)
             guard self.audioPlayer === player else { return }

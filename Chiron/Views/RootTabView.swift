@@ -93,7 +93,6 @@ struct RootTabView: View {
             do {
                 try ExerciseSeeder.seedIfNeeded(context: modelContext)
             } catch {
-                print("Exercise seeding failed: \(error)")
             }
         }
         .onChange(of: selectedTab) {

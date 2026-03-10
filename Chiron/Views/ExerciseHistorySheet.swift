@@ -128,7 +128,6 @@ struct ExerciseHistorySheet: View {
         // Validate userId
         guard !userId.isEmpty else {
             let errorMsg = "User ID is empty. Cannot load history."
-            print("❌ \(errorMsg)")
             DispatchQueue.main.async {
                 self.isLoading = false
                 self.errorMessage = errorMsg
@@ -145,7 +144,6 @@ struct ExerciseHistorySheet: View {
                     setLogs = logs
                 case .failure(let error):
                     errorMessage = error.localizedDescription
-                    print("❌ Error loading history: \(error.localizedDescription)")
                 }
             }
         }

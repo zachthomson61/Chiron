@@ -98,7 +98,6 @@ class UserPreferencesManager: ObservableObject {
     private func syncToBackend() {
         // TODO: Sync with Firebase/backend when available
         guard let goal = primaryGoal else { return }
-        print("📱 Syncing primary goal to backend: \(goal.displayName)")
     }
     
     private func trackGoalChanged(from oldGoal: PrimaryGoal, to newGoal: PrimaryGoal?) {

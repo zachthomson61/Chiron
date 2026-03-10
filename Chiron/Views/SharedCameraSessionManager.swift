@@ -74,7 +74,6 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
         // Don't start the session here - let the coordinator handle it
         // This prevents conflicts with other coordinators that might be configuring the session
         
-        print("📹 SharedCameraSessionManager: Camera session setup completed")
     }
     
     func getCaptureSession() -> AVCaptureSession? {
@@ -102,7 +101,6 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
     /// This design allows one camera session to serve all squat variations without duplication.
     func switchToWorkoutMode() {
         isSetupMode = false
-        print("📹 SharedCameraSessionManager: Switching to workout mode")
         
         // Update video output delegate for pose analysis
         if let videoDataOutput = videoDataOutput {
@@ -127,7 +125,6 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
     
     func switchToSetupMode() {
         isSetupMode = true
-        print("📹 SharedCameraSessionManager: Switching to setup mode")
         
         // Remove video output delegate (setup view will handle it)
         videoDataOutput?.setSampleBufferDelegate(nil, queue: nil)
@@ -135,13 +132,11 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
     
     func startPoseAnalysis() {
         isAnalyzingPose = true
-        print("🎯 SharedCameraSessionManager: Starting pose analysis")
         poseManager.resetRepCountingState()  // Reset all rep counting state
     }
     
     func stopPoseAnalysis() {
         isAnalyzingPose = false
-        print("🛑 SharedCameraSessionManager: Stopping pose analysis")
         
         DispatchQueue.main.async {
             self.currentFormAnalysis = nil
@@ -150,7 +145,6 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
     }
     
     func stopCamera() {
-        print("📹 SharedCameraSessionManager: Stopping camera")
         captureSession?.stopRunning()
         captureSession = nil
         videoDataOutput = nil

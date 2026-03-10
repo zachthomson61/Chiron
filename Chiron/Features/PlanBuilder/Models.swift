@@ -571,7 +571,6 @@ struct PlanBuilderInput: Codable {
         let daysValid = daysPerWeek > 0 && daysPerWeek <= 7
         let durationValid = programDuration > 0
         
-        print("DEBUG: isValid check - name: \(nameValid), goals: \(goalsValid), session: \(sessionValid), days: \(daysValid), duration: \(durationValid)")
         
         return nameValid && goalsValid && sessionValid && daysValid && durationValid
     }

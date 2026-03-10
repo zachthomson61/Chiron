@@ -42,27 +42,21 @@ class FirebaseManager: ObservableObject {
     private init() {}
     
     func uploadWorkoutVideo(videoURL: URL, workoutId: String, completion: @escaping (Result<String, Error>) -> Void) {
-        print("🔥 FirebaseManager: Starting video upload for workout: \(workoutId)")
-        print("📁 Video file path: \(videoURL.path)")
         
         // Enhanced file checking
         let fileExists = FileManager.default.fileExists(atPath: videoURL.path)
-        print("📁 Local file exists: \(fileExists)")
         
         guard fileExists else {
-            print("❌ Video file does not exist at path: \(videoURL.path)")
             completion(.failure(NSError(domain: "FirebaseManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Video file does not exist"])))
             return
         }
         
         // Check file size
         guard let fileSize = try? FileManager.default.attributesOfItem(atPath: videoURL.path)[.size] as? Int64, fileSize > 0 else {
-            print("❌ Video file is empty or cannot be read")
             completion(.failure(NSError(domain: "FirebaseManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Video file is empty or cannot be read"])))
             return
         }
         
-        print("📊 Local file size: \(fileSize) bytes")
         
         isUploading = true
         uploadProgress = 0.0
@@ -71,26 +65,20 @@ class FirebaseManager: ObservableObject {
         let videoFileName = videoURL.lastPathComponent
         let videoRef = storageRef.child("workout-videos/\(workoutId)/\(videoFileName)")
         
-        print("📤 Uploading to Firebase path: workout-videos/\(workoutId)/\(videoFileName)")
         
         let metadata = StorageMetadata()
         metadata.contentType = "video/mp4"
         
         // Add a delay to ensure file is fully written and accessible
-        print("⏳ Waiting 2 seconds before starting Firebase upload...")
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            print("🚀 Starting Firebase upload after delay...")
             let uploadTask = videoRef.putFile(from: videoURL, metadata: metadata) { [weak self] metadata, error in
                 DispatchQueue.main.async {
                     self?.isUploading = false
                     
                     if let error = error {
-                        print("❌ Firebase upload failed: \(error.localizedDescription)")
-                        print("❌ Error details: \(error)")
                         
                         // Try again with a delay if it's a file access error
                         if (error as NSError).domain == "FIRStorageErrorDomain" && (error as NSError).code == -13021 {
-                            print("🔄 Retrying upload with delay...")
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                                 self?.retryUpload(videoURL: videoURL, videoRef: videoRef, metadata: metadata ?? StorageMetadata(), workoutId: workoutId, videoFileName: videoFileName, completion: completion)
                             }
@@ -100,21 +88,17 @@ class FirebaseManager: ObservableObject {
                         return
                     }
                     
-                    print("✅ Firebase upload completed successfully")
                     
                     // Get download URL
                     videoRef.downloadURL { url, error in
                         DispatchQueue.main.async {
                             if let error = error {
-                                print("❌ Failed to get download URL: \(error.localizedDescription)")
                                 completion(.failure(error))
                             } else if let downloadURL = url {
-                                print("🔗 Download URL obtained: \(downloadURL.absoluteString)")
                                 // Trigger the new architecture flow
                                 self?.triggerMediaPipeAnalysis(downloadURL: downloadURL.absoluteString, workoutId: workoutId, videoFileName: videoFileName)
                                 completion(.success(downloadURL.absoluteString))
                             } else {
-                                print("❌ Download URL is nil")
                                 completion(.failure(NSError(domain: "FirebaseManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get download URL"])))
                             }
                         }
@@ -127,40 +111,33 @@ class FirebaseManager: ObservableObject {
                 DispatchQueue.main.async {
                     let progress = Double(snapshot.progress!.completedUnitCount) / Double(snapshot.progress!.totalUnitCount)
                     self?.uploadProgress = progress
-                    print("📊 Upload progress: \(Int(progress * 100))%")
                 }
             }
         }
     }
     
     private func retryUpload(videoURL: URL, videoRef: StorageReference, metadata: StorageMetadata, workoutId: String, videoFileName: String, completion: @escaping (Result<String, Error>) -> Void) {
-        print("🔄 Retrying Firebase upload...")
         
         let retryTask = videoRef.putFile(from: videoURL, metadata: metadata) { [weak self] metadata, error in
             DispatchQueue.main.async {
                 self?.isUploading = false
                 
                 if let error = error {
-                    print("❌ Firebase retry upload failed: \(error.localizedDescription)")
                     completion(.failure(error))
                     return
                 }
                 
-                print("✅ Firebase retry upload completed successfully")
                 
                 // Get download URL
                 videoRef.downloadURL { url, error in
                     DispatchQueue.main.async {
                         if let error = error {
-                            print("❌ Failed to get download URL: \(error.localizedDescription)")
                             completion(.failure(error))
                         } else if let downloadURL = url {
-                            print("🔗 Download URL obtained: \(downloadURL.absoluteString)")
                             // Trigger the new architecture flow
                             self?.triggerMediaPipeAnalysis(downloadURL: downloadURL.absoluteString, workoutId: workoutId, videoFileName: videoFileName)
                             completion(.success(downloadURL.absoluteString))
                         } else {
-                            print("❌ Download URL is nil")
                             completion(.failure(NSError(domain: "FirebaseManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get download URL"])))
                         }
                     }
@@ -173,7 +150,6 @@ class FirebaseManager: ObservableObject {
             DispatchQueue.main.async {
                 let progress = Double(snapshot.progress!.completedUnitCount) / Double(snapshot.progress!.totalUnitCount)
                 self?.uploadProgress = progress
-                print("📊 Retry upload progress: \(Int(progress * 100))%")
             }
         }
     }
@@ -204,8 +180,6 @@ class FirebaseManager: ObservableObject {
     // MARK: - New Architecture Methods
     
     private func triggerMediaPipeAnalysis(downloadURL: String, workoutId: String, videoFileName: String) {
-        print("🤖 Triggering MediaPipe analysis for workout: \(workoutId)")
-        print("🔗 Video URL: \(downloadURL)")
         
         // Prepare request for Cloud Run MediaPipe service
         let analysisRequest: [String: Any] = [
@@ -216,19 +190,15 @@ class FirebaseManager: ObservableObject {
             "timestamp": Date().timeIntervalSince1970
         ]
         
-        print("📤 Sending request to Cloud Run: \(analysisRequest)")
         callCloudRunMediaPipe(request: analysisRequest, workoutId: workoutId)
     }
     
     private func callCloudRunMediaPipe(request: [String: Any], workoutId: String) {
-        print("🌐 Calling Cloud Run MediaPipe service")
         
         guard let url = URL(string: "\(cloudRunURL)/analyze-pose") else {
-            print("❌ Invalid Cloud Run URL: \(cloudRunURL)")
             return
         }
         
-        print("🔗 Cloud Run URL: \(url)")
         
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
@@ -236,42 +206,32 @@ class FirebaseManager: ObservableObject {
         
         do {
             urlRequest.httpBody = try JSONSerialization.data(withJSONObject: request)
-            print("✅ Request body serialized successfully")
         } catch {
-            print("❌ Error serializing request: \(error)")
             return
         }
         
-        print("📡 Making HTTP request to Cloud Run...")
         
         URLSession.shared.dataTask(with: urlRequest) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 if let error = error {
-                    print("❌ Cloud Run MediaPipe error: \(error)")
                     return
                 }
                 
                 if let httpResponse = response as? HTTPURLResponse {
-                    print("📡 HTTP Response Status: \(httpResponse.statusCode)")
                 }
                 
                 guard let data = data else {
-                    print("❌ No data received from Cloud Run")
                     return
                 }
                 
-                print("📦 Received \(data.count) bytes from Cloud Run")
                 
                 do {
                     if let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        print("✅ MediaPipe analysis completed: \(jsonResponse)")
                         // Trigger OpenAI analysis with MediaPipe results
                         self?.triggerOpenAIAnalysis(mediaPipeResults: jsonResponse, workoutId: workoutId)
                     }
                 } catch {
-                    print("❌ Error parsing Cloud Run response: \(error)")
                     if let responseString = String(data: data, encoding: .utf8) {
-                        print("📄 Raw response: \(responseString)")
                     }
                 }
             }
@@ -279,7 +239,6 @@ class FirebaseManager: ObservableObject {
     }
     
     private func triggerOpenAIAnalysis(mediaPipeResults: [String: Any], workoutId: String) {
-        print("Triggering OpenAI analysis for workout: \(workoutId)")
         
         // Prepare OpenAI request with MediaPipe results
         let openAIRequest: [String: Any] = [
@@ -332,7 +291,6 @@ class FirebaseManager: ObservableObject {
     
     private func callOpenAIAPI(request: [String: Any], workoutId: String) {
         guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
-            print("Invalid OpenAI API URL")
             return
         }
         
@@ -344,19 +302,16 @@ class FirebaseManager: ObservableObject {
         do {
             urlRequest.httpBody = try JSONSerialization.data(withJSONObject: request)
         } catch {
-            print("Error serializing OpenAI request: \(error)")
             return
         }
         
         URLSession.shared.dataTask(with: urlRequest) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 if let error = error {
-                    print("OpenAI API error: \(error)")
                     return
                 }
                 
                 guard let data = data else {
-                    print("No data received from OpenAI")
                     return
                 }
                 
@@ -367,7 +322,6 @@ class FirebaseManager: ObservableObject {
                        let message = firstChoice["message"] as? [String: Any],
                        let content = message["content"] as? String {
                         
-                        print("OpenAI analysis completed")
                         
                         // Store the complete analysis results
                         let analysisResults: [String: Any] = [
@@ -381,7 +335,6 @@ class FirebaseManager: ObservableObject {
                         self?.storeAnalysisResults(results: analysisResults, workoutId: workoutId)
                     }
                 } catch {
-                    print("Error parsing OpenAI response: \(error)")
                 }
             }
         }.resume()
@@ -399,14 +352,11 @@ class FirebaseManager: ObservableObject {
             resultsRef.putData(jsonData, metadata: metadata) { metadata, error in
                 DispatchQueue.main.async {
                     if let error = error {
-                        print("Error storing analysis results: \(error)")
                     } else {
-                        print("Analysis results stored successfully for workout: \(workoutId)")
                     }
                 }
             }
         } catch {
-            print("Error serializing analysis results: \(error)")
         }
     }
     
@@ -416,36 +366,26 @@ class FirebaseManager: ObservableObject {
         let storageRef = storage.reference()
         let resultsRef = storageRef.child("analysis-results/\(workoutId)/results.json")
         
-        print("🔍 Attempting to retrieve analysis results for workout: \(workoutId)")
-        print("📁 Looking for file at: analysis-results/\(workoutId)/results.json")
         
         var results: [String: Any]?
         let semaphore = DispatchSemaphore(value: 0)
         
         resultsRef.getData(maxSize: 10 * 1024 * 1024) { data, error in
             if let error = error {
-                print("❌ Error retrieving analysis results: \(error)")
-                print("❌ Error details: \(error.localizedDescription)")
             } else if let data = data {
-                print("📦 Received \(data.count) bytes of analysis data")
                 do {
                     if let jsonResults = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                         results = jsonResults
-                        print("✅ Successfully retrieved analysis results for workout: \(workoutId)")
-                        print("📊 Results keys: \(jsonResults.keys)")
                     }
                 } catch {
-                    print("❌ Error parsing analysis results: \(error)")
                 }
             } else {
-                print("❌ No data received for analysis results")
             }
             semaphore.signal()
         }
         
         let waitResult = semaphore.wait(timeout: .now() + 10.0)
         if waitResult == .timedOut {
-            print("❌ Timeout waiting for analysis results")
         }
         return results
     }
@@ -459,6 +399,5 @@ class FirebaseManager: ObservableObject {
     
     func triggerCloudAnalysis(workoutData: [String: Any], workoutId: String) {
         // This method is now handled by the new architecture
-        print("Cloud analysis triggered via new architecture")
     }
 } 

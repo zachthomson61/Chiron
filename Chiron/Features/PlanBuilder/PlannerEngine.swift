@@ -122,16 +122,6 @@ final class PlannerEngine {
         let varietyPolicy = VarietyPolicy.from(clampedVarietyContinuum)
         
         // Debug: Print input values
-        print("DEBUG: Generating plan with input:")
-        print("  - name: '\(input.name)'")
-        print("  - goals: \(input.goals)")
-        print("  - sessionMinutes: \(input.sessionMinutes)")
-        print("  - daysPerWeek: \(input.daysPerWeek)")
-        print("  - programDuration: \(input.programDuration)")
-        print("  - targetMuscles: \(input.targetMuscles)")
-        print("  - split: \(input.split)")
-        print("  - varietyContinuum: \(clampedVarietyContinuum)")
-        print("  - supersets: \(input.supersets)")
         
         for weekNum in 1...input.programDuration {
             let days = generateWeekDays(
@@ -150,10 +140,8 @@ final class PlannerEngine {
                 injuryProfile: injuryProfile
             )
             weeks.append(TrainingWeek(weekNumber: weekNum, days: days))
-            print("DEBUG: Generated week \(weekNum) with \(days.count) days")
         }
         
-        print("DEBUG: Creating TrainingPlan with \(weeks.count) weeks")
         
         let plan = TrainingPlan(
             name: input.name.isEmpty ? "Custom Plan" : input.name,
@@ -168,7 +156,6 @@ final class PlannerEngine {
             weeks: weeks
         )
         
-        print("DEBUG: Successfully created TrainingPlan: \(plan.name)")
         return plan
     }
     

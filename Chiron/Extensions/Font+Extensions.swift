@@ -1,7 +1,6 @@
 import SwiftUI
 #if os(iOS)
 import UIKit
-#endif
 
 /// Font extension providing Neue Montreal typeface throughout the app.
 /// 
@@ -29,8 +28,8 @@ extension Font {
         if UIFont(name: "Neue Montreal Bold", size: size) != nil {
             return .custom("Neue Montreal Bold", size: size)
         }
-        #endif
         return .system(size: size, weight: .bold, design: .default)
+        #endif
     }
     
     /// Returns Neue Montreal SemiBold font at the specified size.
@@ -47,8 +46,8 @@ extension Font {
         if UIFont(name: "Neue Montreal SemiBold", size: size) != nil {
             return .custom("Neue Montreal SemiBold", size: size)
         }
-        #endif
         return .system(size: size, weight: .semibold, design: .default)
+        #endif
     }
     
     /// Returns Neue Montreal Regular font at the specified size.
@@ -65,7 +64,8 @@ extension Font {
         if UIFont(name: "Neue Montreal Regular", size: size) != nil {
             return .custom("Neue Montreal Regular", size: size)
         }
-        #endif
         return .system(size: size, weight: .regular, design: .default)
+        #endif
     }
 }
+#endif

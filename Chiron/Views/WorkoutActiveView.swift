@@ -1407,12 +1407,10 @@ struct WorkoutActiveView: View {
                             .foregroundColor(.textSecondary)
                     }
                     
-                    #if DEBUG
                     Text(errorMessage)
                         .font(.neueMontrealRegular(size: 10))
                         .foregroundColor(.textSecondary.opacity(0.7))
                         .lineLimit(2)
-                    #endif
                     
                     Button(action: {
                         restViewModel.retry()
@@ -1545,9 +1543,8 @@ struct WorkoutActiveView: View {
                 switch result {
                 case .success(let logId):
                     currentWorkoutLogId = logId
-                    print("✅ Workout log created: \(logId)")
-                case .failure(let error):
-                    print("❌ Failed to create workout log: \(error.localizedDescription)")
+                case .failure:
+                    break
                 }
             }
         }
@@ -1752,9 +1749,6 @@ struct WorkoutActiveView: View {
             lastObservedRepCount = 0
             startFormScoreTimer()
             
-            #if DEBUG
-            print("🏋️ Close-grip bench press started - pose analysis active, form score timer running")
-            #endif
         } else if poseManager.squatType == .closeGripBenchPress {
             // Reset to bodyweight when moving away from close-grip bench press
             poseManager.squatType = .bodyweight
@@ -1853,9 +1847,6 @@ struct WorkoutActiveView: View {
         repScores = []
         trackingPulseScale = 1.0
         
-        #if DEBUG
-        print("🎯 Starting form score timer (1 Hz, updates on rep detection)")
-        #endif
         
         formScoreUpdateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [self] _ in
             checkForRepAndUpdateScore()
@@ -1901,18 +1892,12 @@ struct WorkoutActiveView: View {
             // Pose detected - enter tracking state only if we don't have a score yet
             if smoothedFormScore == 0 && !isTrackingActive && currentRepCount == lastObservedRepCount {
                 isTrackingActive = true
-                #if DEBUG
-                print("📡 Tracking active - pose detected, waiting for rep completion")
-                #endif
             }
         } else {
             // No pose detected - exit tracking state only if we don't have a score
             // If we have a score, keep it visible (don't reset tracking state)
             if isTrackingActive && smoothedFormScore == 0 {
                 isTrackingActive = false
-                #if DEBUG
-                print("📡 Tracking inactive - no pose detected")
-                #endif
             }
         }
         
@@ -1932,9 +1917,6 @@ struct WorkoutActiveView: View {
                 // Exit tracking state after score update (score now persists)
                 isTrackingActive = false
                 
-                #if DEBUG
-                print("📊 Rep \(currentRepCount) detected - form score updated to: \(Int(smoothedFormScore))")
-                #endif
             }
         }
     }
@@ -2085,9 +2067,9 @@ struct WorkoutActiveView: View {
                 ) { result in
                     switch result {
                     case .success:
-                        print("✅ Workout log ended: \(logId)")
-                    case .failure(let error):
-                        print("❌ Failed to end workout log: \(error.localizedDescription)")
+                        break
+                    case .failure:
+                        break
                     }
                 }
             }
@@ -2183,11 +2165,10 @@ struct WorkoutActiveView: View {
             DispatchQueue.main.async(execute: {
                 switch result {
                 case .success(let setLogId):
-                    print("✅ Set log saved from overview: \(setLogId)")
                     // Increment set number for this exercise
                     self.setNumbersPerExercise[exerciseIndex] = (self.setNumbersPerExercise[exerciseIndex] ?? 1) + 1
-                case .failure(let error):
-                    print("❌ Failed to save set log from overview: \(error.localizedDescription)")
+                case .failure:
+                    break
                 }
             })
         }
@@ -2236,7 +2217,6 @@ struct WorkoutActiveView: View {
                 DispatchQueue.main.async(execute: {
                     switch result {
                     case .success(let setLogId):
-                        print("✅ Set log saved: \(setLogId)")
                         // Increment set number for next set
                         currentSetNumber += 1
                         // Also update per-exercise tracking
@@ -2256,8 +2236,8 @@ struct WorkoutActiveView: View {
                         }
                         currentSetPainFlag = false
                         currentSetNotInControlFlag = false
-                    case .failure(let error):
-                        print("❌ Failed to save set log: \(error.localizedDescription)")
+                    case .failure:
+                        break
                     }
                 })
             }
@@ -2623,10 +2603,8 @@ struct WorkoutActiveView: View {
         .onChange(of: cameraSetupSelection) { oldValue, newValue in
             // Play audio cues when user selects a camera setup option
             // Only play if we're transitioning from nil to a selection (not when resetting)
-            print("🎤 onChange triggered: oldValue=\(String(describing: oldValue)), newValue=\(String(describing: newValue))")
             if oldValue == nil && newValue != nil {
                 let selectedType = newValue!
-                print("🎤 Selection made: \(selectedType)")
                 // Play immediately - no delay needed
                 playCameraSetupInstructions(for: selectedType)
             }
