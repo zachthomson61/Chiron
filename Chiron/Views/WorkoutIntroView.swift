@@ -208,12 +208,56 @@ struct WorkoutIntroView: View {
         }
     }
     
+    // MARK: - Carbon Legs A/B/C Rotation
+    
+    /// Session variant for Carbon Legs workout (nil for other workouts or before Start).
+    /// Set to "A", "B", or "C" when the user taps Start on Carbon Legs.
+    @State private var carbonLegsSessionVariant: String? = nil
+    
+    /// Effective exercises for the current session. Before Start or for non-Carbon Legs workouts,
+    /// returns the full exercise list. After Start on Carbon Legs, filters out the two
+    /// non-selected A/B/C rotation exercises (and their camera setups).
+    private var effectiveExercises: [WorkoutExercise] {
+        guard isWorkoutActive,
+              workout.name == "Carbon Legs",
+              let variant = carbonLegsSessionVariant,
+              let excludeNames = WorkoutLibrary.carbonLegsRotationExercises[variant] else {
+            return workout.exercises
+        }
+        return workout.exercises.filter { exercise in
+            if excludeNames.contains(exercise.name) { return false }
+            if let phase = exercise.phase, excludeNames.contains(phase) { return false }
+            return true
+        }
+    }
+    
+    /// Effective workout with session-resolved exercises. Used when passing
+    /// to WorkoutProgressionView during active workout.
+    private var effectiveWorkout: PredeterminedWorkout {
+        guard isWorkoutActive,
+              workout.name == "Carbon Legs",
+              carbonLegsSessionVariant != nil else {
+            return workout
+        }
+        return PredeterminedWorkout(
+            id: workout.id,
+            name: workout.name,
+            description: workout.description,
+            duration: workout.duration,
+            difficulty: workout.difficulty,
+            exercises: effectiveExercises,
+            equipment: workout.equipment,
+            videoName: workout.videoName,
+            category: workout.category
+        )
+    }
+    
     // MARK: - Computed Properties
     
     /// Current exercise
     private var currentExercise: WorkoutExercise? {
-        guard currentExerciseIndex < workout.exercises.count else { return nil }
-        return workout.exercises[currentExerciseIndex]
+        guard currentExerciseIndex < effectiveExercises.count else { return nil }
+        return effectiveExercises[currentExerciseIndex]
     }
     
     /// Whether current exercise is time-based
@@ -241,7 +285,7 @@ struct WorkoutIntroView: View {
     
     /// Exercises grouped by phase
     private var exercisesByPhase: [String: [WorkoutExercise]] {
-        Dictionary(grouping: workout.exercises) { exercise in
+        Dictionary(grouping: effectiveExercises) { exercise in
             exercise.phase ?? "Main Workout"
         }
     }
@@ -251,7 +295,7 @@ struct WorkoutIntroView: View {
         // Keep original order by finding first occurrence in exercises array
         var ordered: [String] = []
         var seen: Set<String> = []
-        for exercise in workout.exercises {
+        for exercise in effectiveExercises {
             let phase = exercise.phase ?? "Main Workout"
             if !seen.contains(phase) {
                 ordered.append(phase)
@@ -275,8 +319,8 @@ struct WorkoutIntroView: View {
             var completedInPhase = 0
             
             // Count exercises in this phase that have been completed
-            for i in 0..<min(currentExerciseIndex, workout.exercises.count) {
-                let exercise = workout.exercises[i]
+            for i in 0..<min(currentExerciseIndex, effectiveExercises.count) {
+                let exercise = effectiveExercises[i]
                 let exercisePhase = exercise.phase ?? "Main Workout"
                 if exercisePhase == phase {
                     completedInPhase += 1
@@ -300,8 +344,8 @@ struct WorkoutIntroView: View {
             // (i.e., the current exercise is in a different phase, or we've completed all exercises)
             var completedInPhase = 0
             for i in 0..<currentExerciseIndex {
-                if i < workout.exercises.count {
-                    let exercise = workout.exercises[i]
+                if i < effectiveExercises.count {
+                    let exercise = effectiveExercises[i]
                     let exercisePhase = exercise.phase ?? "Main Workout"
                     if exercisePhase == phaseName {
                         completedInPhase += 1
@@ -401,11 +445,11 @@ struct WorkoutIntroView: View {
     
     /// Estimated time remaining (seconds) based on workout progression (exercises completed), not elapsed time
     private var estimatedTimeRemaining: Int {
-        guard workout.exercises.count > 0 else { return 0 }
+        guard effectiveExercises.count > 0 else { return 0 }
         
         // Calculate overall workout progress based on exercises completed
         // currentExerciseIndex represents exercises completed (0 = first exercise, 1 = second exercise started, etc.)
-        let totalExercises = workout.exercises.count
+        let totalExercises = effectiveExercises.count
         let completedExercises = Double(currentExerciseIndex)
         let workoutProgress = completedExercises / Double(totalExercises)
         
@@ -508,7 +552,7 @@ struct WorkoutIntroView: View {
         }
         .sheet(isPresented: $showProgression) {
             WorkoutProgressionView(
-                workout: workout,
+                workout: effectiveWorkout,
                 onJumpToExercise: { index in
                     // Switch to active workout if not already active
                     if !isWorkoutActive {
@@ -538,7 +582,7 @@ struct WorkoutIntroView: View {
         }
         .sheet(isPresented: $showOverview) {
             WorkoutProgressionView(
-                workout: workout,
+                workout: effectiveWorkout,
                 onJumpToExercise: { index in
                     // Switch to active workout if not already active
                     if !isWorkoutActive {
@@ -712,6 +756,17 @@ struct WorkoutIntroView: View {
                     
                     // Start button
                     Button(action: {
+                        // Resolve Carbon Legs A/B/C variant before switching to active so overview
+                        // and exercise list are filtered from the first frame (no B/C sections shown).
+                        if workout.name == "Carbon Legs" {
+                            let lastVariant = UserDefaults.standard.string(forKey: "lastCarbonLegsVariant")
+                            switch lastVariant {
+                            case "A": carbonLegsSessionVariant = "B"
+                            case "B": carbonLegsSessionVariant = "C"
+                            default: carbonLegsSessionVariant = "A"
+                            }
+                            UserDefaults.standard.set(carbonLegsSessionVariant, forKey: "lastCarbonLegsVariant")
+                        }
                         withAnimation(.easeInOut(duration: 0.3)) {
                             isWorkoutActive = true
                         }
@@ -1551,7 +1606,6 @@ struct WorkoutIntroView: View {
             try audioSession.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             try audioSession.setActive(true)
         } catch {
-            print("Failed to activate audio session: \(error)")
         }
     }
     
@@ -1625,7 +1679,6 @@ struct WorkoutIntroView: View {
             playerNode.scheduleBuffer(buffer, completionHandler: completionHandler)
             playerNode.play()
         } catch {
-            print("Failed to play beep tone: \(error)")
         }
     }
     
@@ -1644,9 +1697,8 @@ struct WorkoutIntroView: View {
                 switch result {
                 case .success(let logId):
                     currentWorkoutLogId = logId
-                    print("✅ Workout log created: \(logId)")
-                case .failure(let error):
-                    print("❌ Failed to create workout log: \(error.localizedDescription)")
+                case .failure:
+                    break
                 }
             })
         }
@@ -1908,9 +1960,6 @@ struct WorkoutIntroView: View {
             lastObservedRepCount = 0
             startFormScoreTimer()
             
-            #if DEBUG
-            print("🏋️ Close-grip bench press started - pose analysis active, form score timer running")
-            #endif
         } else if poseManager.squatType == .closeGripBenchPress {
             // Reset to bodyweight when moving away from close-grip bench press
             poseManager.squatType = .bodyweight
@@ -2031,10 +2080,6 @@ struct WorkoutIntroView: View {
         repScores = []
         trackingPulseScale = 1.0
         
-        #if DEBUG
-        print("🎯 Starting form score timer (1 Hz, updates on rep detection)")
-        #endif
-        
         formScoreUpdateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [self] _ in
             checkForRepAndUpdateScore()
         }
@@ -2066,17 +2111,11 @@ struct WorkoutIntroView: View {
             // Pose detected - enter tracking state if not already showing a score
             if !isTrackingActive && currentRepCount == lastObservedRepCount {
                 isTrackingActive = true
-                #if DEBUG
-                print("📡 Tracking active - pose detected, waiting for rep completion")
-                #endif
             }
         } else {
             // No pose detected - exit tracking state
             if isTrackingActive {
                 isTrackingActive = false
-                #if DEBUG
-                print("📡 Tracking inactive - no pose detected")
-                #endif
             }
         }
         
@@ -2093,10 +2132,6 @@ struct WorkoutIntroView: View {
                     
                     // Exit tracking state after score update (snap to score)
                     isTrackingActive = false
-                    
-                    #if DEBUG
-                    print("📊 Rep \(currentRepCount) detected - form score snapped to: \(Int(smoothedFormScore)) (raw: \(Int(rawScore)))")
-                    #endif
                 }
             }
         }
@@ -2168,7 +2203,7 @@ struct WorkoutIntroView: View {
             dragOffset = 0
         }
         
-        if currentExerciseIndex < workout.exercises.count - 1 {
+        if currentExerciseIndex < effectiveExercises.count - 1 {
             // Reset reminder flags for new exercise
             hasSpoken30SecondReminder = false
             hasSpoken10SecondReminder = false
@@ -2202,9 +2237,9 @@ struct WorkoutIntroView: View {
                 ) { result in
                     switch result {
                     case .success:
-                        print("✅ Workout log ended: \(logId)")
-                    case .failure(let error):
-                        print("❌ Failed to end workout log: \(error.localizedDescription)")
+                        break
+                    case .failure:
+                        break
                     }
                 }
             }
@@ -2256,7 +2291,7 @@ struct WorkoutIntroView: View {
     ///
     /// Stops current timers, resets set tracking, and starts the intro buffer for the new exercise.
     private func jumpToExercise(index: Int) {
-        guard index >= 0 && index < workout.exercises.count else { return }
+        guard index >= 0 && index < effectiveExercises.count else { return }
         
         // Stop any ongoing speech and clear the queue
         SpeechManager.shared.stopSpeaking()
@@ -2350,7 +2385,7 @@ struct WorkoutIntroView: View {
         
         // Validate bounds
         guard exerciseIndex >= 0,
-              exerciseIndex < workout.exercises.count else {
+              exerciseIndex < effectiveExercises.count else {
             return
         }
         
@@ -2363,7 +2398,7 @@ struct WorkoutIntroView: View {
         }
         
         // Safely access exercise
-        let exercise = workout.exercises[exerciseIndex]
+        let exercise = effectiveExercises[exerciseIndex]
         let userId = UserManager.shared.getUserId()
         
         // Get or initialize set number for this exercise
@@ -2382,11 +2417,10 @@ struct WorkoutIntroView: View {
             DispatchQueue.main.async(execute: {
                 switch result {
                 case .success(let setLogId):
-                    print("✅ Set log saved from overview: \(setLogId)")
                     // Increment set number for this exercise
                     self.setNumbersPerExercise[exerciseIndex] = (self.setNumbersPerExercise[exerciseIndex] ?? 1) + 1
-                case .failure(let error):
-                    print("❌ Failed to save set log from overview: \(error.localizedDescription)")
+                case .failure:
+                    break
                 }
             })
         }
@@ -2423,7 +2457,6 @@ struct WorkoutIntroView: View {
                 DispatchQueue.main.async(execute: {
                     switch result {
                     case .success(let setLogId):
-                        print("✅ Set log saved: \(setLogId)")
                         // Increment set number for next set
                         currentSetNumber += 1
                         // Also update per-exercise tracking
@@ -2433,8 +2466,8 @@ struct WorkoutIntroView: View {
                         currentSetReps = nil
                         currentSetPainFlag = false
                         currentSetNotInControlFlag = false
-                    case .failure(let error):
-                        print("❌ Failed to save set log: \(error.localizedDescription)")
+                    case .failure:
+                        break
                     }
                 })
             }
@@ -2902,8 +2935,9 @@ struct WorkoutIntroView: View {
     
     /// Format exercise name with side information if present
     /// Returns "Exercise Name - Right Side" or just "Exercise Name"
+    /// Strips " (A)", " (B)", " (C)" from card display (letters remain in section titles only).
     private func formatExerciseNameWithSide(_ exercise: WorkoutExercise) -> String {
-        let baseName = exercise.name
+        let baseName = WorkoutLibrary.exerciseDisplayName(exercise.name)
         
         if let side = extractSideFromNotes(exercise.notes) {
             return "\(baseName) - \(side)"
