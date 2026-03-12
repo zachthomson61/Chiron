@@ -25,6 +25,7 @@ struct WorkoutLibrary {
     static let workouts: [PredeterminedWorkout] = [
         pythonWrangler,
         carbonPull,
+        carbonPush,
         carbonLegs
     ]
 
@@ -384,6 +385,421 @@ struct WorkoutLibrary {
             phase: "Trap Work"
         ),
         // Cool Down (same 4 as Python Wrangler)
+        WorkoutExercise(
+            name: "Cross-body Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Cross-body Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Cool Down"
+        )
+    ]
+
+    /// Carbon Push - 60-minute High-Intensity Push
+    ///
+    /// Workout Structure:
+    /// - Warm-up: 8 mobility exercises (same as Carbon Pull)
+    /// - 45˚ Smith Incline Bench: 2 rounds with 3-minute rest
+    /// - WEIGHTED DIPS (WIDE GRIP): 2 rounds with 3-minute rest
+    /// - Machine Shoulder Press: 2 rounds with 2-minute rest
+    /// - Pec Deck: 2 rounds with 1-minute rest
+    /// - Cuffed BTB Cable Lat Raise: 2 rounds with 1-minute rest
+    /// - Triceps: 1 camera setup, then Straight Bar Overhead Cable Tricep Extension, Straight Bar Cable Tricep Pushdown, Rest
+    /// - Cool Down: 4 stretches (same as Carbon Pull)
+    static let carbonPush = PredeterminedWorkout(
+        name: "Carbon Push",
+        description: "High-Intensity Push •\nFat Loss Focus",
+        duration: 60,
+        difficulty: .intermediate,
+        exercises: carbonPushExercises,
+        equipment: [
+            "Smith Machine",
+            "Dip Station",
+            "Shoulder Press Machine",
+            "Cable Machine"
+        ],
+        videoName: "BarbellRow",
+        category: "Chest"
+    )
+
+    /// Carbon Push exercises: Warm-up, 45˚ Smith Incline Bench, Weighted Dips, Machine Shoulder Press,
+    /// Pec Deck, Cuffed BTB Cable Lat Raise, Triceps, Cool Down.
+    private static let carbonPushExercises: [WorkoutExercise] = [
+        // Warm-up (same 8 as Carbon Pull)
+        WorkoutExercise(
+            name: "Cross-Body Arm Swings",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Slow Tempo",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Arm Circles",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Slow Tempo",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Thread the Needle",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Thread the Needle",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Overhead Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Overhead Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        // 45˚ Smith Incline Bench - Camera Setup
+        WorkoutExercise(
+            name: "45˚ Smith Incline Bench",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "45˚ Smith Incline Bench"
+        ),
+        // 45˚ Smith Incline Bench - 2 rounds
+        WorkoutExercise(
+            name: "45˚ Smith Incline Bench",
+            category: .compound,
+            sets: 1,
+            reps: "4-6",
+            restTime: 0,
+            notes: nil,
+            phase: "45˚ Smith Incline Bench"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":180",
+            restTime: 0,
+            notes: nil,
+            phase: "45˚ Smith Incline Bench"
+        ),
+        WorkoutExercise(
+            name: "45˚ Smith Incline Bench",
+            category: .compound,
+            sets: 1,
+            reps: "4-6",
+            restTime: 0,
+            notes: nil,
+            phase: "45˚ Smith Incline Bench"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":180",
+            restTime: 0,
+            notes: nil,
+            phase: "45˚ Smith Incline Bench"
+        ),
+        // WEIGHTED DIPS (WIDE GRIP) - Camera Setup
+        WorkoutExercise(
+            name: "WEIGHTED DIPS (WIDE GRIP)",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "WEIGHTED DIPS (WIDE GRIP)"
+        ),
+        // WEIGHTED DIPS (WIDE GRIP) - 2 rounds
+        WorkoutExercise(
+            name: "WEIGHTED DIPS (WIDE GRIP)",
+            category: .compound,
+            sets: 1,
+            reps: "5-6",
+            restTime: 0,
+            notes: nil,
+            phase: "WEIGHTED DIPS (WIDE GRIP)"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":180",
+            restTime: 0,
+            notes: nil,
+            phase: "WEIGHTED DIPS (WIDE GRIP)"
+        ),
+        WorkoutExercise(
+            name: "WEIGHTED DIPS (WIDE GRIP)",
+            category: .compound,
+            sets: 1,
+            reps: "5-6",
+            restTime: 0,
+            notes: nil,
+            phase: "WEIGHTED DIPS (WIDE GRIP)"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":180",
+            restTime: 0,
+            notes: nil,
+            phase: "WEIGHTED DIPS (WIDE GRIP)"
+        ),
+        // Machine Shoulder Press - Camera Setup
+        WorkoutExercise(
+            name: "Machine Shoulder Press",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Machine Shoulder Press"
+        ),
+        // Machine Shoulder Press - 2 rounds
+        WorkoutExercise(
+            name: "Machine Shoulder Press",
+            category: .compound,
+            sets: 1,
+            reps: "9-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Machine Shoulder Press"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":120",
+            restTime: 0,
+            notes: nil,
+            phase: "Machine Shoulder Press"
+        ),
+        WorkoutExercise(
+            name: "Machine Shoulder Press",
+            category: .compound,
+            sets: 1,
+            reps: "9-12",
+            restTime: 0,
+            notes: nil,
+            phase: "Machine Shoulder Press"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":120",
+            restTime: 0,
+            notes: nil,
+            phase: "Machine Shoulder Press"
+        ),
+        // Pec Deck - Camera Setup
+        WorkoutExercise(
+            name: "Pec Deck",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Pec Deck"
+        ),
+        // Pec Deck - 2 rounds
+        WorkoutExercise(
+            name: "Pec Deck",
+            category: .isolation,
+            sets: 1,
+            reps: "12-13",
+            restTime: 0,
+            notes: nil,
+            phase: "Pec Deck"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":60",
+            restTime: 0,
+            notes: nil,
+            phase: "Pec Deck"
+        ),
+        WorkoutExercise(
+            name: "Pec Deck",
+            category: .isolation,
+            sets: 1,
+            reps: "12-13",
+            restTime: 0,
+            notes: nil,
+            phase: "Pec Deck"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":60",
+            restTime: 0,
+            notes: nil,
+            phase: "Pec Deck"
+        ),
+        // Cuffed BTB Cable Lat Raise - Camera Setup
+        WorkoutExercise(
+            name: "Cuffed BTB Cable Lat Raise",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Cuffed BTB Cable Lat Raise"
+        ),
+        // Cuffed BTB Cable Lat Raise - 2 rounds
+        WorkoutExercise(
+            name: "Cuffed BTB Cable Lat Raise",
+            category: .isolation,
+            sets: 1,
+            reps: "8-13",
+            restTime: 0,
+            notes: nil,
+            phase: "Cuffed BTB Cable Lat Raise"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":60",
+            restTime: 0,
+            notes: nil,
+            phase: "Cuffed BTB Cable Lat Raise"
+        ),
+        WorkoutExercise(
+            name: "Cuffed BTB Cable Lat Raise",
+            category: .isolation,
+            sets: 1,
+            reps: "8-13",
+            restTime: 0,
+            notes: nil,
+            phase: "Cuffed BTB Cable Lat Raise"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":60",
+            restTime: 0,
+            notes: nil,
+            phase: "Cuffed BTB Cable Lat Raise"
+        ),
+        // Triceps - Camera Setup (single card titled "Triceps")
+        WorkoutExercise(
+            name: "Triceps",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Triceps"
+        ),
+        // Triceps - Straight Bar Overhead Cable Tricep Extension, Straight Bar Cable Tricep Pushdown, Rest
+        WorkoutExercise(
+            name: "Straight Bar Overhead Cable Tricep Extension",
+            category: .isolation,
+            sets: 1,
+            reps: "10-11",
+            restTime: 0,
+            notes: nil,
+            phase: "Triceps"
+        ),
+        WorkoutExercise(
+            name: "Straight Bar Cable Tricep Pushdown",
+            category: .isolation,
+            sets: 1,
+            reps: "8-10",
+            restTime: 0,
+            notes: nil,
+            phase: "Triceps"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":120",
+            restTime: 0,
+            notes: nil,
+            phase: "Triceps"
+        ),
+        // Cool Down (same 4 as Carbon Pull)
         WorkoutExercise(
             name: "Cross-body Tricep Stretch",
             category: .mobility,
