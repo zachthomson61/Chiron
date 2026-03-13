@@ -26,12 +26,13 @@ struct WorkoutLibrary {
         pythonWrangler,
         carbonPull,
         carbonPush,
-        carbonLegs
+        carbonLegs,
+        atlasProtocolA
     ]
 
-    /// Carbon Pull - 60-minute High-Intensity Pull
+    /// Apollo Protocol Pull - 60-minute High-Intensity Pull
     static let carbonPull = PredeterminedWorkout(
-        name: "Carbon Pull",
+        name: "Apollo Protocol Pull",
         description: "High-Intensity Pull •\nFat Loss Focus",
         duration: 60,
         difficulty: .intermediate,
@@ -45,7 +46,7 @@ struct WorkoutLibrary {
         category: "Back"
     )
 
-    /// Carbon Pull workout: Warm-up, Vertical Pull, Horizontal Row, Rear Delt, Brachialis, Long Head Bicep, Trap Work, Cool Down.
+    /// Apollo Protocol Pull workout: Warm-up, Vertical Pull, Horizontal Row, Rear Delt, Brachialis, Long Head Bicep, Trap Work, Cool Down.
     private static let carbonPullExercises: [WorkoutExercise] = [
         // Warm-up (same 8 as Python Wrangler)
         WorkoutExercise(
@@ -423,19 +424,19 @@ struct WorkoutLibrary {
         )
     ]
 
-    /// Carbon Push - 60-minute High-Intensity Push
+    /// Apollo Protocol Push - 60-minute High-Intensity Push
     ///
     /// Workout Structure:
-    /// - Warm-up: 8 mobility exercises (same as Carbon Pull)
+    /// - Warm-up: 8 mobility exercises (same as Apollo Protocol Pull)
     /// - 45˚ Smith Incline Bench: 2 rounds with 3-minute rest
     /// - WEIGHTED DIPS (WIDE GRIP): 2 rounds with 3-minute rest
     /// - Machine Shoulder Press: 2 rounds with 2-minute rest
     /// - Pec Deck: 2 rounds with 1-minute rest
     /// - Cuffed BTB Cable Lat Raise: 2 rounds with 1-minute rest
     /// - Triceps: 1 camera setup, then Straight Bar Overhead Cable Tricep Extension, Straight Bar Cable Tricep Pushdown, Rest
-    /// - Cool Down: 4 stretches (same as Carbon Pull)
+    /// - Cool Down: 4 stretches (same as Apollo Protocol Pull)
     static let carbonPush = PredeterminedWorkout(
-        name: "Carbon Push",
+        name: "Apollo Protocol Push",
         description: "High-Intensity Push •\nFat Loss Focus",
         duration: 60,
         difficulty: .intermediate,
@@ -450,10 +451,10 @@ struct WorkoutLibrary {
         category: "Chest"
     )
 
-    /// Carbon Push exercises: Warm-up, 45˚ Smith Incline Bench, Weighted Dips, Machine Shoulder Press,
+    /// Apollo Protocol Push exercises: Warm-up, 45˚ Smith Incline Bench, Weighted Dips, Machine Shoulder Press,
     /// Pec Deck, Cuffed BTB Cable Lat Raise, Triceps, Cool Down.
     private static let carbonPushExercises: [WorkoutExercise] = [
-        // Warm-up (same 8 as Carbon Pull)
+        // Warm-up (same 8 as Apollo Protocol Pull)
         WorkoutExercise(
             name: "Cross-Body Arm Swings",
             category: .mobility,
@@ -799,7 +800,7 @@ struct WorkoutLibrary {
             notes: nil,
             phase: "Triceps"
         ),
-        // Cool Down (same 4 as Carbon Pull)
+        // Cool Down (same 4 as Apollo Protocol Pull)
         WorkoutExercise(
             name: "Cross-body Tricep Stretch",
             category: .mobility,
@@ -838,19 +839,19 @@ struct WorkoutLibrary {
         )
     ]
 
-    /// Carbon Legs - 60-minute High-Intensity Leg Workout
+    /// Apollo Protocol Legs - 60-minute High-Intensity Leg Workout
     ///
     /// Workout Structure:
-    /// - Warm-up: 8 mobility exercises (same as Carbon Pull)
+    /// - Warm-up: 8 mobility exercises (same as Apollo Protocol Pull)
     /// - Low Bar Smith Squat (Glute Emphasis): 2 rounds with 3-minute rest
     /// - RDL: 2 rounds with 3-minute rest
     /// - Leg Extensions: 2 rounds with 2-minute rest
     /// - Sitting Leg Curl: 2 rounds with 2-minute rest
     /// - Hip Thrust (A) / Machine Leg Abduction (B) / Goblet Lateral Squat (C): 1 round each (A/B/C rotation per session)
     /// - Standing Calf Raise: 1 round
-    /// - Cool Down: 4 stretches (same as Carbon Pull)
+    /// - Cool Down: 4 stretches (same as Apollo Protocol Pull)
     static let carbonLegs = PredeterminedWorkout(
-        name: "Carbon Legs",
+        name: "Apollo Protocol Legs",
         description: "High-Intensity Legs •\nFat Loss Focus",
         duration: 60,
         difficulty: .intermediate,
@@ -869,10 +870,10 @@ struct WorkoutLibrary {
         category: "Legs"
     )
 
-    /// Carbon Legs exercises: Warm-up, Low Bar Smith Squat, RDL, Leg Extensions, Sitting Leg Curl,
+    /// Apollo Protocol Legs exercises: Warm-up, Low Bar Smith Squat, RDL, Leg Extensions, Sitting Leg Curl,
     /// Hip Thrust (A) / Machine Leg Abduction (B) / Goblet Lateral Squat (C), Standing Calf Raise, Cool Down.
     private static let carbonLegsExercises: [WorkoutExercise] = [
-        // Warm-up (same 8 as Carbon Pull)
+        // Warm-up (same 8 as Apollo Protocol Pull)
         WorkoutExercise(
             name: "Cross-Body Arm Swings",
             category: .mobility,
@@ -1240,7 +1241,7 @@ struct WorkoutLibrary {
             notes: nil,
             phase: "Standing Calf Raise"
         ),
-        // Cool Down (same 4 as Carbon Pull)
+        // Cool Down (same 4 as Apollo Protocol Pull)
         WorkoutExercise(
             name: "Cross-body Tricep Stretch",
             category: .mobility,
@@ -1279,7 +1280,7 @@ struct WorkoutLibrary {
         )
     ]
 
-    /// Exercise names used for A/B/C rotation filtering in Carbon Legs.
+    /// Exercise names used for A/B/C rotation filtering in Apollo Protocol Legs.
     /// Session A = Hip Thrust, Session B = Machine Leg Abduction, Session C = Goblet Lateral Squat.
     static let carbonLegsRotationExercises: [String: [String]] = [
         "A": ["Machine Leg Abduction (B)", "Goblet Lateral Squat (C)"],
@@ -1792,7 +1793,276 @@ struct WorkoutLibrary {
             phase: "Cool Down"
         )
     ]
-    
+
+    // MARK: - Atlas Protocol α
+
+    /// Atlas Protocol α - Superset-based Push/Pull + Deadlift
+    ///
+    /// Workout Structure:
+    /// - Warm-up: 8 mobility exercises (same as Carbon Pull) + Incline Smith Machine Press 5-8 reps
+    /// - Superset 1: Pec Deck / Incline Smith Machine Press (exercise selection + camera setup, then 1 set each)
+    /// - Superset 2: Machine Pullovers / Close Grip Underhand Lat Pulldown (exercise selection + camera setup, then 1 set each)
+    /// - Deadlift: 1 set x 6-10 reps
+    /// - Cool Down: 4 stretches (same as Carbon Pull)
+    static let atlasProtocolA = PredeterminedWorkout(
+        name: "Atlas Protocol α",
+        description: "High Intensity Full Body •\nMuscle building Focus",
+        duration: 45,
+        difficulty: .intermediate,
+        exercises: atlasProtocolAExercises,
+        equipment: [
+            "Pec Deck Machine",
+            "Smith Machine",
+            "Pullover Machine",
+            "Lat Pulldown Machine",
+            "Barbell"
+        ],
+        videoName: "BarbellRow",
+        category: "Full Body"
+    )
+
+    private static let atlasProtocolAExercises: [WorkoutExercise] = [
+        // Warm-up (same 8 as Carbon Pull)
+        WorkoutExercise(
+            name: "Cross-Body Arm Swings",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Slow Tempo",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Arm Circles",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Slow Tempo",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Thread the Needle",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Thread the Needle",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Overhead Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Overhead Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Incline Smith Machine Press",
+            category: .compound,
+            sets: 1,
+            reps: "5-8",
+            restTime: 0,
+            notes: nil,
+            phase: "Warm-up"
+        ),
+        // Superset 1 - Exercise Selection + Camera Setup (Pec Deck / Incline Smith Machine Press)
+        WorkoutExercise(
+            name: "Superset 1",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "EXERCISE_SELECTION|Pec Deck|Incline Smith Machine Press",
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Superset 1",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Pec Deck",
+            category: .isolation,
+            sets: 1,
+            reps: "6-10",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Incline Smith Machine Press",
+            category: .compound,
+            sets: 1,
+            reps: "6-10",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        // Superset 2 - Exercise Selection + Camera Setup (Machine Pullovers / Close Grip Underhand Lat Pulldown)
+        WorkoutExercise(
+            name: "Superset 2",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "EXERCISE_SELECTION|Machine Pullovers|Close Grip Underhand Lat Pulldown",
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "Superset 2",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "Machine Pullovers",
+            category: .compound,
+            sets: 1,
+            reps: "6-10",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "Close Grip Underhand Lat Pulldown",
+            category: .compound,
+            sets: 1,
+            reps: "6-10",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 2"
+        ),
+        // Deadlift - Camera Setup
+        WorkoutExercise(
+            name: "Deadlift",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Deadlift"
+        ),
+        WorkoutExercise(
+            name: "Deadlift",
+            category: .compound,
+            sets: 1,
+            reps: "6-10",
+            restTime: 0,
+            notes: nil,
+            phase: "Deadlift"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":120",
+            restTime: 0,
+            notes: nil,
+            phase: "Deadlift"
+        ),
+        // Cool Down (same 4 as Carbon Pull)
+        WorkoutExercise(
+            name: "Cross-body Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Cross-body Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Cool Down"
+        )
+    ]
+
     /// Python Wrangler - 45-minute Explosive Hypertrophy Arm Workout
     ///
     /// Workout Structure:

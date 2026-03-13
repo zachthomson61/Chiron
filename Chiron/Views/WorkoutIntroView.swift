@@ -208,18 +208,18 @@ struct WorkoutIntroView: View {
         }
     }
     
-    // MARK: - Carbon Legs A/B/C Rotation
+    // MARK: - Apollo Protocol Legs A/B/C Rotation
     
-    /// Session variant for Carbon Legs workout (nil for other workouts or before Start).
-    /// Set to "A", "B", or "C" when the user taps Start on Carbon Legs.
+    /// Session variant for Apollo Protocol Legs workout (nil for other workouts or before Start).
+    /// Set to "A", "B", or "C" when the user taps Start on Apollo Protocol Legs.
     @State private var carbonLegsSessionVariant: String? = nil
     
-    /// Effective exercises for the current session. Before Start or for non-Carbon Legs workouts,
-    /// returns the full exercise list. After Start on Carbon Legs, filters out the two
+    /// Effective exercises for the current session. Before Start or for non-Apollo Protocol Legs workouts,
+    /// returns the full exercise list. After Start on Apollo Protocol Legs, filters out the two
     /// non-selected A/B/C rotation exercises (and their camera setups).
     private var effectiveExercises: [WorkoutExercise] {
         guard isWorkoutActive,
-              workout.name == "Carbon Legs",
+              workout.name == "Apollo Protocol Legs",
               let variant = carbonLegsSessionVariant,
               let excludeNames = WorkoutLibrary.carbonLegsRotationExercises[variant] else {
             return workout.exercises
@@ -235,7 +235,7 @@ struct WorkoutIntroView: View {
     /// to WorkoutProgressionView during active workout.
     private var effectiveWorkout: PredeterminedWorkout {
         guard isWorkoutActive,
-              workout.name == "Carbon Legs",
+              workout.name == "Apollo Protocol Legs",
               carbonLegsSessionVariant != nil else {
             return workout
         }
@@ -756,9 +756,9 @@ struct WorkoutIntroView: View {
                     
                     // Start button
                     Button(action: {
-                        // Resolve Carbon Legs A/B/C variant before switching to active so overview
+                        // Resolve Apollo Protocol Legs A/B/C variant before switching to active so overview
                         // and exercise list are filtered from the first frame (no B/C sections shown).
-                        if workout.name == "Carbon Legs" {
+                        if workout.name == "Apollo Protocol Legs" {
                             let lastVariant = UserDefaults.standard.string(forKey: "lastCarbonLegsVariant")
                             switch lastVariant {
                             case "A": carbonLegsSessionVariant = "B"
