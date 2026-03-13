@@ -656,6 +656,24 @@ struct WorkoutIntroView: View {
         }
     }
     
+    /// Description text with bullet and newline preserved (e.g. "Line 1 •\nLine 2").
+    private var workoutDescriptionView: some View {
+        let desc = workout.description
+        if desc.contains(" •\n"), let range = desc.range(of: " •\n") {
+            let line1 = String(desc[..<range.lowerBound]).trimmingCharacters(in: .whitespaces) + " •"
+            let line2 = String(desc[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+            return AnyView(
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(line1)
+                        .font(.neueMontrealRegular(size: 16))
+                    Text(line2)
+                        .font(.neueMontrealRegular(size: 16))
+                }
+            )
+        }
+        return AnyView(Text(desc).font(.neueMontrealRegular(size: 16)))
+    }
+
     // MARK: - Intro Content
     
     private var introContent: some View {
@@ -701,11 +719,10 @@ struct WorkoutIntroView: View {
                         .foregroundColor(.textPrimary)
                         .shadow(color: .black.opacity(0.6), radius: 6, x: 0, y: 2)
                     
-                    HStack(spacing: 6) {
+                    HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "figure.strengthtraining.traditional")
                             .font(.system(size: 14))
-                        Text(workout.description)
-                            .font(.neueMontrealRegular(size: 16))
+                        workoutDescriptionView
                     }
                     .foregroundColor(.textPrimary)
                     .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)

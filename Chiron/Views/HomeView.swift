@@ -34,7 +34,6 @@ struct HomeView: View {
                 let h = proxy.size.height
                 let goalDisplayName = preferencesManager.primaryGoal?.displayName ?? "Choose one"
                 let goalIsSet = preferencesManager.primaryGoal != nil
-                let shouldShowGoalHint = !goalIsSet && !UserDefaults.standard.bool(forKey: "has_shown_goal_hint")
                 
                 ScrollView {
                     VStack(spacing: HomeScreenSpacing.sectionSpacing) {
@@ -66,9 +65,7 @@ struct HomeView: View {
                                 goalName: goalDisplayName,
                                 isGoalSet: goalIsSet,
                                 pulse: pulseGoal,
-                                showHint: shouldShowGoalHint,
-                                onTap: { showGoalSelector = true },
-                                onHintAppear: handleGoalHintAppear
+                                onTap: { showGoalSelector = true }
                             )
                         }
                         .padding(.top, HomeScreenSpacing.topTitlePad)
@@ -150,13 +147,6 @@ private extension HomeView {
     /// function to ensure consistent behavior.
     func handleStartWorkout() {
         showWorkoutSelection = true
-    }
-    
-    func handleGoalHintAppear() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            pulseGoal = true
-        }
-        AnalyticsManager.shared.trackFirstRunGoalPrompt()
     }
     
     func startTitleAnimationIfNeeded() {
@@ -289,9 +279,7 @@ private struct MyGoalCard: View {
     let goalName: String
     let isGoalSet: Bool
     let pulse: Bool
-    let showHint: Bool
     let onTap: () -> Void
-    let onHintAppear: () -> Void
     
     var body: some View {
         Button(action: onTap) {
@@ -317,13 +305,7 @@ private struct MyGoalCard: View {
                     .foregroundColor(.textPrimary.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)
 
-                if showHint {
-                    Text("Tap to set your goal")
-                        .font(.neueMontrealSemiBold(size: 13))
-                        .foregroundColor(.textPrimary.opacity(0.95))
-                        .padding(.top, 4)
-                        .onAppear(perform: onHintAppear)
-                } else if !isGoalSet {
+                if !isGoalSet {
                     Text("Set a goal to get personalized coaching")
                         .font(.neueMontrealRegular(size: 13))
                         .foregroundColor(.textPrimary.opacity(0.8))

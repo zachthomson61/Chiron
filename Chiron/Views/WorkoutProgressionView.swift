@@ -125,6 +125,10 @@ struct WorkoutProgressionView: View {
             "Machine Leg Abduction (B)",
             "Goblet Lateral Squat (C)",
             "Standing Calf Raise",
+            "Incline Smith Machine Press",
+            "Machine Pullovers",
+            "Close Grip Underhand Lat Pulldown",
+            "Deadlift",
             "Cool Down"
         ]
         let orderedPhases = predefinedOrder.filter { phases.contains($0) }
