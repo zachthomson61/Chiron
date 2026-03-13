@@ -33,7 +33,6 @@ struct HomeView: View {
             GeometryReader { proxy in
                 let h = proxy.size.height
                 let goalDisplayName = preferencesManager.primaryGoal?.displayName ?? "Choose one"
-                let goalIsSet = preferencesManager.primaryGoal != nil
                 
                 ScrollView {
                     VStack(spacing: HomeScreenSpacing.sectionSpacing) {
@@ -63,7 +62,6 @@ struct HomeView: View {
 
                             MyGoalCard(
                                 goalName: goalDisplayName,
-                                isGoalSet: goalIsSet,
                                 pulse: pulseGoal,
                                 onTap: { showGoalSelector = true }
                             )
@@ -277,7 +275,6 @@ private struct HeightKey: PreferenceKey {
 
 private struct MyGoalCard: View {
     let goalName: String
-    let isGoalSet: Bool
     let pulse: Bool
     let onTap: () -> Void
     
@@ -304,13 +301,6 @@ private struct MyGoalCard: View {
                     .font(.neueMontrealRegular(size: 16))
                     .foregroundColor(.textPrimary.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)
-
-                if !isGoalSet {
-                    Text("Set a goal to get personalized coaching")
-                        .font(.neueMontrealRegular(size: 13))
-                        .foregroundColor(.textPrimary.opacity(0.8))
-                        .padding(.top, 4)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 26)
