@@ -27,7 +27,8 @@ struct WorkoutLibrary {
         carbonPull,
         carbonPush,
         carbonLegs,
-        atlasProtocolA
+        atlasProtocolA,
+        atlasProtocolB
     ]
 
     /// Apollo Protocol Pull - 60-minute High-Intensity Pull
@@ -2025,6 +2026,238 @@ struct WorkoutLibrary {
             phase: "Deadlift"
         ),
         // Cool Down (same 4 as Carbon Pull)
+        WorkoutExercise(
+            name: "Cross-body Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Cross-body Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Cool Down"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Cool Down"
+        )
+    ]
+
+    // MARK: - Atlas Protocol β
+
+    /// Atlas Protocol β - Superset-based Legs
+    ///
+    /// Workout Structure:
+    /// - Warm-up: 8 mobility exercises (same as Atlas Protocol α) + Barbell Back Squat 5-8 reps
+    /// - Superset 1: Leg Extension / Barbell Back Squat (exercise selection + camera setup, then 1 set each)
+    /// - Leg Curl: 1 set x 6-10 reps
+    /// - Standing Calf Raise: 1 set x 6-10 reps
+    /// - Cool Down: 4 stretches (same as Atlas Protocol α)
+    static let atlasProtocolB = PredeterminedWorkout(
+        name: "Atlas Protocol β",
+        description: "High Intensity Full Body •\nMuscle building Focus",
+        duration: 45,
+        difficulty: .intermediate,
+        exercises: atlasProtocolBExercises,
+        equipment: [
+            "Leg Extension Machine",
+            "Barbell",
+            "Leg Curl Machine",
+            "Calf Raise Machine"
+        ],
+        videoName: "BarbellRow",
+        category: "Legs"
+    )
+
+    private static let atlasProtocolBExercises: [WorkoutExercise] = [
+        // Warm-up (same 8 as Atlas Protocol α)
+        WorkoutExercise(
+            name: "Cross-Body Arm Swings",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Slow Tempo",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Arm Circles",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Slow Tempo",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Thread the Needle",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Thread the Needle",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Overhead Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Overhead Tricep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Right Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Standing Wall Bicep Stretch",
+            category: .mobility,
+            sets: 1,
+            reps: ":30",
+            restTime: 0,
+            notes: "Left Side",
+            phase: "Warm-up"
+        ),
+        WorkoutExercise(
+            name: "Barbell Back Squat",
+            category: .compound,
+            sets: 1,
+            reps: "5-8",
+            restTime: 0,
+            notes: nil,
+            phase: "Warm-up"
+        ),
+        // Superset 1 - Exercise Selection + Camera Setup (Leg Extension / Barbell Back Squat)
+        WorkoutExercise(
+            name: "Superset 1",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "EXERCISE_SELECTION|Leg Extension|Barbell Back Squat",
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Superset 1",
+            category: .compound,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Leg Extension",
+            category: .isolation,
+            sets: 1,
+            reps: "12-20",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Barbell Back Squat",
+            category: .compound,
+            sets: 1,
+            reps: "6-10",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        WorkoutExercise(
+            name: "Rest",
+            category: .mobility,
+            sets: 1,
+            reps: ":90",
+            restTime: 0,
+            notes: nil,
+            phase: "Superset 1"
+        ),
+        // Leg Curl - Camera Setup
+        WorkoutExercise(
+            name: "Leg Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Leg Curl"
+        ),
+        WorkoutExercise(
+            name: "Leg Curl",
+            category: .isolation,
+            sets: 1,
+            reps: "6-10",
+            restTime: 0,
+            notes: nil,
+            phase: "Leg Curl"
+        ),
+        // Standing Calf Raise - Camera Setup
+        WorkoutExercise(
+            name: "Standing Calf Raise",
+            category: .isolation,
+            sets: 1,
+            reps: "",
+            restTime: 0,
+            notes: "CAMERA_SETUP|RACK|Mount high on front rack post|Angle down at middle of bar|Center frame on bar + hands, not face|Keep full arm length and bar path visible|Avoid cropping at lockout or chest touch|FLOOR|Place phone on floor 4-6 ft in front of bench|Angle slightly upwards|Center it on bar|Keep hands, elbows, and bar path in frame|TRIPOD|Place 2-3 ft in front of bench|Center on bar|Height at bar level or slightly above|Angle slightly down at grip|Ensure hands, elbows, and bar in view",
+            phase: "Standing Calf Raise"
+        ),
+        WorkoutExercise(
+            name: "Standing Calf Raise",
+            category: .isolation,
+            sets: 1,
+            reps: "6-10",
+            restTime: 0,
+            notes: nil,
+            phase: "Standing Calf Raise"
+        ),
+        // Cool Down (same 4 as Atlas Protocol α)
         WorkoutExercise(
             name: "Cross-body Tricep Stretch",
             category: .mobility,

@@ -124,7 +124,9 @@ struct WorkoutProgressionView: View {
             "Hip Thrust (A)",
             "Machine Leg Abduction (B)",
             "Goblet Lateral Squat (C)",
+            "Leg Curl",
             "Standing Calf Raise",
+            "Deadlift",
             "Cool Down"
         ]
         let orderedPhases = predefinedOrder.filter { phases.contains($0) }
