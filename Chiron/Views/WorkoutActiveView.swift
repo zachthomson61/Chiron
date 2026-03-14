@@ -1701,7 +1701,7 @@ struct WorkoutActiveView: View {
         
         if exercise.name == "Close-Grip Bench Press" {
             // Configure exercise type for form analysis
-            poseManager.squatType = .closeGripBenchPress
+            poseManager.trackedExerciseType = .closeGripBenchPress
             
             // Track set start time for duration calculation (used in AI coaching summary)
             closeGripBenchSetStartTime = Date()
@@ -1749,9 +1749,9 @@ struct WorkoutActiveView: View {
             lastObservedRepCount = 0
             startFormScoreTimer()
             
-        } else if poseManager.squatType == .closeGripBenchPress {
+        } else if poseManager.trackedExerciseType == .closeGripBenchPress {
             // Reset to bodyweight when moving away from close-grip bench press
-            poseManager.squatType = .bodyweight
+            poseManager.trackedExerciseType = .bodyweight
             // Stop pose analysis when leaving close-grip bench press
             if SharedCameraSessionManager.shared.isAnalyzingPose {
                 SharedCameraSessionManager.shared.stopPoseAnalysis()

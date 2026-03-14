@@ -6,16 +6,16 @@
 //
 //  Architecture:
 //  - Single camera session shared across all exercise types (bodyweight squat, barbell back squat, etc.)
-//  - SquatType is set by camera setup views before calling switchToWorkoutMode()
+//  - TrackedExerciseType is set by camera setup views before calling switchToWorkoutMode()
 //  - This allows one camera session and pose manager to serve all squat variations
 //  - Related UI components (ActiveWorkoutCameraView, PoseVisualizationOverlay, RestTimerClockView)
 //    are also defined here as they're shared across all workout views.
 //
 //  Usage Pattern:
-//  1. Camera setup view sets: SharedCameraSessionManager.shared.poseManager.squatType = .bodyweight (or .barbell)
+//  1. Camera setup view sets: SharedCameraSessionManager.shared.poseManager.trackedExerciseType = .bodyweight (or .barbell)
 //  2. Camera setup view calls: SharedCameraSessionManager.shared.switchToWorkoutMode()
 //  3. Active workout view calls: SharedCameraSessionManager.shared.startPoseAnalysis()
-//  4. Pose manager uses the pre-set squatType for exercise-specific analysis
+//  4. Pose manager uses the pre-set trackedExerciseType for exercise-specific analysis
 //
 
 import SwiftUI
@@ -25,7 +25,7 @@ import AVFoundation
 
 /// Manages a single camera session shared across all exercise types.
 /// The camera session is reused to avoid the overhead of creating multiple sessions.
-/// Exercise-specific behavior is controlled via OnDevicePoseManager.squatType, which should be
+/// Exercise-specific behavior is controlled via OnDevicePoseManager.trackedExerciseType, which should be
 /// set by the camera setup view before transitioning to workout mode.
 class SharedCameraSessionManager: NSObject, ObservableObject {
     static let shared = SharedCameraSessionManager()
@@ -92,9 +92,9 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
     
     /// Switches camera session to workout mode for pose analysis.
     ///
-    /// **Important**: SquatType must be set by the calling camera setup view before this method is called:
+    /// **Important**: TrackedExerciseType must be set by the calling camera setup view before this method is called:
     /// ```swift
-    /// SharedCameraSessionManager.shared.poseManager.squatType = .bodyweight // or .barbell
+    /// SharedCameraSessionManager.shared.poseManager.trackedExerciseType = .bodyweight // or .barbell
     /// SharedCameraSessionManager.shared.switchToWorkoutMode()
     /// ```
     ///
@@ -119,7 +119,7 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
             }
         }
         
-        // Note: SquatType should already be set by the calling view (camera setup view)
+        // Note: TrackedExerciseType should already be set by the calling view (camera setup view)
         // before this method is called. We don't set it here to allow flexibility.
     }
     

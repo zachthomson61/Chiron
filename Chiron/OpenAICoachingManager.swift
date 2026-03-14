@@ -21,7 +21,7 @@ import AVFoundation
 // MARK: - OpenAI Coaching Manager
 
 /// Generates natural, conversational coaching feedback using OpenAI API.
-/// Provides exercise-specific feedback based on SquatType (bodyweight or barbell).
+/// Provides exercise-specific feedback based on TrackedExerciseType (bodyweight or barbell).
 class OpenAICoachingManager: ObservableObject {
     static let shared = OpenAICoachingManager()
     
@@ -43,7 +43,7 @@ class OpenAICoachingManager: ObservableObject {
     ///   - formAnalysis: Current form analysis with depth, back angle, knee alignment, etc.
     ///   - exerciseType: .bodyweight or .barbell to determine exercise-specific coaching cues
     ///   - completion: Callback with the generated feedback string
-    func getNaturalFeedback(formAnalysis: FormAnalysis, exerciseType: SquatType, completion: @escaping (String) -> Void) {
+    func getNaturalFeedback(formAnalysis: FormAnalysis, exerciseType: TrackedExerciseType, completion: @escaping (String) -> Void) {
         let summary = formAnalysis.summary
         
         // Create structured analysis for better prompt context
@@ -277,7 +277,7 @@ class OpenAICoachingManager: ObservableObject {
     /// - Elbow position (flush to sides)
     /// - ROM (full lockout and chest touch)
     /// - Tempo (slow eccentric, fast concentric)
-    private func generateFallbackFeedback(from analysis: FormAnalysis, exerciseType: SquatType) -> String {
+    private func generateFallbackFeedback(from analysis: FormAnalysis, exerciseType: TrackedExerciseType) -> String {
         switch exerciseType {
         case .barbell:
             if analysis.issues.contains("Insufficient Depth") || analysis.depth < 0.45 {
@@ -377,7 +377,7 @@ class OpenAICoachingManager: ObservableObject {
     ///   - formAnalysis: Form analysis from OnDevicePoseManager
     ///   - exerciseType: .bodyweight or .barbell for exercise-specific coaching
     ///   - completion: Callback with the feedback string (speech is handled internally)
-    func analyzeAndGetNaturalFeedback(formAnalysis: FormAnalysis, exerciseType: SquatType, completion: @escaping (String) -> Void) {
+    func analyzeAndGetNaturalFeedback(formAnalysis: FormAnalysis, exerciseType: TrackedExerciseType, completion: @escaping (String) -> Void) {
         let exerciseLabel: String
         switch exerciseType {
         case .barbell: exerciseLabel = "barbell squat"
@@ -500,7 +500,7 @@ class OpenAICoachingManager: ObservableObject {
         }.resume()
     }
     
-    private func generateNaturalCoachingPrompt(summary: String, isDetailed: Bool = false, exerciseType: SquatType = .bodyweight) -> String {
+    private func generateNaturalCoachingPrompt(summary: String, isDetailed: Bool = false, exerciseType: TrackedExerciseType = .bodyweight) -> String {
         let exerciseName = exerciseType == .barbell ? "barbell back squats" : "bodyweight squats"
         return """
         You are an athletic trainer giving natural, conversational feedback for \(exerciseName).

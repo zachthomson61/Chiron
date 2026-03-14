@@ -13,7 +13,7 @@
 //    - Instruction text and button labels
 //    - Audio cues (setup and start workout)
 //    - Segmentation processor exercise mode
-//    - Pose detection type (squatType)
+//    - Pose detection type (trackedExerciseType)
 //
 
 import SwiftUI
@@ -102,7 +102,7 @@ struct CameraSetupView: View {
             segmentationProcessor.stopProcessing()
             segmentationProcessor.setProcessingEnabled(true)
             // Set exercise mode for segmentation scoring
-            segmentationProcessor.exerciseMode = exerciseType.squatType
+            segmentationProcessor.exerciseMode = exerciseType.trackedExerciseType
             
             // Add speech feedback for exercise-specific form instructions
             SpeechManager.shared.speak(exerciseType.setupAudioCue)
@@ -137,7 +137,7 @@ struct CameraSetupView: View {
         segmentationProcessor.stopProcessing()
         segmentationProcessor.setProcessingEnabled(false)
         
-        SharedCameraSessionManager.shared.poseManager.squatType = exerciseType.squatType
+        SharedCameraSessionManager.shared.poseManager.trackedExerciseType = exerciseType.trackedExerciseType
         SharedCameraSessionManager.shared.switchToWorkoutMode()
         
         SpeechManager.shared.speak(exerciseType.startWorkoutAudioCue)

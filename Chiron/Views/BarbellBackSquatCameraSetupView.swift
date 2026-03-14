@@ -114,7 +114,7 @@ struct BarbellBackSquatCameraSetupView: View {
         segmentationProcessor.setProcessingEnabled(false)
         
         // Set squat type before navigation
-        SharedCameraSessionManager.shared.poseManager.squatType = .barbell
+        SharedCameraSessionManager.shared.poseManager.trackedExerciseType = .barbell
         
         // Add speech feedback
         SpeechManager.shared.speak("Let's get it!")

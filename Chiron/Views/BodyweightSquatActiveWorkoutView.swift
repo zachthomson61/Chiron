@@ -203,7 +203,7 @@ struct BodyweightSquatActiveWorkoutView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             // Set squat type for bodyweight squat
-            SharedCameraSessionManager.shared.poseManager.squatType = .bodyweight
+            SharedCameraSessionManager.shared.poseManager.trackedExerciseType = .bodyweight
             
             // Start automatic pose analysis
             // Clear any previous workout data

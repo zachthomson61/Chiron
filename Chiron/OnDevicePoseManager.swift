@@ -56,16 +56,14 @@ enum WorkoutState {
     case finished       // Workout completed
 }
 
-// MARK: - Squat Type
+// MARK: - Tracked Exercise Type
 
 /// Exercise type identifier for pose detection and form analysis.
-///
-/// Note: Despite the name "SquatType", this enum is used for all exercise types
-/// until exercise-specific pose detection models are implemented.
-enum SquatType {
+/// Maps the user-selected exercise into a pose-analysis category.
+enum TrackedExerciseType {
     case bodyweight           // Bodyweight squat exercises
     case barbell              // Barbell back squat exercises
-    case benchPress           // Regular bench press (placeholder for future implementation)
+    case benchPress           // Regular bench press
     case closeGripBenchPress  // Close-grip bench press exercises
 }
 
@@ -130,7 +128,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     @Published var repCount: Int = 0
     @Published var workoutState: WorkoutState = .waiting
     @Published var currentSet: Int = 0
-    @Published var squatType: SquatType = .bodyweight
+    @Published var trackedExerciseType: TrackedExerciseType = .bodyweight
     
     /// Stores form analysis at rep completion for score calculation.
     /// 
@@ -331,7 +329,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         let points = extractKeyPoints(from: observation)
         
         // Use optimized analysis based on squat type
-        switch squatType {
+        switch trackedExerciseType {
         case .bodyweight:
             return analyzeBodyweightSquatForm(points)
         case .barbell:
@@ -1049,7 +1047,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         benchPressBottomWristY = nil
         
         // Initialize bench press tracking if this is a bench press exercise
-        if squatType == .closeGripBenchPress {
+        if trackedExerciseType == .closeGripBenchPress {
             initializeBenchPressRepTracking()
         }
         
@@ -1090,7 +1088,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         benchPressBottomWristY = nil
         
         // Initialize bench press tracking if this is a bench press exercise
-        if squatType == .closeGripBenchPress {
+        if trackedExerciseType == .closeGripBenchPress {
             initializeBenchPressRepTracking()
         }
         
@@ -1152,7 +1150,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
         
         // Use different validation logic based on exercise type
-        return switch squatType {
+        return switch trackedExerciseType {
         case .closeGripBenchPress:
             validateCloseGripBenchPressRep(formAnalysis: formAnalysis, now: now)
         case .bodyweight, .barbell, .benchPress:
@@ -1388,7 +1386,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             if let analysis = self.currentFormAnalysis {
                 OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(
                     formAnalysis: analysis,
-                    exerciseType: self.squatType
+                    exerciseType: self.trackedExerciseType
                 ) { naturalFeedback in
                     // Speech is already handled inside analyzeAndGetNaturalFeedback
                 }

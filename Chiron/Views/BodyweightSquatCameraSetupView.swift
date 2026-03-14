@@ -114,7 +114,7 @@ struct BodyweightSquatCameraSetupView: View {
         segmentationProcessor.setProcessingEnabled(false)
         
         // Set squat type before navigation
-        SharedCameraSessionManager.shared.poseManager.squatType = .bodyweight
+        SharedCameraSessionManager.shared.poseManager.trackedExerciseType = .bodyweight
         
         // Add speech feedback
         SpeechManager.shared.speak("Let's get it!")

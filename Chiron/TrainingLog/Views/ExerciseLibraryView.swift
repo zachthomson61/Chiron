@@ -8,14 +8,36 @@
 import SwiftUI
 import SwiftData
 
+/// Reusable exercise library: scrollable list of exercise cards with search and category filters.
+/// Can be used in two modes:
+/// - **Browse mode** (default): cards are NavigationLinks to detail overviews. Used on the Research tab.
+/// - **Selection mode**: when `onExerciseSelected` is set, tapping a card calls the callback instead of navigating.
+///   Used in the Track tab sheet; the current selection is highlighted with a purple stroke (no checkmark).
 struct ExerciseLibraryView: View {
     @Environment(\.modelContext) private var ctx
     @Query(sort: \Exercise.name, order: .forward) private var exercises: [Exercise]
 
-    @State private var search: String = ""
+    /// When non-nil, selection mode: tap calls this instead of pushing a detail view. Parent typically dismisses sheet.
+    var onExerciseSelected: ((Exercise) -> Void)?
+    /// In selection mode, the exercise to show as selected (highlighted card only).
+    var selectedForSelectionMode: Exercise?
+
+    /// When provided, the parent owns search/category state so it persists when the sheet is dismissed and reopened.
+    var searchBinding: Binding<String>?
+    var selectedCategoryBinding: Binding<String?>?
+
+    @State private var _internalSearch: String = ""
+    @State private var _internalCategory: String? = nil
     @State private var newName: String = ""
     @State private var error: String?
-    @State private var selectedCategory: String? = nil
+
+    private var search: Binding<String> {
+        searchBinding ?? $_internalSearch
+    }
+    private var selectedCategory: Binding<String?> {
+        selectedCategoryBinding ?? $_internalCategory
+    }
+
     // MARK: - View Models
     
     @StateObject private var bodyweightSquatViewModel = WorkoutViewModel()
@@ -44,10 +66,12 @@ struct ExerciseLibraryView: View {
     private let categories = ["Compound", "Push", "Pull", "Bodyweight"]
 
     private var normalizedQuery: String {
-        search
+        search.wrappedValue
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
     }
+
+    private var isSelectionMode: Bool { onExerciseSelected != nil }
     
     // MARK: - Exercise Queries
     
@@ -142,146 +166,114 @@ struct ExerciseLibraryView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 0) {
-                    // Header section
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Exercise Library")
-                            .font(.largeTitle.bold())
-                            .foregroundStyle(Color.textPrimary)
-                        
-                        Text("Browse and learn every movement")
-                            .font(.subheadline)
-                            .foregroundStyle(Color.textSecondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-                    .padding(.bottom, 16)
+        ScrollView {
+            VStack(spacing: 0) {
+                // Header section — adapts text based on selection vs browse mode
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(isSelectionMode ? "Select Exercise" : "Exercise Library")
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(Color.textPrimary)
                     
-                    // Search bar
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(Color.textSecondary)
-                        
-                        TextField("Search exercises", text: $search)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .foregroundStyle(Color.textPrimary)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(Color.white.opacity(0.1))
-                    .cornerRadius(12)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 16)
-                    
-                    // Category filters
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(categories, id: \.self) { category in
-                                Button(action: {
-                                    if selectedCategory == category {
-                                        selectedCategory = nil
-                                    } else {
-                                        selectedCategory = category
-                                    }
-                                }) {
-                                    Text(category)
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(selectedCategory == category ? Color.textPrimary : Color.textSecondary)
-                                        .padding(.horizontal, 20)
-                                        .padding(.vertical, 10)
-                                        .background(selectedCategory == category ? Color.primaryPurple.opacity(0.3) : Color.white.opacity(0.06))
-                                        .cornerRadius(20)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.horizontal, 20)
-                    }
-                    .padding(.bottom, 24)
-                    
-                    // Exercise cards
-                    LazyVStack(spacing: 12) {
-                        if shouldShowBodyweightSquatCard, let squat = bodyweightSquatExercise {
-                            NavigationLink {
-                                BodyweightSquatOverview(viewModel: bodyweightSquatViewModel)
-                            } label: {
-                                exerciseCard(for: squat)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        
-                        if shouldShowDeadliftCard, let deadlift = deadliftExercise {
-                            NavigationLink {
-                                DeadliftOverview(viewModel: deadliftViewModel)
-                            } label: {
-                                exerciseCard(for: deadlift)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        
-                        if shouldShowBarbellBenchPressCard, let benchPress = barbellBenchPressExercise {
-                            NavigationLink {
-                                BarbellBenchPressOverview(viewModel: barbellBenchPressViewModel)
-                            } label: {
-                                exerciseCard(for: benchPress)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        
-                        // Romanian Deadlift (RDL) card - displayed separately from general exercise list
-                        if shouldShowRomanianDeadliftCard, let rdl = romanianDeadliftExercise {
-                            NavigationLink {
-                                RomanianDeadliftOverview(viewModel: romanianDeadliftViewModel)
-                            } label: {
-                                exerciseCard(for: rdl)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        
-                        // Barbell Row card - displayed separately from general exercise list
-                        if shouldShowBarbellRowCard, let row = barbellRowExercise {
-                            NavigationLink {
-                                BarbellRowOverview(viewModel: barbellRowViewModel)
-                            } label: {
-                                exerciseCard(for: row)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        
-                        ForEach(filtered) { ex in
-                            NavigationLink {
-                                destinationView(for: ex)
-                            } label: {
-                                exerciseCard(for: ex)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
+                    Text(isSelectionMode
+                         ? "Receive expert coaching on every movement"
+                         : "Browse and learn every movement")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.textSecondary)
                 }
-            }
-            .background(Color.background)
-            .task {
-                // Seed exercises if needed (fast - only runs once on first launch)
-                try? ExerciseSeeder.seedIfNeeded(context: ctx)
-                ensureBodyweightSquatCard()
-                ensureBarbellBackSquatCard()
-                ensureDeadliftCard()
-                ensureBarbellBenchPressCard()
-                ensureRomanianDeadliftCard()
-                ensureBarbellRowCard()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
+                
+                // Search bar
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(Color.textSecondary)
+                    
+                    TextField("Search exercises", text: search)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .foregroundStyle(Color.textPrimary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color.white.opacity(0.1))
+                .cornerRadius(12)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 16)
+                
+                // Category filters
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(categories, id: \.self) { category in
+                            Button(action: {
+                                if selectedCategory.wrappedValue == category {
+                                    selectedCategory.wrappedValue = nil
+                                } else {
+                                    selectedCategory.wrappedValue = category
+                                }
+                            }) {
+                                Text(category)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(selectedCategory.wrappedValue == category ? Color.textPrimary : Color.textSecondary)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 10)
+                                    .background(selectedCategory.wrappedValue == category ? Color.primaryPurple.opacity(0.3) : Color.white.opacity(0.06))
+                                    .cornerRadius(20)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .padding(.bottom, 24)
+                
+                // Exercise cards — all go through exerciseRow for consistent routing
+                LazyVStack(spacing: 12) {
+                    if shouldShowBodyweightSquatCard, let squat = bodyweightSquatExercise {
+                        exerciseRow(for: squat)
+                    }
+                    
+                    if shouldShowDeadliftCard, let deadlift = deadliftExercise {
+                        exerciseRow(for: deadlift)
+                    }
+                    
+                    if shouldShowBarbellBenchPressCard, let benchPress = barbellBenchPressExercise {
+                        exerciseRow(for: benchPress)
+                    }
+                    
+                    if shouldShowRomanianDeadliftCard, let rdl = romanianDeadliftExercise {
+                        exerciseRow(for: rdl)
+                    }
+                    
+                    if shouldShowBarbellRowCard, let row = barbellRowExercise {
+                        exerciseRow(for: row)
+                    }
+                    
+                    ForEach(filtered) { ex in
+                        exerciseRow(for: ex)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             }
         }
+        .background(Color.background)
         .preferredColorScheme(.dark)
+        .task {
+            try? ExerciseSeeder.seedIfNeeded(context: ctx)
+            ensureBodyweightSquatCard()
+            ensureBarbellBackSquatCard()
+            ensureDeadliftCard()
+            ensureBarbellBenchPressCard()
+            ensureRomanianDeadliftCard()
+            ensureBarbellRowCard()
+        }
     }
     
+    /// One exercise card: name, targets, difficulty pill, and thumbnail. Optionally shows a purple stroke when selected (selection mode).
     @ViewBuilder
-    private func exerciseCard(for exercise: Exercise) -> some View {
+    private func exerciseCard(for exercise: Exercise, isSelected: Bool = false) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(displayName(for: exercise))
@@ -299,20 +291,46 @@ struct ExerciseLibraryView: View {
             }
             
             Spacer(minLength: 12)
-            
+
             ExerciseThumbnail(imageName: exercise.imageName)
         }
         .padding(20)
         .background(Color.white.opacity(0.06))
         .cornerRadius(16)
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.primaryPurple.opacity(0.5), lineWidth: 2)
+            }
+        }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(exercise.accessibilitySummary)
     }
-    
+
+    /// One row for an exercise: in selection mode a Button (callback only); in browse mode a NavigationLink to destinationView(for:).
+    @ViewBuilder
+    private func exerciseRow(for exercise: Exercise) -> some View {
+        if let callback = onExerciseSelected {
+            Button {
+                callback(exercise)
+            } label: {
+                exerciseCard(for: exercise, isSelected: selectedForSelectionMode?.id == exercise.id)
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink {
+                destinationView(for: exercise)
+            } label: {
+                exerciseCard(for: exercise)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     // MARK: - Navigation
-    
-    /// Routes to the appropriate detail view based on exercise name
+
+    /// Single router: by exercise name returns the matching overview (BodyweightSquat, Deadlift, etc.) or ExerciseDetailPlaceholderView for unknown names.
     @ViewBuilder
     private func destinationView(for exercise: Exercise) -> some View {
         if exercise.name.caseInsensitiveCompare(bodyweightSquatName) == .orderedSame {

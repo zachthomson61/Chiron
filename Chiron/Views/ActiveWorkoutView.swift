@@ -9,7 +9,7 @@
 //  - Accepts exerciseType parameter to adapt pose detection and AI feedback
 //  - Same UI layout for all exercises: rep counter, back arrow, finish button
 //  - Exercise-specific behavior:
-//    - Pose detection type (squatType: .bodyweight vs .barbell)
+//    - Pose detection type (trackedExerciseType: .bodyweight vs .barbell)
 //    - AI feedback prompts (exercise-specific coaching cues)
 //  - Designed to be embedded in CameraSetupView to maintain camera continuity
 //
@@ -88,7 +88,7 @@ struct ActiveWorkoutView: View {
         }
         .onAppear {
             // Set squat type for exercise-specific pose detection
-            SharedCameraSessionManager.shared.poseManager.squatType = exerciseType.squatType
+            SharedCameraSessionManager.shared.poseManager.trackedExerciseType = exerciseType.trackedExerciseType
             
             // Ensure we're in workout mode (should already be set by CameraSetupView.startWorkout())
             if SharedCameraSessionManager.shared.isInSetupMode {

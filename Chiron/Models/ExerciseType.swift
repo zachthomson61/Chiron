@@ -18,7 +18,7 @@ import Foundation
 /// - Display name for UI
 /// - Button text for start/finish actions
 /// - Audio cues for setup and workout start
-/// - Mapping to SquatType for pose detection (temporary until exercise-specific detection is implemented)
+/// - Mapping to TrackedExerciseType for pose detection
 enum ExerciseType: String, CaseIterable {
     case bodyweightSquat = "bodyweight_squat"
     case barbellBackSquat = "barbell_back_squat"
@@ -27,19 +27,14 @@ enum ExerciseType: String, CaseIterable {
     case romanianDeadlift = "romanian_deadlift"
     case barbellBenchPress = "barbell_bench_press"
     
-    /// Maps to `SquatType` for pose detection.
-    /// 
-    /// **Note:** Currently all exercises use squat-based pose detection. Non-squat exercises
-    /// (rows, deadlifts, bench press) default to bodyweight squat detection until exercise-specific
-    /// pose detection models are implemented.
-    var squatType: SquatType {
+    /// Maps to `TrackedExerciseType` for pose detection.
+    var trackedExerciseType: TrackedExerciseType {
         switch self {
         case .bodyweightSquat:
             return .bodyweight
         case .barbellBackSquat:
             return .barbell
         case .barbellRow, .deadlift, .romanianDeadlift, .barbellBenchPress:
-            // Default to bodyweight squat detection for now
             return .bodyweight
         }
     }

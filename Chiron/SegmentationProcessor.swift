@@ -45,7 +45,7 @@ final class SegmentationProcessor: ObservableObject {
     /// - `.bodyweight`: Bodyweight squat (6-8' distance, waist-to-chest height, feet in view)
     /// - `.barbell`: Barbell back squat (7-9' distance, mid-chest height, feet + barbell in frame)
     /// - `.benchPress`: Close-grip bench press (view-specific scoring based on `benchPressViewType`)
-    var exerciseMode: SquatType = .bodyweight
+    var exerciseMode: TrackedExerciseType = .bodyweight
     
     /// Bench press view type determines which quality metrics to apply for bench press exercises.
     /// Only used when `exerciseMode == .benchPress`.

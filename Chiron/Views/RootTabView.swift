@@ -2,12 +2,12 @@ import SwiftUI
 import SwiftData
 
 /// Root tab view that provides the main navigation structure for the app.
-/// Tabs (left→right): Home, Plans, Research, Profile.
+/// Tabs (left→right): Home, Plans, Track, Research, Profile.
 /// Each tab is wrapped in its own `NavigationStack` to isolate toolbars and preserve scroll position.
 /// Optimized: Views are lazily loaded only when their tab is first selected.
 struct RootTabView: View {
     enum Tab: Hashable { 
-        case home, research, plans, profile 
+        case home, plans, track, research, profile 
     }
     
     @EnvironmentObject private var planStore: PlanStore
@@ -47,6 +47,21 @@ struct RootTabView: View {
             }
             .tag(Tab.plans)
             .accessibilityLabel("Plans")
+
+            // MARK: - Track Tab
+            NavigationStack {
+                if loadedTabs.contains(.track) {
+                    TrackView()
+                } else {
+                    Color.clear.onAppear { loadedTabs.insert(.track) }
+                }
+            }
+            .tabItem {
+                Image(systemName: "figure.run")
+                Text("Track")
+            }
+            .tag(Tab.track)
+            .accessibilityLabel("Track")
 
             // MARK: - Research Tab (Exercise Library)
             NavigationStack {
