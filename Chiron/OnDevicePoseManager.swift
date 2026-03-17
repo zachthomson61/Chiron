@@ -268,7 +268,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     
     override init() {
         super.init()
-        setupMediaPipe()
+        // Load MediaPipe model on a background queue so app launch is not blocked.
+        // iOS kills the app (SIGKILL) if launch takes too long; the model load is heavy.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.setupMediaPipe()
+        }
     }
     
     // MARK: - MediaPipe Setup
