@@ -22,11 +22,16 @@ import AVFoundation
 
 /// Generates natural, conversational coaching feedback using OpenAI API.
 /// Provides exercise-specific feedback based on TrackedExerciseType (bodyweight or barbell).
+/// Returns text only — never calls SpeechManager. The caller decides whether to speak.
 class OpenAICoachingManager: ObservableObject {
     static let shared = OpenAICoachingManager()
     
     @Published var isRequestingFeedback = false
     @Published var currentFeedback: String = ""
+    
+    static let insufficientDataFallback = "Good set. When you're ready, start your next set."
+    
+    private static let apiTimeoutSeconds: TimeInterval = 8
     
     // OpenAI API Configuration
     private let apiKey = "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"
@@ -188,7 +193,9 @@ class OpenAICoachingManager: ObservableObject {
 
 
         guard let url = URL(string: baseURL) else {
-            completion(generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
+            let fb = generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType)
+            print("Coaching: path=api_fallback reason=invalid_url feedbackLen=\(fb.count)")
+            completion(fb)
             return
         }
 
@@ -210,24 +217,45 @@ class OpenAICoachingManager: ObservableObject {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
-            completion(generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
+            let fb = generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType)
+            print("Coaching: path=api_fallback reason=json_serialization feedbackLen=\(fb.count)")
+            completion(fb)
             return
         }
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                DispatchQueue.main.async {
-                    completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
-                }
+        // Thread-safe flag so completion is called exactly once (timeout or response, whichever comes first).
+        let completionCalled = NSLock()
+        var didComplete = false
+        
+        let safeComplete: (String, String) -> Void = { feedback, path in
+            completionCalled.lock()
+            defer { completionCalled.unlock() }
+            guard !didComplete else { return }
+            didComplete = true
+            print("Coaching: \(path) feedbackLen=\(feedback.count)")
+            DispatchQueue.main.async { completion(feedback) }
+        }
+        
+        print("Coaching: openai_request_started=true")
+        
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
+            
+            if error != nil {
+                let fb = self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType)
+                print("Coaching: openai_response_returned=false reason=network_error")
+                safeComplete(fb, "path=api_fallback")
                 return
             }
             
             guard let data = data else {
-                DispatchQueue.main.async {
-                    completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
-                }
+                let fb = self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType)
+                print("Coaching: openai_response_returned=false reason=no_data")
+                safeComplete(fb, "path=api_fallback")
                 return
             }
+            
+            print("Coaching: openai_response_returned=true")
             
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -241,28 +269,29 @@ class OpenAICoachingManager: ObservableObject {
                         .replacingOccurrences(of: "\n", with: " ")
                         .replacingOccurrences(of: "  ", with: " ")
                     
-                    
-                    // Check for generic or robotic responses
                     if self.isGenericResponse(cleanedFeedback) {
-                        DispatchQueue.main.async {
-                            completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
-                        }
+                        let fb = self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType)
+                        safeComplete(fb, "path=api_fallback reason=generic_response")
                     } else {
-                        DispatchQueue.main.async {
-                            completion(cleanedFeedback)
-                        }
+                        safeComplete(cleanedFeedback, "path=openai_success")
                     }
                 } else {
-                    DispatchQueue.main.async {
-                        completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
-                    }
+                    let fb = self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType)
+                    safeComplete(fb, "path=api_fallback reason=parse_error")
                 }
             } catch {
-                DispatchQueue.main.async {
-                    completion(self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType))
-                }
+                let fb = self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType)
+                safeComplete(fb, "path=api_fallback reason=json_decode_error")
             }
-        }.resume()
+        }
+        task.resume()
+        
+        // Timeout: if no response within the deadline, speak fallback and ignore late result
+        DispatchQueue.global().asyncAfter(deadline: .now() + Self.apiTimeoutSeconds) {
+            let fb = self.generateFallbackFeedback(from: formAnalysis, exerciseType: exerciseType)
+            task.cancel()
+            safeComplete(fb, "path=timeout")
+        }
     }
     
     // MARK: - Fallback Feedback
@@ -362,21 +391,21 @@ class OpenAICoachingManager: ObservableObject {
         return genericCount >= 2 || response.count < 15
     }
     
-    // MARK: - Updated Speech Synthesis (Single Call)
+    // MARK: - Legacy Speech (deprecated — caller should use SpeechManager directly)
+    @available(*, deprecated, message: "OpenAICoachingManager returns text only. Use SpeechManager.shared.speak() from the caller.")
     func speakFeedback(_ feedback: String) {
-        // Use high priority to ensure immediate, uninterrupted delivery
         SpeechManager.shared.speak(feedback, priority: .high)
     }
     
     // MARK: - Combined Analysis and Natural Feedback
     
     /// Main entry point for getting coaching feedback after a set.
-    /// Validates form analysis data, then generates and speaks exercise-specific feedback.
+    /// Returns text only via completion — never calls SpeechManager. Caller decides whether to speak.
     ///
     /// - Parameters:
     ///   - formAnalysis: Form analysis from OnDevicePoseManager
     ///   - exerciseType: .bodyweight or .barbell for exercise-specific coaching
-    ///   - completion: Callback with the feedback string (speech is handled internally)
+    ///   - completion: Callback with the feedback string (caller handles speech)
     func analyzeAndGetNaturalFeedback(formAnalysis: FormAnalysis, exerciseType: TrackedExerciseType, completion: @escaping (String) -> Void) {
         let exerciseLabel: String
         switch exerciseType {
@@ -386,16 +415,14 @@ class OpenAICoachingManager: ObservableObject {
         case .closeGripBenchPress: exerciseLabel = "close-grip bench press"
         }
         
-        // Check for valid data first
         if formAnalysis.repCount <= 0 || formAnalysis.summary.isEmpty {
-            // No data detected - return without feedback
-            completion("")
+            let fb = Self.insufficientDataFallback
+            print("Coaching: path=insufficient_data feedbackLen=\(fb.count)")
+            completion(fb)
             return
         }
         
         getNaturalFeedback(formAnalysis: formAnalysis, exerciseType: exerciseType) { feedback in
-            // Speak the unified feedback
-            self.speakFeedback(feedback)
             completion(feedback)
         }
     }

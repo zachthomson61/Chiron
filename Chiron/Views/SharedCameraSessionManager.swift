@@ -64,7 +64,7 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
         // Setup video data output
         videoDataOutput = AVCaptureVideoDataOutput()
         videoDataOutput?.alwaysDiscardsLateVideoFrames = true
-        // Prefer BGRA for downstream Vision/CI processing
+        // BGRA for downstream MediaPipe / CI processing
         videoDataOutput?.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         
         if let videoDataOutput = videoDataOutput, captureSession.canAddOutput(videoDataOutput) {
@@ -130,9 +130,17 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
         videoDataOutput?.setSampleBufferDelegate(nil, queue: nil)
     }
     
+    /// Starts pose analysis and resets all rep/session state (use when starting a coached workout flow).
     func startPoseAnalysis() {
         isAnalyzingPose = true
-        poseManager.resetRepCountingState()  // Reset all rep counting state
+        poseManager.resetRepCountingState()
+    }
+    
+    /// Starts pose tracking only (overlay, smoothing) without resetting state.
+    /// Use when you want tracking to run before the user starts a set (e.g. Track tab on appear).
+    /// Coaching API should only receive form data from Begin Set → End Set.
+    func startPoseTrackingOnly() {
+        isAnalyzingPose = true
     }
     
     func stopPoseAnalysis() {
@@ -212,12 +220,38 @@ class ActiveWorkoutCameraPreviewView: UIView {
 }
 
 // MARK: - Pose Visualization Overlay
+
+/// Skeleton edges in Vision body pose order (joint names from OnDevicePoseManager.extractKeyPoints).
+private let poseSkeletonEdges: [(String, String)] = [
+    ("leftShoulder", "rightShoulder"),
+    ("leftShoulder", "leftElbow"),
+    ("rightShoulder", "rightElbow"),
+    ("leftElbow", "leftWrist"),
+    ("rightElbow", "rightWrist"),
+    ("leftShoulder", "leftHip"),
+    ("rightShoulder", "rightHip"),
+    ("leftHip", "rightHip"),
+    ("leftHip", "leftKnee"),
+    ("rightHip", "rightKnee"),
+    ("leftKnee", "leftAnkle"),
+    ("rightKnee", "rightAnkle"),
+    ("nose", "leftEye"),
+    ("nose", "rightEye"),
+    ("leftEye", "leftEar"),
+    ("rightEye", "rightEar"),
+]
+
 struct PoseVisualizationOverlay: View {
     @ObservedObject private var poseManager = OnDevicePoseManager.shared
     
     var body: some View {
         GeometryReader { geometry in
             ZStack {
+                // Landmark skeleton and joints (normalized 0–1, origin top-left)
+                if let landmarks = poseManager.currentNormalizedLandmarks, !landmarks.isEmpty {
+                    PoseLandmarkSkeletonView(landmarks: landmarks, size: geometry.size)
+                }
+                
                 // Pose detection status
                 VStack {
                     HStack {
@@ -311,6 +345,45 @@ struct PoseVisualizationOverlay: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Pose Landmark Skeleton (lines + joints)
+
+/// Draws skeleton edges and landmark circles from normalized landmarks (0–1, origin top-left).
+/// Transform: portrait (normX, normY) → preview view, with horizontal flip so overlay matches
+/// the mirrored front-camera preview.
+struct PoseLandmarkSkeletonView: View {
+    let landmarks: [String: CGPoint]
+    let size: CGSize
+    
+    var body: some View {
+        Canvas { context, canvasSize in
+            func viewPoint(_ p: CGPoint) -> CGPoint {
+                let viewX = (1.0 - p.y) * size.width   // flip X so overlay matches mirrored preview
+                let viewY = (1.0 - p.x) * size.height
+                return CGPoint(x: viewX, y: viewY)
+            }
+            
+            // Draw skeleton edges
+            for (a, b) in poseSkeletonEdges {
+                guard let pa = landmarks[a], let pb = landmarks[b] else { continue }
+                var path = Path()
+                path.move(to: viewPoint(pa))
+                path.addLine(to: viewPoint(pb))
+                context.stroke(path, with: .color(.green), lineWidth: 3)
+            }
+            
+            // Draw landmark circles
+            for (_, point) in landmarks {
+                let center = viewPoint(point)
+                let r: CGFloat = 6
+                let rect = CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)
+                context.fill(Path(ellipseIn: rect), with: .color(.cyan))
+                context.stroke(Path(ellipseIn: rect), with: .color(.white), lineWidth: 1.5)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 

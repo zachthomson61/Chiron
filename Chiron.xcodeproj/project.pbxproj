@@ -10,6 +10,7 @@
 		042491252E3E986400AC3367 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 042491242E3E986400AC3367 /* FirebaseCore */; };
 		042491272E3E986400AC3367 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 042491262E3E986400AC3367 /* FirebaseStorage */; };
 		042491282E3E986400AC3367 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 042491292E3E986400AC3367 /* FirebaseFirestore */; };
+		EA5986E1DF902BCA03783397 /* Pods_Chiron.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 62414549048F8964648D6F7F /* Pods_Chiron.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -33,6 +34,9 @@
 		0446A7F12E31DA8200A13506 /* Chiron.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Chiron.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0446A8032E31DA8300A13506 /* ChironTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChironTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0446A80D2E31DA8300A13506 /* ChironUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChironUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		3A8E645A7B15D6FBAE5235F8 /* Pods-Chiron.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Chiron.release.xcconfig"; path = "Target Support Files/Pods-Chiron/Pods-Chiron.release.xcconfig"; sourceTree = "<group>"; };
+		5CCBF75ADCBE31B19D74892C /* Pods-Chiron.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Chiron.debug.xcconfig"; path = "Target Support Files/Pods-Chiron/Pods-Chiron.debug.xcconfig"; sourceTree = "<group>"; };
+		62414549048F8964648D6F7F /* Pods_Chiron.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Chiron.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -40,6 +44,8 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				"TestVideos/README.md",
+				"Features/PlanBuilder/OneQuestionFlow/README.md",
 			);
 			target = 0446A7F02E31DA8200A13506 /* Chiron */;
 		};
@@ -56,11 +62,15 @@
 		};
 		0446A8062E31DA8300A13506 /* ChironTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = ChironTests;
 			sourceTree = "<group>";
 		};
 		0446A8102E31DA8300A13506 /* ChironUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = ChironUITests;
 			sourceTree = "<group>";
 		};
@@ -74,6 +84,7 @@
 				042491252E3E986400AC3367 /* FirebaseCore in Frameworks */,
 				042491272E3E986400AC3367 /* FirebaseStorage in Frameworks */,
 				042491282E3E986400AC3367 /* FirebaseFirestore in Frameworks */,
+				EA5986E1DF902BCA03783397 /* Pods_Chiron.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -101,6 +112,8 @@
 				0446A8062E31DA8300A13506 /* ChironTests */,
 				0446A8102E31DA8300A13506 /* ChironUITests */,
 				0446A7F22E31DA8200A13506 /* Products */,
+				C122C6EA31EFFD4B11FA27B8 /* Pods */,
+				BB554392C57254757E5F1BEF /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -114,6 +127,24 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		BB554392C57254757E5F1BEF /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				62414549048F8964648D6F7F /* Pods_Chiron.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		C122C6EA31EFFD4B11FA27B8 /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				5CCBF75ADCBE31B19D74892C /* Pods-Chiron.debug.xcconfig */,
+				3A8E645A7B15D6FBAE5235F8 /* Pods-Chiron.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -121,6 +152,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 0446A8172E31DA8300A13506 /* Build configuration list for PBXNativeTarget "Chiron" */;
 			buildPhases = (
+				3F9FC04D0C70378F7F45D3B9 /* [CP] Check Pods Manifest.lock */,
 				0446A7ED2E31DA8200A13506 /* Sources */,
 				0446A7EE2E31DA8200A13506 /* Frameworks */,
 				0446A7EF2E31DA8200A13506 /* Resources */,
@@ -159,8 +191,6 @@
 				0446A8062E31DA8300A13506 /* ChironTests */,
 			);
 			name = ChironTests;
-			packageProductDependencies = (
-			);
 			productName = ChironTests;
 			productReference = 0446A8032E31DA8300A13506 /* ChironTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -182,8 +212,6 @@
 				0446A8102E31DA8300A13506 /* ChironUITests */,
 			);
 			name = ChironUITests;
-			packageProductDependencies = (
-			);
 			productName = ChironUITests;
 			productReference = 0446A80D2E31DA8300A13506 /* ChironUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -259,6 +287,31 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		3F9FC04D0C70378F7F45D3B9 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-Chiron-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		0446A7ED2E31DA8200A13506 /* Sources */ = {
@@ -421,6 +474,7 @@
 		};
 		0446A8182E31DA8300A13506 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5CCBF75ADCBE31B19D74892C /* Pods-Chiron.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -455,6 +509,7 @@
 		};
 		0446A8192E31DA8300A13506 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3A8E645A7B15D6FBAE5235F8 /* Pods-Chiron.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;

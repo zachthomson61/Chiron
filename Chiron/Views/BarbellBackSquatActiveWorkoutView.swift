@@ -347,12 +347,13 @@ struct BarbellBackSquatActiveWorkoutView: View {
         startRestTimer()
         // Get latest form analysis snapshot (if available)
         if let analysis = OnDevicePoseManager.shared.currentFormAnalysis {
-            // Single, natural message (no interruptions). Speaking handled inside manager.
-            // Pass .barbell to ensure exercise-specific coaching
             OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(
                 formAnalysis: analysis,
                 exerciseType: .barbell
             ) { feedback in
+                if !feedback.isEmpty {
+                    SpeechManager.shared.speak(feedback, priority: .high)
+                }
             }
         } else {
             // Fallback if no analysis available - single natural sentence

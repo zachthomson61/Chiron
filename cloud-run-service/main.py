@@ -73,7 +73,7 @@ def analyze_pose_from_video(video_path):
     mp_pose = mp.solutions.pose
     pose = mp_pose.Pose(
         static_image_mode=False,
-        model_complexity=0,  # Faster processing
+        model_complexity=1,  # Balance of accuracy and speed for form analysis
         smooth_landmarks=True,
         enable_segmentation=False,
         smooth_segmentation=True,

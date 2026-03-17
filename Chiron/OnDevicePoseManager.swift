@@ -1,8 +1,16 @@
+//
+//  OnDevicePoseManager.swift
+//  Chiron
+//
+//  On-device pose pipeline: MediaPipe Pose Landmarker (live stream) → MediaPipePoseAdapter
+//  → Skeleton3D + overlay landmarks → form analysis, rep counting, and UI updates.
+//
+
 import Foundation
 import AVFoundation
 import CoreML
-import Vision
 import UIKit
+import MediaPipeTasksVision
 
 // MARK: - Pose Landmark Structure
 struct PoseLandmark {
@@ -137,6 +145,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// is unavailable during score calculation.
     @Published var lastRepFormAnalysis: FormAnalysis?
     
+    /// Latest pose landmarks in normalised coordinates (0–1).
+    /// Populated by MediaPipePoseAdapter from PoseLandmarkerResult.landmarks.
+    @Published var currentNormalizedLandmarks: [String: CGPoint]?
+    
     /// Camera view type for close-grip bench press exercises.
     /// Used to adjust form analysis calculations based on camera angle:
     /// - `.rack`: Top-down view (high, angled down)
@@ -160,18 +172,21 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var repValidationThreshold: TimeInterval = 0.5
     private var movementThreshold: Float = 0.05  // Very sensitive to movement
     private var poseConfidenceThreshold: Float = 0.15  // Even lower confidence threshold for better detection (MORE SENSITIVE)
-    // More sensitive depth thresholds for a squat cycle using nose position (normalized 0-1 depth)
-    // Relaxed to improve rep detection across different camera crops/heights
-    private let deepDepthThreshold: Float = 0.58  // deep when nose >= 0.58
-    private let shallowDepthThreshold: Float = 0.48  // top when nose <= 0.48
+    // 2D nose-position depth thresholds removed; all rep detection now uses 3D thresholds.
     // State flag to ensure we saw a deep phase before counting on return to shallow
     private var reachedDeepThisCycle: Bool = false
+    /// Require this many consecutive frames in deep/shallow before rep-state transition (reduces false reps).
+    private let consistentFramesForRepTransition: Int = 3
+    private var consecutiveFramesDeep: Int = 0
+    private var consecutiveFramesShallow: Int = 0
     
     // MARK: - Close-Grip Bench Press Rep Detection State
     
     /// Tracks whether the bar has reached chest (bottom position) in the current rep cycle.
-    /// Used for rep detection: top (lockout) → bottom (chest touch) → top (lockout).
     private var reachedBottomThisCycleBenchPress: Bool = false
+    /// Consistent-frame counters for bench rep transitions (avoid false reps from jitter).
+    private var consecutiveFramesAtBottomBenchPress: Int = 0
+    private var consecutiveFramesAtTopBenchPress: Int = 0
     
     /// Timestamps for tracking eccentric (lowering) and concentric (pressing) phases.
     /// Used to measure tempo: eccentric should be ≥1s, concentric should be ≤2s.
@@ -187,8 +202,32 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var lastSpokenRep: Int = 0
     private var repFeedbackInterval = 5 // Speak every 5 reps
     
-    private var poseRequest: VNDetectHumanBodyPoseRequest?
     private var analysisQueue = DispatchQueue(label: "pose.analysis", qos: .userInteractive)
+    
+    // MARK: - MediaPipe Pose Properties
+    
+    private var poseLandmarker: PoseLandmarker?
+    private let poseAdapter = MediaPipePoseAdapter()
+    
+    private let jointSmoother = JointSmoother(alpha: 0.2, twoStage: true)
+    private let overlayLandmarkSmoother = Landmark2DSmoother()
+    /// Hold last stable form/landmarks for this many frames when pose is missing or low confidence.
+    private let holdStablePoseFrames: Int = 3
+    private var framesSinceGoodPose: Int = 0
+    private(set) var currentAnalysisSource: PoseAnalysisSource = .pose3D
+    
+    /// Monotonic frame counter used as timestamp for MediaPipe livestream API.
+    private var frameTimestampMs: Int = 0
+    
+    /// Metrics collector for validation tooling (dropped frames, latency, jitter).
+    let metricsCollector = PoseMetricsCollector()
+    
+    /// Optional landmark recorder -- toggle via `landmarkRecorder.startRecording()`.
+    let landmarkRecorder = LandmarkRecorder()
+    
+    // 3D-specific depth thresholds (MediaPipe world landmarks).
+    private let deepDepthThreshold3D: Float = 0.65
+    private let shallowDepthThreshold3D: Float = 0.35
     
     // Cue speaking state
     private var lastCueSpokenAt: Date?
@@ -218,8 +257,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var sumPauseMs: Double = 0      // Total time paused at bottom
     private var sumConcentricMs: Double = 0 // Total time coming up
     private var tempoRepSamples: Int = 0
-    private let bottomDepthThreshold: Float = 0.58 // align with deep threshold
-    private let topDepthThreshold: Float = 0.48    // align with shallow threshold
+    // Legacy 2D tempo thresholds removed; now uses deepDepthThreshold3D / shallowDepthThreshold3D.
 
     // ROM tracking (depth-based)
     private var sumBottomDepth: Double = 0
@@ -230,139 +268,145 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     
     override init() {
         super.init()
-        setupPoseDetection()
+        setupMediaPipe()
     }
     
-    private func setupPoseDetection() {
-        poseRequest = VNDetectHumanBodyPoseRequest { [weak self] request, error in
-            self?.handlePoseDetection(request: request, error: error)
+    // MARK: - MediaPipe Setup
+    
+    private func setupMediaPipe() {
+        guard let modelPath = Bundle.main.path(forResource: "pose_landmarker_full", ofType: "task") else {
+            print("[MediaPipe] ERROR: pose_landmarker_full.task not found in bundle")
+            return
+        }
+        
+        let options = PoseLandmarkerOptions()
+        options.baseOptions.modelAssetPath = modelPath
+        options.runningMode = .liveStream
+        options.numPoses = 1
+        options.minPoseDetectionConfidence = 0.5
+        options.minPosePresenceConfidence = 0.5
+        options.minTrackingConfidence = 0.5
+        options.poseLandmarkerLiveStreamDelegate = self
+        
+        do {
+            poseLandmarker = try PoseLandmarker(options: options)
+        } catch {
+            print("[MediaPipe] Failed to create PoseLandmarker: \(error.localizedDescription)")
         }
     }
     
     // MARK: - Pose Detection
+    
     func analyzeFrame(_ pixelBuffer: CVPixelBuffer) {
-        guard let poseRequest = poseRequest else { return }
+        guard let poseLandmarker = poseLandmarker else { return }
         
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up)
+        frameTimestampMs += 33 // ~30 fps; must be monotonically increasing
+        let ts = frameTimestampMs
+        metricsCollector.frameSent()
         
         do {
-            try handler.perform([poseRequest])
-            
-            if let observations = poseRequest.results, !observations.isEmpty {
-                let observation = observations[0]
-                
-                // Update pose detection status
-                DispatchQueue.main.async {
-                    self.poseDetected = true
-                    self.inactivityDetector.updateLastActivity()
-                }
-                
-                // Analyze form and update current analysis
-                let formAnalysis = analyzeForm(observation)
-                
-                // Update tempo tracking using current depth
-                self.updateTempoTracking(currentDepth: formAnalysis.depth)
-                
-                // (Removed verbose nose/depth debug logging)
-                
-                // IMPORTANT: Ensure this runs on main thread for UI updates
-                DispatchQueue.main.async {
-                    self.currentFormAnalysis = formAnalysis
-                }
-                // Real-time cues disabled; feedback will be spoken at set end only
-                
-                // Aggregate issues and positives for between-sets feedback
-                self.aggregateFeedback(from: formAnalysis)
-                
-                // Check for rep detection on background thread
-                if validateRep() {
-                    DispatchQueue.main.async {
-                        self.handleRepDetected()
-                    }
-                }
-                
-                // Check for set transitions (must be on main thread for state updates)
-                DispatchQueue.main.async {
-                    self.checkForSetEnd()
-                    self.checkForNextSetStart()
-                }
-                
-            } else {
-                DispatchQueue.main.async {
-                    self.poseDetected = false
-                }
-            }
+            let mpImage = try MPImage(pixelBuffer: pixelBuffer)
+            try poseLandmarker.detectAsync(image: mpImage, timestampInMilliseconds: ts)
         } catch {
+            // MediaPipe drops the frame if the previous one is still being processed
         }
     }
     
-    private func handlePoseDetection(request: VNRequest, error: Error?) {
-        guard let observations = request.results as? [VNHumanBodyPoseObservation] else {
-            DispatchQueue.main.async {
-                self.poseDetected = false
+    /// Called by the PoseLandmarker livestream delegate on a serial queue.
+    fileprivate func handleMediaPipeResult(_ result: PoseLandmarkerResult?, timestampMs: Int, error: Error?) {
+        let latencyMs = metricsCollector.frameReceived()
+        
+        guard let result = result,
+              let adapted = poseAdapter.adapt(result, timestampMs: timestampMs) else {
+            framesSinceGoodPose += 1
+            if framesSinceGoodPose >= holdStablePoseFrames {
+                DispatchQueue.main.async {
+                    self.poseDetected = false
+                    self.currentFormAnalysis = nil
+                    self.currentNormalizedLandmarks = nil
+                }
             }
             return
         }
         
-        guard let observation = observations.first else {
-            DispatchQueue.main.async {
-                self.poseDetected = false
+        guard adapted.skeleton.meetsMinimumRequirements(for: trackedExerciseType) else {
+            framesSinceGoodPose += 1
+            if framesSinceGoodPose >= holdStablePoseFrames {
+                DispatchQueue.main.async {
+                    self.poseDetected = false
+                    self.currentFormAnalysis = nil
+                    self.currentNormalizedLandmarks = nil
+                }
             }
             return
         }
+        
+        framesSinceGoodPose = 0
+        currentAnalysisSource = .pose3D
+        
+        let smoothed = jointSmoother.smooth(adapted.skeleton)
+        let formAnalysis = formAnalysisFrom3D(skeleton: smoothed)
+        
+        updateTempoTracking(currentDepth: formAnalysis.depth)
+        
+        let landmarks = overlayLandmarkSmoother.smooth(adapted.overlayLandmarks)
+        
+        metricsCollector.recordJitterSample(landmarks)
+        
+        landmarkRecorder.record(
+            timestampMs: timestampMs,
+            overlayLandmarks: adapted.overlayLandmarks,
+            skeleton: smoothed,
+            confidence: adapted.perJointConfidence
+        )
         
         DispatchQueue.main.async {
             self.poseDetected = true
+            self.currentFormAnalysis = formAnalysis
+            self.currentNormalizedLandmarks = landmarks
+            self.inactivityDetector.updateLastActivity()
         }
         
-        // Analyze form
-        let formAnalysis = analyzeForm(observation)
+        aggregateFeedback(from: formAnalysis)
+        
+        if validateRep() {
+            DispatchQueue.main.async {
+                self.handleRepDetected()
+            }
+        }
         
         DispatchQueue.main.async {
-            self.currentFormAnalysis = formAnalysis
+            self.checkForSetEnd()
+            self.checkForNextSetStart()
         }
     }
     
-    // MARK: - Form Analysis
-    private func analyzeForm(_ observation: VNHumanBodyPoseObservation) -> FormAnalysis {
-        // Extract key points
-        let points = extractKeyPoints(from: observation)
-        
-        // Use optimized analysis based on squat type
+    // MARK: - Form Analysis (2D overlay)
+
+    private func analyzeFormFrom2DOverlay(_ points: [String: CGPoint]) -> FormAnalysis {
         switch trackedExerciseType {
         case .bodyweight:
             return analyzeBodyweightSquatForm(points)
         case .barbell:
             return analyzeBarbellSquatForm(points)
         case .benchPress:
-            // Regular bench press - use bodyweight analysis as fallback until implemented
             return analyzeBodyweightSquatForm(points)
         case .closeGripBenchPress:
-            // Close-grip bench press with view-specific analysis
             return analyzeCloseGripBenchPressForm(points)
         }
     }
     
     private func analyzeBodyweightSquatForm(_ points: [String: CGPoint]) -> FormAnalysis {
-        // Enhanced analysis for bodyweight squats with optimized parameters
-        
-        // Calculate form metrics with bodyweight-specific thresholds
         let depth = calculateBodyweightDepth(points)
         let backAngle = calculateBodyweightBackAngle(points)
         let kneeAlignment = calculateBodyweightKneeAlignment(points)
         let overallScore = calculateBodyweightOverallScore(depth: depth, backAngle: backAngle, kneeAlignment: kneeAlignment)
         let issues = detectBodyweightIssues(depth: depth, backAngle: backAngle, kneeAlignment: kneeAlignment)
-        
-        // Generate summary with bodyweight-specific feedback
         let summary = generateBodyweightFormSummary(depth: depth, backAngle: backAngle, overallScore: overallScore)
         
         return FormAnalysis(
-            depth: depth,
-            backAngle: backAngle,
-            kneeAlignment: kneeAlignment,
-            overallScore: overallScore,
-            issues: issues,
-            summary: summary,
+            depth: depth, backAngle: backAngle, kneeAlignment: kneeAlignment,
+            overallScore: overallScore, issues: issues, summary: summary,
             repCount: repCount,
             avgEccentricMs: tempoRepSamples > 0 ? Float(sumEccentricMs / Double(tempoRepSamples)) : nil,
             avgPauseMs: tempoRepSamples > 0 ? Float(sumPauseMs / Double(tempoRepSamples)) : nil,
@@ -373,33 +417,17 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     }
     
     private func analyzeBarbellSquatForm(_ points: [String: CGPoint]) -> FormAnalysis {
-        // TODO: Enhance barbell squat analysis with barbell-specific thresholds:
-        // - Different acceptable torso angle for heavy barbell vs. bodyweight
-        // - Stricter depth requirements for loaded squats
-        // - Bar path tracking (if possible with pose estimation)
-        // - Upper back tightness indicators
-        
-        // Currently uses standard analysis (reuses bodyweight logic)
-        // Future: Add barbell-specific form checks and thresholds
         let depth = calculateDepth(points)
         let backAngle = calculateBackAngle(points)
         let overallScore = calculateOverallScore(depth: depth, backAngle: backAngle)
-        
         let summary = generateFormSummary(depth: depth, backAngle: backAngle, overallScore: overallScore)
         
         return FormAnalysis(
-            depth: depth,
-            backAngle: backAngle,
-            kneeAlignment: 0.0,
-            overallScore: overallScore,
-            issues: [],
-            summary: summary,
+            depth: depth, backAngle: backAngle, kneeAlignment: 0.0,
+            overallScore: overallScore, issues: [], summary: summary,
             repCount: repCount,
-            avgEccentricMs: nil,
-            avgPauseMs: nil,
-            avgConcentricMs: nil,
-            avgBottomDepth: nil,
-            deepRepRatio: nil
+            avgEccentricMs: nil, avgPauseMs: nil, avgConcentricMs: nil,
+            avgBottomDepth: nil, deepRepRatio: nil
         )
     }
     
@@ -756,69 +784,252 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         return summaryParts.joined(separator: ", ")
     }
     
-    private func extractKeyPoints(from observation: VNHumanBodyPoseObservation) -> [String: CGPoint] {
-        var points: [String: CGPoint] = [:]
-        
-        // Extract key body points
-        let recognizedPoints = try? observation.recognizedPoints(.all)
-        
-        for (key, point) in recognizedPoints ?? [:] {
-            if point.confidence > 0.1 {
-                // Map Vision joint names to our expected names
-                let jointName = mapVisionJointName(key)
-                if !jointName.isEmpty {
-                    points[jointName] = point.location
-                }
-            }
+    // MARK: - 3D Form Analysis
+    
+    /// Dispatches to exercise-specific 3D form analysis.
+    /// All metrics are derived from smoothed 3D joint positions — never from pointInImage.
+    private func formAnalysisFrom3D(skeleton: Skeleton3D) -> FormAnalysis {
+        switch trackedExerciseType {
+        case .bodyweight, .barbell:
+            return analyzeSquatForm3D(skeleton)
+        case .benchPress:
+            return analyzeSquatForm3D(skeleton)
+        case .closeGripBenchPress:
+            return analyzeCloseGripBenchPressForm3D(skeleton)
         }
-        
-        return points
     }
     
-    private func mapVisionJointName(_ jointName: VNHumanBodyPoseObservation.JointName) -> String {
-        // Map Vision's joint names to our expected names
-        switch jointName {
-        case .leftHip:
-            return "leftHip"
-        case .rightHip:
-            return "rightHip"
-        case .leftKnee:
-            return "leftKnee"
-        case .rightKnee:
-            return "rightKnee"
-        case .leftAnkle:
-            return "leftAnkle"
-        case .rightAnkle:
-            return "rightAnkle"
-        case .leftShoulder:
-            return "leftShoulder"
-        case .rightShoulder:
-            return "rightShoulder"
-        case .leftElbow:
-            return "leftElbow"
-        case .rightElbow:
-            return "rightElbow"
-        case .leftWrist:
-            return "leftWrist"
-        case .rightWrist:
-            return "rightWrist"
-        case .nose:
-            return "nose"
-        case .leftEye:
-            return "leftEye"
-        case .rightEye:
-            return "rightEye"
-        case .leftEar:
-            return "leftEar"
-        case .rightEar:
-            return "rightEar"
-        case .neck:
-            return "neck"
-        case .root:
-            return "root"
-        default:
-            return ""
+    // MARK: - 3D Squat Form Analysis
+    
+    private func analyzeSquatForm3D(_ skeleton: Skeleton3D) -> FormAnalysis {
+        let movementDepthScore = calculateMovementDepthScore3D(skeleton)
+        let backAngle = calculateBackAngle3D(skeleton)
+        let kneeAlignment = calculateKneeAlignment3D(skeleton)
+        let overallScore = calculateOverallScore3D(
+            depth: movementDepthScore, backAngle: backAngle, kneeAlignment: kneeAlignment
+        )
+        let issues = detectIssues3D(
+            depth: movementDepthScore, backAngle: backAngle, kneeAlignment: kneeAlignment
+        )
+        let summary = generateFormSummary3D(
+            depth: movementDepthScore, backAngle: backAngle, overallScore: overallScore
+        )
+        
+        return FormAnalysis(
+            depth: movementDepthScore,
+            backAngle: backAngle,
+            kneeAlignment: kneeAlignment,
+            overallScore: overallScore,
+            issues: issues,
+            summary: summary,
+            repCount: repCount,
+            avgEccentricMs: tempoRepSamples > 0 ? Float(sumEccentricMs / Double(tempoRepSamples)) : nil,
+            avgPauseMs: tempoRepSamples > 0 ? Float(sumPauseMs / Double(tempoRepSamples)) : nil,
+            avgConcentricMs: tempoRepSamples > 0 ? Float(sumConcentricMs / Double(tempoRepSamples)) : nil,
+            avgBottomDepth: bottomDepthSamples > 0 ? Float(sumBottomDepth / Double(bottomDepthSamples)) : nil,
+            deepRepRatio: totalDepthSamples > 0 ? Float(deepFrameCount) / Float(totalDepthSamples) : nil
+        )
+    }
+    
+    /// Knee-angle based depth (0 = standing, 1 = deep squat). Uses 3D positions only.
+    private func calculateMovementDepthScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let leftHip = skeleton.position("leftHip"),
+              let rightHip = skeleton.position("rightHip"),
+              let leftKnee = skeleton.position("leftKnee"),
+              let rightKnee = skeleton.position("rightKnee"),
+              let leftAnkle = skeleton.position("leftAnkle"),
+              let rightAnkle = skeleton.position("rightAnkle") else {
+            return 0.5
         }
+        
+        let leftKneeAngle = angleDegrees(a: leftHip, b: leftKnee, c: leftAnkle)
+        let rightKneeAngle = angleDegrees(a: rightHip, b: rightKnee, c: rightAnkle)
+        let avgKneeAngle = (leftKneeAngle + rightKneeAngle) / 2.0
+        
+        // Standing ≈ 170°  →  0.0
+        // Deep squat ≈ 60° →  1.0
+        return max(0, min(1, (170 - avgKneeAngle) / 110))
+    }
+    
+    /// Torso lean angle from vertical, computed from 3D shoulder/hip vectors.
+    private func calculateBackAngle3D(_ skeleton: Skeleton3D) -> Float {
+        guard let leftShoulder = skeleton.position("leftShoulder"),
+              let rightShoulder = skeleton.position("rightShoulder"),
+              let leftHip = skeleton.position("leftHip"),
+              let rightHip = skeleton.position("rightHip") else {
+            return 0.0
+        }
+        
+        let shoulderCenter = (leftShoulder + rightShoulder) / 2.0
+        let hipCenter = (leftHip + rightHip) / 2.0
+        let torso = shoulderCenter - hipCenter
+        let lenTorso = length(torso)
+        guard lenTorso > .ulpOfOne else { return 0.0 }
+        
+        let vertical = SIMD3<Float>(0, 1, 0)
+        let cosAngle = dot(torso / lenTorso, vertical)
+        return acos(max(-1, min(1, cosAngle))) * 180.0 / .pi
+    }
+    
+    /// Lateral knee tracking relative to ankles in 3D.
+    private func calculateKneeAlignment3D(_ skeleton: Skeleton3D) -> Float {
+        guard let leftKnee = skeleton.position("leftKnee"),
+              let rightKnee = skeleton.position("rightKnee"),
+              let leftAnkle = skeleton.position("leftAnkle"),
+              let rightAnkle = skeleton.position("rightAnkle") else {
+            return 0.0
+        }
+        
+        let leftTracking = leftKnee.x - leftAnkle.x
+        let rightTracking = rightKnee.x - rightAnkle.x
+        let avg = (leftTracking + rightTracking) / 2.0
+        return max(-1, min(1, avg / 0.05))
+    }
+    
+    private func calculateOverallScore3D(depth: Float, backAngle: Float, kneeAlignment: Float) -> Float {
+        let depthScore = min(depth * 1.5, 1.0)
+        let angleScore = max(0, 1.0 - backAngle / 90.0)
+        let alignmentScore = 1.0 - abs(kneeAlignment) / 2.0
+        return min((depthScore * 0.4 + angleScore * 0.4 + alignmentScore * 0.2), 1.0)
+    }
+    
+    private func detectIssues3D(depth: Float, backAngle: Float, kneeAlignment: Float) -> [String] {
+        var issues: [String] = []
+        if depth < 0.35 { issues.append("Insufficient Depth") }
+        if backAngle > 35.0 { issues.append("Forward Lean") }
+        if kneeAlignment < -0.2 {
+            issues.append("Knees Caving In")
+        } else if kneeAlignment > 0.2 {
+            issues.append("Knees Bowing Out")
+        }
+        return Array(issues.prefix(2))
+    }
+    
+    private func generateFormSummary3D(depth: Float, backAngle: Float, overallScore: Float) -> String {
+        let pct = Int(overallScore * 100)
+        if overallScore > 0.85 { return "Excellent form (3D)! Score: \(pct)%" }
+        if overallScore > 0.7  { return "Good form (3D). Score: \(pct)%" }
+        if overallScore > 0.5  { return "Form needs work (3D). Score: \(pct)%" }
+        return "Focus on form basics (3D). Score: \(pct)%"
+    }
+    
+    // MARK: - 3D Close-Grip Bench Press Form Analysis
+    
+    private func analyzeCloseGripBenchPressForm3D(_ skeleton: Skeleton3D) -> FormAnalysis {
+        let gripWidthScore = calculateCloseGripWidthScore3D(skeleton)
+        let elbowPositionScore = calculateElbowPositionScore3D(skeleton)
+        let romScore = calculateBenchPressROMScore3D(skeleton)
+        let eccentricScore = calculateBenchPressEccentricScore()
+        let concentricScore = calculateBenchPressConcentricScore()
+        
+        let overallScore = (gripWidthScore * 0.20) +
+                           (elbowPositionScore * 0.20) +
+                           (romScore * 0.30) +
+                           (eccentricScore * 0.15) +
+                           (concentricScore * 0.15)
+        
+        var issues: [String] = []
+        if gripWidthScore < 0.6 { issues.append("Grip Too Wide") }
+        if elbowPositionScore < 0.6 { issues.append("Elbows Flaring") }
+        if romScore < 0.6 { issues.append("Incomplete ROM") }
+        if eccentricScore < 0.6 { issues.append("Eccentric Too Fast") }
+        if concentricScore < 0.6 { issues.append("Concentric Too Slow") }
+        
+        let summary = generateCloseGripBenchPressSummary(
+            gripScore: gripWidthScore,
+            elbowScore: elbowPositionScore,
+            romScore: romScore,
+            overallScore: overallScore
+        )
+        
+        let depth = calculateBenchPressDepth3D(skeleton)
+        
+        return FormAnalysis(
+            depth: depth,
+            backAngle: 0.0,
+            kneeAlignment: 0.0,
+            overallScore: overallScore,
+            issues: issues,
+            summary: summary,
+            repCount: repCount,
+            avgEccentricMs: tempoRepSamples > 0 ? Float(sumEccentricMs / Double(tempoRepSamples)) : nil,
+            avgPauseMs: tempoRepSamples > 0 ? Float(sumPauseMs / Double(tempoRepSamples)) : nil,
+            avgConcentricMs: tempoRepSamples > 0 ? Float(sumConcentricMs / Double(tempoRepSamples)) : nil,
+            avgBottomDepth: nil,
+            deepRepRatio: nil
+        )
+    }
+    
+    /// 3D grip width: uses actual 3D distance between wrists vs shoulders (camera-invariant).
+    private func calculateCloseGripWidthScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let lw = skeleton.position("leftWrist"),
+              let rw = skeleton.position("rightWrist"),
+              let ls = skeleton.position("leftShoulder"),
+              let rs = skeleton.position("rightShoulder") else { return 0.5 }
+        
+        let gripWidth = length(lw - rw)
+        let shoulderWidth = length(ls - rs)
+        guard shoulderWidth > .ulpOfOne else { return 0.5 }
+        
+        let ratio = gripWidth / shoulderWidth
+        if ratio >= 0.7 && ratio <= 1.2 { return 1.0 }
+        if ratio < 0.7 { return max(0.5, ratio / 0.7) }
+        return max(0.5, 1.0 - (ratio - 1.2))
+    }
+    
+    /// 3D elbow flare: lateral elbow offset vs shoulder width (camera-invariant).
+    private func calculateElbowPositionScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let le = skeleton.position("leftElbow"),
+              let re = skeleton.position("rightElbow"),
+              let ls = skeleton.position("leftShoulder"),
+              let rs = skeleton.position("rightShoulder"),
+              let lh = skeleton.position("leftHip"),
+              let rh = skeleton.position("rightHip") else { return 0.5 }
+        
+        let center = (ls + rs + lh + rh) / 4.0
+        let shoulderWidth = length(ls - rs)
+        guard shoulderWidth > .ulpOfOne else { return 0.5 }
+        
+        let avgOffset = (abs(le.x - center.x) + abs(re.x - center.x)) / 2.0
+        let flare = avgOffset / shoulderWidth
+        
+        if flare <= 0.6 { return 1.0 }
+        if flare <= 0.8 { return max(0.7, 1.0 - (flare - 0.6) * 0.75) }
+        return max(0.5, 0.85 - (flare - 0.8) * 0.7)
+    }
+    
+    /// 3D ROM: elbow extension angle (camera-invariant).
+    private func calculateBenchPressROMScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let lw = skeleton.position("leftWrist"),
+              let rw = skeleton.position("rightWrist"),
+              let le = skeleton.position("leftElbow"),
+              let re = skeleton.position("rightElbow"),
+              let ls = skeleton.position("leftShoulder"),
+              let rs = skeleton.position("rightShoulder") else { return 0.5 }
+        
+        let leftAngle = angleDegrees(a: ls, b: le, c: lw)
+        let rightAngle = angleDegrees(a: rs, b: re, c: rw)
+        let avg = (leftAngle + rightAngle) / 2.0
+        
+        if avg > 150 { return 1.0 }
+        if avg > 120 { return 0.8 }
+        return max(0.6, avg / 150.0)
+    }
+    
+    /// 3D bench press depth: elbow-angle based, camera-invariant.
+    /// Lockout (~170°) → 0.0, chest touch (~80°) → 1.0.
+    private func calculateBenchPressDepth3D(_ skeleton: Skeleton3D) -> Float {
+        guard let lw = skeleton.position("leftWrist"),
+              let rw = skeleton.position("rightWrist"),
+              let le = skeleton.position("leftElbow"),
+              let re = skeleton.position("rightElbow"),
+              let ls = skeleton.position("leftShoulder"),
+              let rs = skeleton.position("rightShoulder") else { return 0.5 }
+        
+        let leftAngle = angleDegrees(a: ls, b: le, c: lw)
+        let rightAngle = angleDegrees(a: rs, b: re, c: rw)
+        let avg = (leftAngle + rightAngle) / 2.0
+        return max(0, min(1, (170 - avg) / 90))
     }
     
     private func calculateDepth(_ points: [String: CGPoint]) -> Float {
@@ -1024,7 +1235,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         setStartTime = nil
         lastRepValidationTime = nil
         lastSpokenRep = 0
-        reachedDeepThisCycle = false // Reset the cycle state
+        reachedDeepThisCycle = false
+        consecutiveFramesDeep = 0
+        consecutiveFramesShallow = 0
+        consecutiveFramesAtBottomBenchPress = 0
+        consecutiveFramesAtTopBenchPress = 0
+        framesSinceGoodPose = 0
         inactivityDetector.resetTimer()
         // Reset tempo tracking
         repStartTime = nil
@@ -1045,15 +1261,16 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         benchPressEccentricStartTime = nil
         benchPressBottomTime = nil
         benchPressBottomWristY = nil
+        // Reset pose smoothing state
+        currentAnalysisSource = .pose3D
+        jointSmoother.reset()
+        overlayLandmarkSmoother.reset()
         
-        // Initialize bench press tracking if this is a bench press exercise
         if trackedExerciseType == .closeGripBenchPress {
             initializeBenchPressRepTracking()
         }
-        
     }
     
-    // Add method to reset rep counting state
     func resetRepCountingState() {
         DispatchQueue.main.async {
             self.repCount = 0
@@ -1066,8 +1283,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         lastRepValidationTime = nil
         lastSpokenRep = 0
         reachedDeepThisCycle = false
+        consecutiveFramesDeep = 0
+        consecutiveFramesShallow = 0
+        consecutiveFramesAtBottomBenchPress = 0
+        consecutiveFramesAtTopBenchPress = 0
+        framesSinceGoodPose = 0
         inactivityDetector.resetTimer()
-        // Reset tempo tracking
         repStartTime = nil
         bottomTime = nil
         lastDepth = 0
@@ -1075,23 +1296,20 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         sumPauseMs = 0
         sumConcentricMs = 0
         tempoRepSamples = 0
-        // Reset ROM tracking
         sumBottomDepth = 0
         bottomDepthSamples = 0
         deepFrameCount = 0
         totalDepthSamples = 0
         currentRepBottomDepthMax = 0
-        // Reset close-grip bench press rep detection state
         reachedBottomThisCycleBenchPress = false
         benchPressEccentricStartTime = nil
         benchPressBottomTime = nil
         benchPressBottomWristY = nil
-        
-        // Initialize bench press tracking if this is a bench press exercise
+        currentAnalysisSource = .pose3D
+
         if trackedExerciseType == .closeGripBenchPress {
             initializeBenchPressRepTracking()
         }
-        
     }
     
     /// Initializes bench press rep tracking state for proper first-rep detection.
@@ -1158,30 +1376,39 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
     }
     
-    /// Validate squat rep (bodyweight, barbell, or regular bench press fallback)
+    /// Validate squat rep (bodyweight, barbell, or regular bench press fallback).
+    /// Uses consistent frames: transition to "deep" only after N consecutive deep frames;
+    /// count rep only after N consecutive shallow frames (reduces jitter and false reps).
     private func validateSquatRep(formAnalysis: FormAnalysis, now: Date) -> Bool {
         let depth = formAnalysis.depth
         
-        // State machine for rep counting - MORE SENSITIVE
-        if depth >= deepDepthThreshold {
-            if !reachedDeepThisCycle {
+        let deep = deepDepthThreshold3D
+        let shallow = shallowDepthThreshold3D
+        
+        if depth >= deep {
+            consecutiveFramesDeep += 1
+            consecutiveFramesShallow = 0
+            if consecutiveFramesDeep >= consistentFramesForRepTransition && !reachedDeepThisCycle {
                 reachedDeepThisCycle = true
             }
             return false
         }
         
-        // Check if we completed a full cycle (deep -> shallow) - MORE SENSITIVE
-        if reachedDeepThisCycle && depth <= shallowDepthThreshold {
-            lastRepValidationTime = now
-            reachedDeepThisCycle = false
-            return true
+        if depth <= shallow {
+            consecutiveFramesShallow += 1
+            if reachedDeepThisCycle && consecutiveFramesShallow >= consistentFramesForRepTransition {
+                lastRepValidationTime = now
+                reachedDeepThisCycle = false
+                consecutiveFramesDeep = 0
+                consecutiveFramesShallow = 0
+                return true
+            }
+            return false
         }
         
-        // Additional check: if we're in a deep position but haven't marked it yet, mark it
-        if depth >= (deepDepthThreshold - 0.03) && !reachedDeepThisCycle {
-            reachedDeepThisCycle = true
-        }
-        
+        // In between: reset consecutive counters so we require clean transition
+        consecutiveFramesDeep = 0
+        consecutiveFramesShallow = 0
         return false
     }
     
@@ -1200,125 +1427,60 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     ///
     /// Also tracks tempo: measures eccentric (top→bottom) and concentric (bottom→top) phases.
     private func validateCloseGripBenchPressRep(formAnalysis: FormAnalysis, now: Date) -> Bool {
-        let wristY = formAnalysis.depth // For bench press, depth field stores wrist Y position
+        let depthValue = formAnalysis.depth
         
-        // Bench press thresholds (based on wrist Y position)
-        // Higher Y = bar closer to chest (bottom position)
-        // Lower Y = bar at lockout (top position)
-        // View-specific thresholds - made more lenient for better detection
-        let (bottomThreshold, topThreshold): (Float, Float)
-        switch benchPressViewType {
-        case .rack:
-            // Top-down view: Y increases as bar goes down
-            // Made more lenient: bottom 0.55 (was 0.65), top 0.40 (was 0.45)
-            bottomThreshold = 0.55
-            topThreshold = 0.40
-        case .floor:
-            // Bottom-up view: Y decreases as bar goes down (inverted)
-            // Made more lenient: bottom 0.45 (was 0.35), top 0.60 (was 0.55)
-            bottomThreshold = 0.45
-            topThreshold = 0.60
-        case .tripod:
-            // Side view: adjusted thresholds for tripod camera angle
-            // Bottom: 0.52 (bar touches chest)
-            // Top: 0.50 (lockout position - more lenient than original 0.48)
-            // Top threshold increased because lockout wristY is typically 0.48-0.52 in tripod view
-            // Also uses relative check (wristY decreased by ≥0.05 from bottom) as fallback
-            bottomThreshold = 0.52
-            topThreshold = 0.50
-        }
+        let bottomThreshold: Float
+        let topThreshold: Float
         
-        // Initialize eccentric tracking if we're at top position and it's not set
-        // This ensures the first rep's eccentric is properly tracked
+        // 3D path: depth is elbow-angle based (0 = lockout, 1 = chest), camera-invariant
+        bottomThreshold = 0.65
+        topThreshold = 0.25
+        
+        let wristY = depthValue
+        
         if benchPressEccentricStartTime == nil {
-            let isAtTop = (benchPressViewType == .floor && wristY >= topThreshold) ||
-                          (benchPressViewType != .floor && wristY <= topThreshold)
-            if isAtTop {
+            if wristY <= topThreshold {
                 benchPressEccentricStartTime = CACurrentMediaTime()
             }
         }
         
-        // State machine for bench press rep counting
-        // Step 1: Detect bottom position (bar at chest)
-        if benchPressViewType == .floor {
-            // Floor view has inverted Y axis
-            if wristY <= bottomThreshold {
-                if !reachedBottomThisCycleBenchPress {
-                    reachedBottomThisCycleBenchPress = true
-                    // Calculate eccentric tempo
-                    if let eccentricStart = benchPressEccentricStartTime {
-                        let eccentricMs = (CACurrentMediaTime() - eccentricStart) * 1000
-                        sumEccentricMs += eccentricMs
-                    }
-                    // Start tracking concentric tempo
-                    benchPressBottomTime = CACurrentMediaTime()
+        let atBottom = wristY >= bottomThreshold
+        let atTop = wristY <= topThreshold
+        
+        if atBottom {
+            consecutiveFramesAtBottomBenchPress += 1
+            consecutiveFramesAtTopBenchPress = 0
+            if consecutiveFramesAtBottomBenchPress >= consistentFramesForRepTransition && !reachedBottomThisCycleBenchPress {
+                reachedBottomThisCycleBenchPress = true
+                benchPressBottomWristY = wristY
+                if let eccentricStart = benchPressEccentricStartTime {
+                    sumEccentricMs += (CACurrentMediaTime() - eccentricStart) * 1000
                 }
-                return false
+                benchPressBottomTime = CACurrentMediaTime()
             }
-            
-            // Step 2: Detect top position (lockout) after reaching bottom
-            if reachedBottomThisCycleBenchPress && wristY >= topThreshold {
-                
-                // Calculate tempo for this rep
-                if let bottomTime = benchPressBottomTime {
-                    let concentricMs = (CACurrentMediaTime() - bottomTime) * 1000
-                    sumConcentricMs += concentricMs
-                    tempoRepSamples += 1
-                }
-                
-                lastRepValidationTime = now
-                reachedBottomThisCycleBenchPress = false
-                benchPressEccentricStartTime = CACurrentMediaTime() // Start tracking next eccentric
-                return true
-            }
-        } else {
-            // Rack and Tripod views: standard Y axis
-            if wristY >= bottomThreshold {
-                if !reachedBottomThisCycleBenchPress {
-                    reachedBottomThisCycleBenchPress = true
-                    benchPressBottomWristY = wristY // Store bottom position for relative check
-                    // Calculate eccentric tempo
-                    if let eccentricStart = benchPressEccentricStartTime {
-                        let eccentricMs = (CACurrentMediaTime() - eccentricStart) * 1000
-                        sumEccentricMs += eccentricMs
-                    }
-                    // Start tracking concentric tempo
-                    benchPressBottomTime = CACurrentMediaTime()
-                }
-                return false
-            }
-            
-            // Step 2: Detect top position (lockout) after reaching bottom
-            // Use both absolute threshold and relative check (wristY decreased from bottom)
-            let meetsAbsoluteThreshold = wristY <= topThreshold
-            let meetsRelativeCheck: Bool
-            if let bottomWristY = benchPressBottomWristY {
-                // Consider lockout if wristY has decreased by at least 0.05 from bottom
-                meetsRelativeCheck = (bottomWristY - wristY) >= 0.05
-            } else {
-                meetsRelativeCheck = false
-            }
-            
-            if reachedBottomThisCycleBenchPress && (meetsAbsoluteThreshold || meetsRelativeCheck) {
-                let validationMethod = meetsAbsoluteThreshold ? "absolute" : "relative"
-                
-                // Calculate concentric tempo for this rep
-                if let bottomTime = benchPressBottomTime {
-                    let concentricMs = (CACurrentMediaTime() - bottomTime) * 1000
-                    sumConcentricMs += concentricMs
-                    tempoRepSamples += 1
-                }
-                
-                lastRepValidationTime = now
-                reachedBottomThisCycleBenchPress = false
-                benchPressBottomWristY = nil // Clear bottom position
-                benchPressEccentricStartTime = CACurrentMediaTime() // Start tracking next eccentric
-                
-                return true
-            }
-            
+            return false
         }
         
+        if atTop && reachedBottomThisCycleBenchPress {
+            consecutiveFramesAtTopBenchPress += 1
+            if consecutiveFramesAtTopBenchPress >= consistentFramesForRepTransition {
+                if let bt = benchPressBottomTime {
+                    sumConcentricMs += (CACurrentMediaTime() - bt) * 1000
+                    tempoRepSamples += 1
+                }
+                lastRepValidationTime = now
+                reachedBottomThisCycleBenchPress = false
+                benchPressBottomWristY = nil
+                benchPressEccentricStartTime = CACurrentMediaTime()
+                consecutiveFramesAtBottomBenchPress = 0
+                consecutiveFramesAtTopBenchPress = 0
+                return true
+            }
+            return false
+        }
+        
+        consecutiveFramesAtBottomBenchPress = 0
+        consecutiveFramesAtTopBenchPress = 0
         return false
     }
     
@@ -1330,12 +1492,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         lastRepTime = Date()
         inactivityDetector.updateLastRep()
         
-        // Store the form analysis at rep completion so it's available for score calculation
-        // even if pose is temporarily lost after rep completion
         lastRepFormAnalysis = currentFormAnalysis
-        
-        
-        // Check if we should start the set (after minimum reps)
+
         if workoutState == .waiting && consecutiveGoodReps >= minRepsForSetStart {
             handleSetStart()
         }
@@ -1381,18 +1539,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         
         restStartTime = Date()
         
-        // Get single natural feedback and speak it once
+        // State and rest timer only. Do not call API or SpeechManager here — the UI owns when to
+        // request feedback and speak (e.g. TrackView speaks only when the user taps "End Set").
         DispatchQueue.main.async {
-            if let analysis = self.currentFormAnalysis {
-                OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(
-                    formAnalysis: analysis,
-                    exerciseType: self.trackedExerciseType
-                ) { naturalFeedback in
-                    // Speech is already handled inside analyzeAndGetNaturalFeedback
-                }
-            }
-            
-            // Start rest period timer
             DispatchQueue.main.asyncAfter(deadline: .now() + self.restPeriodDuration) {
                 self.handleRestPeriodEnd()
             }
@@ -1468,27 +1617,25 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     
     private func updateTempoTracking(currentDepth: Float) {
         let now = CACurrentMediaTime()
-        // ROM sampling each frame
+        
+        let bottomThresh = deepDepthThreshold3D
+        let topThresh = shallowDepthThreshold3D
+        
         totalDepthSamples += 1
-        if currentDepth >= bottomDepthThreshold { deepFrameCount += 1 }
+        if currentDepth >= bottomThresh { deepFrameCount += 1 }
         if currentDepth > currentRepBottomDepthMax { currentRepBottomDepthMax = currentDepth }
-        if repStartTime == nil, currentDepth <= topDepthThreshold {
+        if repStartTime == nil, currentDepth <= topThresh {
             repStartTime = now
         }
-        // Detect arriving at bottom
-        if lastDepth < bottomDepthThreshold && currentDepth >= bottomDepthThreshold {
+        if lastDepth < bottomThresh && currentDepth >= bottomThresh {
             bottomTime = now
         }
-        // Detect leaving bottom (start concentric) and compute pause
-        if let bTime = bottomTime, lastDepth >= bottomDepthThreshold && currentDepth < bottomDepthThreshold {
+        if let bTime = bottomTime, lastDepth >= bottomThresh && currentDepth < bottomThresh {
             let pauseMs = max(0, (now - bTime) * 1000.0)
             sumPauseMs += pauseMs
         }
-        // Detect rep completion when returning near top
-        if let start = repStartTime, lastDepth > topDepthThreshold && currentDepth <= topDepthThreshold {
+        if let start = repStartTime, lastDepth > topThresh && currentDepth <= topThresh {
             let totalMs = (now - start) * 1000.0
-            // Approximate split: eccentric until bottom, concentric from leaving bottom to top
-            // If bottomTime not available, split evenly as fallback
             var eccMs = totalMs * 0.5
             var conMs = totalMs * 0.5
             if let bTime = bottomTime {
@@ -1500,16 +1647,27 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             sumEccentricMs += eccMs
             sumConcentricMs += conMs
             tempoRepSamples += 1
-            // Record bottom depth for ROM
             if currentRepBottomDepthMax > 0 {
                 sumBottomDepth += Double(currentRepBottomDepthMax)
                 bottomDepthSamples += 1
             }
-            // Reset markers for next rep
             repStartTime = nil
             bottomTime = nil
             currentRepBottomDepthMax = 0
         }
         lastDepth = currentDepth
+    }
+}
+
+// MARK: - MediaPipe Livestream Delegate
+
+extension OnDevicePoseManager: PoseLandmarkerLiveStreamDelegate {
+    func poseLandmarker(
+        _ poseLandmarker: PoseLandmarker,
+        didFinishDetection result: PoseLandmarkerResult?,
+        timestampInMilliseconds: Int,
+        error: Error?
+    ) {
+        handleMediaPipeResult(result, timestampMs: timestampInMilliseconds, error: error)
     }
 }

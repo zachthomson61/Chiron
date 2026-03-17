@@ -30,6 +30,7 @@ struct TrackView: View {
 
     @State private var showExerciseSelector = false
     @State private var showExerciseInfo = false
+    @State private var showPoseOverlay = false
     /// When true, body re-renders so the preview representable receives the session (created in onAppear).
     @State private var cameraSessionReady = false
     /// Pulsing scale for the tracking form score circle (matches WorkoutActiveView formScoreIndicator).
@@ -49,17 +50,38 @@ struct TrackView: View {
             TrackCameraPreviewRepresentable(session: cameraManager.getCaptureSession())
                 .ignoresSafeArea()
 
+            if showPoseOverlay {
+                PoseVisualizationOverlay()
+                    .allowsHitTesting(false)
+            }
+
             // Top bar: exercise selector pill (centered) and info button (trailing). Uses ZStack so
             // the pill stays geometrically centered; the info button is overlaid and does not shift center.
             VStack {
                 GeometryReader { geometry in
                     let screenWidth = geometry.size.width
-                    // Reserve space on the trailing side so the pill never overlaps the info button.
-                    // 20pt outer padding + 40pt info button + 60pt gap = 120pt.
+                    // Reserve space so the pill never overlaps the info button or overlay toggle.
                     let trailingReserved: CGFloat = 120
-                    let pillMaxWidth = min(320, max(0, screenWidth - trailingReserved))
+                    let leadingReserved: CGFloat = 60
+                    let pillMaxWidth = min(320, max(0, screenWidth - trailingReserved - leadingReserved))
 
                     ZStack(alignment: .center) {
+                        // Leading: pose overlay toggle
+                        HStack {
+                            Button {
+                                showPoseOverlay.toggle()
+                            } label: {
+                                Image(systemName: showPoseOverlay ? "eye.fill" : "eye")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(showPoseOverlay ? .green : .textPrimary)
+                                    .frame(width: 40, height: 40)
+                                    .background(Color.black.opacity(0.3))
+                                    .clipShape(Circle())
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 20)
+
                         HStack {
                             Spacer(minLength: 0)
                             if trackViewState == .tracking {
@@ -244,6 +266,7 @@ struct TrackView: View {
         let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
         cameraManager.poseManager.trackedExerciseType = exerciseType
         cameraManager.startPoseAnalysis()
+        cameraManager.poseManager.resetRepCount()
         trackViewState = .tracking
     }
 
@@ -287,7 +310,8 @@ struct TrackView: View {
             }
         }
         cameraSessionReady = true
-
+        // Start pose tracking immediately so overlay/smoothing run before user presses Begin Set.
+        cameraManager.startPoseTrackingOnly()
         restoreLastTrackedExercise()
     }
 

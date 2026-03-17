@@ -3,6 +3,7 @@ xcuserdata/
 
 # Dependencies
 node_modules/
+Pods/
 
 # macOS / Xcode
 .DS_Store

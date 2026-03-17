@@ -40,6 +40,15 @@ struct SettingsView: View {
                     Text("Training Log")
                 }
             }
+            
+            Section(header: Text("Developer")) {
+                NavigationLink("Pose Metrics") {
+                    PoseMetricsView()
+                }
+                NavigationLink("Video Test Runner") {
+                    VideoTestRunnerView()
+                }
+            }
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
