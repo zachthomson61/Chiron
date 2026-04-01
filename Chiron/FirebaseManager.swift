@@ -33,7 +33,7 @@ class FirebaseManager: ObservableObject {
     
     // Cloud Run configuration - Update this to your actual deployed service URL
     private let cloudRunURL: String = "https://chiron-6c955.wl.r.appspot.com"
-    private let openAIAPIKey: String = "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"
+    // OpenAI API key removed — the cloud service now handles LLM phrasing directly.
     
     // Firebase configuration for your project
     private let firebaseProjectID: String = "chiron-6c955"
@@ -193,149 +193,44 @@ class FirebaseManager: ObservableObject {
         callCloudRunMediaPipe(request: analysisRequest, workoutId: workoutId)
     }
     
+    /// Calls Cloud Run `/analyze-pose` which now runs the full pipeline:
+    /// pose → metrics → flags → ranked issues → phrasing payload → LLM phrasing.
+    /// The cloud returns `feedback` (already phrased), `issues` (stable IDs), and metrics.
+    /// No second LLM call is needed — the cloud handles everything.
     private func callCloudRunMediaPipe(request: [String: Any], workoutId: String) {
-        
         guard let url = URL(string: "\(cloudRunURL)/analyze-pose") else {
             return
         }
-        
-        
+
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
         do {
             urlRequest.httpBody = try JSONSerialization.data(withJSONObject: request)
         } catch {
             return
         }
-        
-        
+
         URLSession.shared.dataTask(with: urlRequest) { [weak self] data, response, error in
             DispatchQueue.main.async {
-                if let error = error {
-                    return
-                }
-                
-                if let httpResponse = response as? HTTPURLResponse {
-                }
-                
-                guard let data = data else {
-                    return
-                }
-                
-                
+                guard error == nil, let data = data else { return }
+
                 do {
                     if let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        // Trigger OpenAI analysis with MediaPipe results
-                        self?.triggerOpenAIAnalysis(mediaPipeResults: jsonResponse, workoutId: workoutId)
-                    }
-                } catch {
-                    if let responseString = String(data: data, encoding: .utf8) {
-                    }
-                }
-            }
-        }.resume()
-    }
-    
-    private func triggerOpenAIAnalysis(mediaPipeResults: [String: Any], workoutId: String) {
-        
-        // Prepare OpenAI request with MediaPipe results
-        let openAIRequest: [String: Any] = [
-            "model": "gpt-4",
-            "messages": [
-                [
-                    "role": "system",
-                    "content": "You are a professional fitness coach and form analyzer. Analyze the provided pose data and give constructive feedback on form, technique, and areas for improvement. Focus on safety, effectiveness, and actionable advice."
-                ],
-                [
-                    "role": "user",
-                    "content": generateOpenAIPrompt(from: mediaPipeResults)
-                ]
-            ],
-            "max_tokens": 500,
-            "temperature": 0.7
-        ]
-        
-        callOpenAIAPI(request: openAIRequest, workoutId: workoutId)
-    }
-    
-    private func generateOpenAIPrompt(from mediaPipeResults: [String: Any]) -> String {
-        // Extract key information from MediaPipe results
-        let repCount = mediaPipeResults["rep_count"] as? Int ?? 0
-        let averageScore = mediaPipeResults["average_score"] as? Double ?? 0.0
-        let issues = mediaPipeResults["issues"] as? [String] ?? []
-        let poseData = mediaPipeResults["pose_data"] as? [[String: Any]] ?? []
-        
-        let prompt = """
-        Analyze this workout session with the following data:
-        
-        - Total reps: \(repCount)
-        - Average form score: \(String(format: "%.1f", averageScore * 100))%
-        - Detected issues: \(issues.joined(separator: ", "))
-        
-        Pose analysis data: \(poseData.count) frames analyzed
-        
-        Please provide:
-        1. Overall form assessment
-        2. Specific feedback on technique
-        3. Safety recommendations
-        4. 3 actionable improvements
-        5. Encouragement and motivation
-        
-        Keep the response concise, professional, and encouraging.
-        """
-        
-        return prompt
-    }
-    
-    private func callOpenAIAPI(request: [String: Any], workoutId: String) {
-        guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
-            return
-        }
-        
-        var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = "POST"
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.setValue("Bearer \(openAIAPIKey)", forHTTPHeaderField: "Authorization")
-        
-        do {
-            urlRequest.httpBody = try JSONSerialization.data(withJSONObject: request)
-        } catch {
-            return
-        }
-        
-        URLSession.shared.dataTask(with: urlRequest) { [weak self] data, response, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    return
-                }
-                
-                guard let data = data else {
-                    return
-                }
-                
-                do {
-                    if let jsonResponse = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let choices = jsonResponse["choices"] as? [[String: Any]],
-                       let firstChoice = choices.first,
-                       let message = firstChoice["message"] as? [String: Any],
-                       let content = message["content"] as? String {
-                        
-                        
-                        // Store the complete analysis results
                         let analysisResults: [String: Any] = [
                             "workout_id": workoutId,
-                            "openai_feedback": content,
+                            "openai_feedback": jsonResponse["feedback"] as? String ?? "",
+                            "issues": jsonResponse["issues"] as? [String] ?? [],
+                            "phrasing_payload": jsonResponse["phrasing_payload"] as? [String: Any] ?? [:],
+                            "form_score": jsonResponse["form_score"] as? Double ?? 0.0,
+                            "rep_count": jsonResponse["rep_count"] as? Int ?? 0,
                             "timestamp": Date().timeIntervalSince1970,
-                            "analysis_type": "mediapipe_openai"
+                            "analysis_type": "mediapipe_phrasing_pipeline"
                         ]
-                        
-                        // Store results in Firebase for the app to retrieve
                         self?.storeAnalysisResults(results: analysisResults, workoutId: workoutId)
                     }
-                } catch {
-                }
+                } catch { }
             }
         }.resume()
     }
@@ -349,15 +244,8 @@ class FirebaseManager: ObservableObject {
             let metadata = StorageMetadata()
             metadata.contentType = "application/json"
             
-            resultsRef.putData(jsonData, metadata: metadata) { metadata, error in
-                DispatchQueue.main.async {
-                    if let error = error {
-                    } else {
-                    }
-                }
-            }
-        } catch {
-        }
+            resultsRef.putData(jsonData, metadata: metadata) { _, _ in }
+        } catch { }
     }
     
     // MARK: - Results Retrieval
@@ -371,22 +259,17 @@ class FirebaseManager: ObservableObject {
         let semaphore = DispatchSemaphore(value: 0)
         
         resultsRef.getData(maxSize: 10 * 1024 * 1024) { data, error in
-            if let error = error {
-            } else if let data = data {
+            if error == nil, let data = data {
                 do {
                     if let jsonResults = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                         results = jsonResults
                     }
-                } catch {
-                }
-            } else {
+                } catch { }
             }
             semaphore.signal()
         }
         
-        let waitResult = semaphore.wait(timeout: .now() + 10.0)
-        if waitResult == .timedOut {
-        }
+        _ = semaphore.wait(timeout: .now() + 10.0)
         return results
     }
     

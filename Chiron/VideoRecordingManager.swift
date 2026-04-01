@@ -107,10 +107,6 @@ extension VideoRecordingManager: AVCaptureFileOutputRecordingDelegate {
                 self.recordingError = "Recording failed: \(error.localizedDescription)"
             } else {
                 self.currentVideoURL = outputFileURL
-                let fileExists = FileManager.default.fileExists(atPath: outputFileURL.path)
-                if fileExists {
-                    let fileSize = try? FileManager.default.attributesOfItem(atPath: outputFileURL.path)[.size] as? Int64
-                }
             }
         }
     }

@@ -2164,7 +2164,7 @@ struct WorkoutActiveView: View {
         ) { result in
             DispatchQueue.main.async(execute: {
                 switch result {
-                case .success(let setLogId):
+                case .success:
                     // Increment set number for this exercise
                     self.setNumbersPerExercise[exerciseIndex] = (self.setNumbersPerExercise[exerciseIndex] ?? 1) + 1
                 case .failure:
@@ -2216,7 +2216,7 @@ struct WorkoutActiveView: View {
             ) { result in
                 DispatchQueue.main.async(execute: {
                     switch result {
-                    case .success(let setLogId):
+                    case .success:
                         // Increment set number for next set
                         currentSetNumber += 1
                         // Also update per-exercise tracking

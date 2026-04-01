@@ -1,3 +1,12 @@
+//
+//  PoseDetectionManager.swift
+//  Chiron
+//
+//  LEGACY: Uses Apple Vision (VNDetectHumanBodyPoseRequest). The active pose pipeline
+//  is MediaPipe in OnDevicePoseManager. This type is not wired to the camera; see
+//  docs/POSE_PIPELINE_MEDIAPIPE.md.
+//
+
 import Foundation
 import Vision
 import AVFoundation
@@ -98,7 +107,7 @@ class PoseDetectionManager: ObservableObject {
         poseRequest = VNDetectHumanBodyPoseRequest { [weak self] request, error in
             guard let self = self else { return }
             
-            if let error = error {
+            if error != nil {
                 return
             }
             

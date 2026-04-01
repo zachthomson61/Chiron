@@ -44,7 +44,7 @@ struct FormAnalysis {
     let backAngle: Float // degrees (0-180)
     let kneeAlignment: Float // -1.0 = knees caving in, 0.0 = aligned, 1.0 = knees bowing out
     let overallScore: Float // 0.0-1.0
-    let issues: [String]
+    let issues: [IssueCode]
     let summary: String
     let repCount: Int // Current rep count
     // Average tempo metrics for current set (milliseconds)
@@ -54,6 +54,52 @@ struct FormAnalysis {
     // ROM metrics for current set
     let avgBottomDepth: Float?
     let deepRepRatio: Float?
+}
+
+// MARK: - Bodyweight Squat Rep-Level Metrics (phase-relevant, for set aggregation)
+
+/// Per-rep metrics for bodyweight squats. Used for set-level aggregation; invalid reps are discarded.
+struct BodyweightRepMetrics {
+    let depthAtBottom: Float
+    let backAngleMax: Float
+    let kneeAlignmentWorstNearBottom: Float
+    let shallowDepth: Bool
+    let excessiveForwardLean: Bool
+    let kneeValgus: Bool
+    let valid: Bool
+    let timestamp: TimeInterval
+}
+
+/// Lightweight rep phase for gating accumulation (bodyweight squats only).
+enum RepPhase {
+    case idle
+    case descendingOrBottom
+    case ascending
+}
+
+/// Phase state machine for squat rep detection.
+/// Nose-driven cycle: idleAtTop → descending → bottomReached → ascending → repCounted.
+/// Hip-to-knee used only for depth validation.
+enum SquatRepPhase {
+    case idleAtTop
+    case descending
+    case bottomReached
+    case ascending
+}
+
+/// Snapshot of hip-vs-knee vertical relationship for squat rep detection.
+struct SquatRepFrame {
+    let avgHipY: Float
+    let avgKneeY: Float
+    let legLength: Float
+    let normalizedHipKneeDelta: Float   // (avgHipY - avgKneeY) / legLength; ≤0 means hips at or below knees
+}
+
+/// Current-frame metrics used as fallback when no valid rep history exists.
+struct FrameMetrics {
+    let depth: Float
+    let backAngle: Float
+    let kneeAlignment: Float
 }
 
 // MARK: - Workout State Management
@@ -164,7 +210,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var setStartTime: Date?
     private var restStartTime: Date?
     private let restPeriodDuration: TimeInterval = 60.0 // 60 seconds rest
-    private let minRepsForSetStart = 2
+    // Allow set-start after first detected rep to avoid deadlocking analysis
+    // when cadence/filtering drops the second early rep.
+    private let minRepsForSetStart = 1
     private let minTimeBetweenReps: TimeInterval = 0.8  // Minimum 0.8 seconds between reps (MORE SENSITIVE)
     
     // MARK: - Rep Validation Properties
@@ -172,13 +220,23 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var repValidationThreshold: TimeInterval = 0.5
     private var movementThreshold: Float = 0.05  // Very sensitive to movement
     private var poseConfidenceThreshold: Float = 0.15  // Even lower confidence threshold for better detection (MORE SENSITIVE)
-    // 2D nose-position depth thresholds removed; all rep detection now uses 3D thresholds.
-    // State flag to ensure we saw a deep phase before counting on return to shallow
-    private var reachedDeepThisCycle: Bool = false
     /// Require this many consecutive frames in deep/shallow before rep-state transition (reduces false reps).
+    /// Shared by bench press. Squat phase machine uses squatRepFramesForTransition instead.
     private let consistentFramesForRepTransition: Int = 3
-    private var consecutiveFramesDeep: Int = 0
-    private var consecutiveFramesShallow: Int = 0
+
+    // MARK: - Squat Rep Phase State Machine
+    private var squatRepPhase: SquatRepPhase = .idleAtTop
+    private var squatRepConsecutiveFrames: Int = 0
+    /// Nose Y at standing/top; reference for cycle detection.
+    private var squatRepTopNoseY: Float?
+    /// Local minimum nose Y during descent; used for bottomReached detection.
+    private var squatRepCycleMinNoseY: Float?
+    /// True after 3 consecutive frames at top; required before accepting descent.
+    private var squatRepTopLocked: Bool = false
+    /// True if hip-to-knee depth criterion was met during this cycle.
+    private var squatRepHadValidDepth: Bool = false
+    /// Consecutive frames where hip-to-knee depth criterion holds.
+    private var squatRepHipKneeBottomConsecFrames: Int = 0
     
     // MARK: - Close-Grip Bench Press Rep Detection State
     
@@ -209,8 +267,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var poseLandmarker: PoseLandmarker?
     private let poseAdapter = MediaPipePoseAdapter()
     
-    private let jointSmoother = JointSmoother(alpha: 0.2, twoStage: true)
-    private let overlayLandmarkSmoother = Landmark2DSmoother()
+    /// Higher alpha (0.35) so lower body tracks with less lag; deep squats update overlay and rep logic faster.
+    private let jointSmoother = JointSmoother(alpha: 0.35, twoStage: true)
+    /// More responsive overlay so hip/knee positions follow motion better (alphaWhenMoving 0.35).
+    private let overlayLandmarkSmoother = Landmark2DSmoother(alphaWhenMoving: 0.35, alphaWhenStill: 0.1)
     /// Hold last stable form/landmarks for this many frames when pose is missing or low confidence.
     private let holdStablePoseFrames: Int = 3
     private var framesSinceGoodPose: Int = 0
@@ -218,6 +278,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     
     /// Monotonic frame counter used as timestamp for MediaPipe livestream API.
     private var frameTimestampMs: Int = 0
+
+    /// Latest smoothed skeleton from the analysis queue, used by squat rep detection.
+    private var lastSmoothedSkeleton: Skeleton3D?
     
     /// Metrics collector for validation tooling (dropped frames, latency, jitter).
     let metricsCollector = PoseMetricsCollector()
@@ -225,28 +288,30 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// Optional landmark recorder -- toggle via `landmarkRecorder.startRecording()`.
     let landmarkRecorder = LandmarkRecorder()
     
-    // 3D-specific depth thresholds (MediaPipe world landmarks).
-    private let deepDepthThreshold3D: Float = 0.65
-    private let shallowDepthThreshold3D: Float = 0.35
+    // 3D depth thresholds (hip-displacement / legLength scale).
+    private let deepDepthThreshold3D: Float = 0.45
+    private let shallowDepthThreshold3D: Float = 0.20
     
     // Cue speaking state
     private var lastCueSpokenAt: Date?
     private var lastCueText: String = ""
     private let cueCooldownSeconds: TimeInterval = 6.0
-    private let cueByIssue: [String: String] = [
-        "Knees Caving In": "Push your knees out",
-        "Knees Bowing Out": "Keep your knees over your toes",
-        "Forward Lean": "Lift your chest",
-        "Insufficient Depth": "Squat a little deeper"
+    private let cueByIssue: [IssueCode: String] = [
+        .kneeValgus:        "Push your knees out",
+        .kneeVarus:         "Keep your knees over your toes",
+        .forwardLean:       "Lift your chest",
+        .insufficientDepth: "Squat a little deeper"
     ]
     
     // Aggregation for mid-set feedback (collected during the set, spoken between sets)
-    private var issueCounts: [String: Int] = [:]
-    private var positiveCounts: [String: Int] = [:]
-    private let positiveCueByKey: [String: String] = [
-        "Good Depth": "Good depth",
-        "Chest Tall": "Chest tall",
-        "Knees Over Toes": "Knees over toes"
+    private var issueCounts: [IssueCode: Int] = [:]
+
+    private enum PositiveKey: String { case goodDepth, chestTall, kneesOverToes }
+    private var positiveCounts: [PositiveKey: Int] = [:]
+    private let positiveCueByKey: [PositiveKey: String] = [
+        .goodDepth:     "Good depth",
+        .chestTall:     "Chest tall",
+        .kneesOverToes: "Knees over toes"
     ]
     
     // Tempo tracking for hypertrophy (milliseconds)
@@ -259,13 +324,31 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var tempoRepSamples: Int = 0
     // Legacy 2D tempo thresholds removed; now uses deepDepthThreshold3D / shallowDepthThreshold3D.
 
+    // Hip-based depth calibration (self-calibrates to standing reference each set)
+    private var standingHipHeight: Float?
+    private var standingLegLength: Float?
+
     // ROM tracking (depth-based)
     private var sumBottomDepth: Double = 0
     private var bottomDepthSamples: Int = 0
     private var deepFrameCount: Int = 0
     private var totalDepthSamples: Int = 0
     private var currentRepBottomDepthMax: Float = 0
-    
+
+    /// Set by updateTempoTracking when a squat rep completes (before resetting currentRepBottomDepthMax). Used by bodyweight rep commit.
+    private var lastCompletedRepDepthAtBottom: Float?
+
+    // MARK: - Bodyweight squat rep-level aggregation (phase-relevant metrics)
+    private var bodyweightRepHistory: [BodyweightRepMetrics] = []
+    private var bodyweightRepPhase: RepPhase = .idle
+    private var currentRepBackAngleMax: Float?
+    private var currentRepKneeAlignmentWorst: Float?
+    private var bodyweightRepFrameCount: Int = 0
+    private var bodyweightKneeWindowSampleCount: Int = 0
+    private let bodyweightMinFramesInRep = 5
+    private let bodyweightMinDepthForViableBottom: Float = 0.25
+    private let bodyweightKneeWindowDepthThreshold: Float = 0.30
+
     override init() {
         super.init()
         // Load MediaPipe model on a background queue so app launch is not blocked.
@@ -288,8 +371,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         options.runningMode = .liveStream
         options.numPoses = 1
         options.minPoseDetectionConfidence = 0.5
-        options.minPosePresenceConfidence = 0.5
-        options.minTrackingConfidence = 0.5
+        // Slightly lower presence/tracking so we keep landmarks in deep squat (lower body can be partly occluded).
+        options.minPosePresenceConfidence = 0.4
+        options.minTrackingConfidence = 0.4
         options.poseLandmarkerLiveStreamDelegate = self
         
         do {
@@ -318,7 +402,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     
     /// Called by the PoseLandmarker livestream delegate on a serial queue.
     fileprivate func handleMediaPipeResult(_ result: PoseLandmarkerResult?, timestampMs: Int, error: Error?) {
-        let latencyMs = metricsCollector.frameReceived()
+        _ = metricsCollector.frameReceived()
         
         guard let result = result,
               let adapted = poseAdapter.adapt(result, timestampMs: timestampMs) else {
@@ -349,6 +433,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         currentAnalysisSource = .pose3D
         
         let smoothed = jointSmoother.smooth(adapted.skeleton)
+        lastSmoothedSkeleton = smoothed
         let formAnalysis = formAnalysisFrom3D(skeleton: smoothed)
         
         updateTempoTracking(currentDepth: formAnalysis.depth)
@@ -373,15 +458,24 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         
         aggregateFeedback(from: formAnalysis)
         
-        if validateRep() {
-            DispatchQueue.main.async {
-                self.handleRepDetected()
+        // Rep counting should not advance while we're in setup mode (e.g. test overlays).
+        // During workout mode we still allow rep detection while `workoutState == .waiting`
+        // so the "set start" heuristic can kick in.
+        if !SharedCameraSessionManager.shared.isInSetupMode {
+            let now = Date()
+            if validateRep(skeleton: smoothed, formAnalysis: formAnalysis, now: now) {
+                if trackedExerciseType == .bodyweight {
+                    commitBodyweightRepIfNeeded()
+                }
+                DispatchQueue.main.async {
+                    self.handleRepDetected()
+                }
             }
-        }
-        
-        DispatchQueue.main.async {
-            self.checkForSetEnd()
-            self.checkForNextSetStart()
+
+            DispatchQueue.main.async {
+                self.checkForSetEnd()
+                self.checkForNextSetStart()
+            }
         }
     }
     
@@ -430,8 +524,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             depth: depth, backAngle: backAngle, kneeAlignment: 0.0,
             overallScore: overallScore, issues: [], summary: summary,
             repCount: repCount,
-            avgEccentricMs: nil, avgPauseMs: nil, avgConcentricMs: nil,
-            avgBottomDepth: nil, deepRepRatio: nil
+            avgEccentricMs: nil as Float?, avgPauseMs: nil as Float?, avgConcentricMs: nil as Float?,
+            avgBottomDepth: nil as Float?, deepRepRatio: nil as Float?
         )
     }
     
@@ -473,25 +567,13 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                            (concentricScore * 0.15)
         
         
-        // Detect issues
-        var issues: [String] = []
-        if gripWidthScore < 0.6 {
-            issues.append("Grip Too Wide")
-        }
-        if elbowPositionScore < 0.6 {
-            issues.append("Elbows Flaring")
-        }
-        if romScore < 0.6 {
-            issues.append("Incomplete ROM")
-        }
-        if eccentricScore < 0.6 {
-            issues.append("Eccentric Too Fast")
-        }
-        if concentricScore < 0.6 {
-            issues.append("Concentric Too Slow")
-        }
+        var issues: [IssueCode] = []
+        if gripWidthScore < CoachingContract.Threshold.gripTooWide { issues.append(.gripTooWide) }
+        if elbowPositionScore < CoachingContract.Threshold.elbowsFlaring { issues.append(.elbowsFlaring) }
+        if romScore < CoachingContract.Threshold.incompleteRom { issues.append(.incompleteRom) }
+        if eccentricScore < CoachingContract.Threshold.eccentricTooFast { issues.append(.eccentricTooFast) }
+        if concentricScore < CoachingContract.Threshold.concentricTooSlow { issues.append(.concentricTooSlow) }
         
-        // Generate summary
         let summary = generateCloseGripBenchPressSummary(
             gripScore: gripWidthScore,
             elbowScore: elbowPositionScore,
@@ -676,7 +758,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             
         case .tripod:
             // Side view: Assess elbow extension
-            // At lockout: wrist should be significantly above elbow (lower Y in Vision coords)
+            // At lockout: wrist should be significantly above elbow (lower Y in normalized image coords)
             // Made more lenient: accept smaller extension and give higher minimum scores
             let elbowExtension = avgElbowY - avgWristY
             if elbowExtension > 0.05 {
@@ -690,14 +772,14 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     }
     
     /// Calculates bench press depth using average wrist Y position for rep detection.
-    /// Higher Y = deeper/lower bar position in Vision coordinate system.
+    /// Higher Y = deeper/lower bar position (normalized image coords, Y down).
     private func calculateBenchPressDepth(_ points: [String: CGPoint]) -> Float {
         guard let leftWrist = points["leftWrist"],
               let rightWrist = points["rightWrist"] else {
             return 0.5
         }
         
-        // Average wrist Y position (higher Y = deeper/lower bar position in Vision coords)
+        // Average wrist Y position (higher Y = deeper/lower bar in normalized image coords)
         return Float((leftWrist.y + rightWrist.y) / 2.0)
     }
     
@@ -791,26 +873,176 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     // MARK: - 3D Form Analysis
     
     /// Dispatches to exercise-specific 3D form analysis.
-    /// All metrics are derived from smoothed 3D joint positions — never from pointInImage.
+    /// Bodyweight: computes frame metrics, updates rep accumulation, then aggregates from rep history or fallback.
     private func formAnalysisFrom3D(skeleton: Skeleton3D) -> FormAnalysis {
         switch trackedExerciseType {
-        case .bodyweight, .barbell:
-            return analyzeSquatForm3D(skeleton)
-        case .benchPress:
+        case .bodyweight:
+            let depth = calculateHipDepth3D(skeleton)
+            let backAngle = calculateBackAngle3D(skeleton)
+            let kneeAlignment = calculateKneeAlignment3D(skeleton)
+            updateBodyweightRepAccumulation(depth: depth, backAngle: backAngle, kneeAlignment: kneeAlignment)
+            return analyzeBodyweightSquatFromRepHistory(
+                repHistory: bodyweightRepHistory,
+                fallback: FrameMetrics(depth: depth, backAngle: backAngle, kneeAlignment: kneeAlignment)
+            )
+        case .barbell, .benchPress:
             return analyzeSquatForm3D(skeleton)
         case .closeGripBenchPress:
             return analyzeCloseGripBenchPressForm3D(skeleton)
         }
     }
+
+    // MARK: - Bodyweight Rep Accumulation (phase-relevant)
+
+    private func updateBodyweightRepAccumulation(depth: Float, backAngle: Float, kneeAlignment: Float) {
+        let deep = deepDepthThreshold3D
+
+        switch bodyweightRepPhase {
+        case .idle:
+            if depth >= deep {
+                bodyweightRepPhase = .descendingOrBottom
+                bodyweightRepFrameCount = 0
+                bodyweightKneeWindowSampleCount = 0
+                currentRepBackAngleMax = nil
+                currentRepKneeAlignmentWorst = nil
+            }
+        case .descendingOrBottom:
+            if depth < deep {
+                bodyweightRepPhase = .ascending
+            }
+        case .ascending:
+            break
+        }
+
+        if bodyweightRepPhase != .idle {
+            bodyweightRepFrameCount += 1
+            if let cur = currentRepBackAngleMax {
+                currentRepBackAngleMax = max(cur, backAngle)
+            } else {
+                currentRepBackAngleMax = backAngle
+            }
+            if depth > bodyweightKneeWindowDepthThreshold {
+                bodyweightKneeWindowSampleCount += 1
+                if let cur = currentRepKneeAlignmentWorst {
+                    currentRepKneeAlignmentWorst = min(cur, kneeAlignment)
+                } else {
+                    currentRepKneeAlignmentWorst = kneeAlignment
+                }
+            }
+        }
+    }
+
+    // MARK: - Bodyweight Set-Level Aggregation
+
+    /// Builds FormAnalysis from rep history using recurring-pattern rules; falls back to frame metrics when no valid reps.
+    private func analyzeBodyweightSquatFromRepHistory(
+        repHistory: [BodyweightRepMetrics],
+        fallback: FrameMetrics
+    ) -> FormAnalysis {
+        let validReps = repHistory.filter { $0.valid }
+        guard !validReps.isEmpty else {
+            return buildFormAnalysisFromFrameMetrics(fallback)
+        }
+
+        let depthAtBottomMin = validReps.map(\.depthAtBottom).min() ?? fallback.depth
+        let backAngleMaxOverall = validReps.map(\.backAngleMax).max() ?? fallback.backAngle
+        let kneeWorstOverall = validReps.map(\.kneeAlignmentWorstNearBottom).min() ?? fallback.kneeAlignment
+
+        let leanCount = validReps.filter(\.excessiveForwardLean).count
+        let valgusCount = validReps.filter(\.kneeValgus).count
+        let n = validReps.count
+        let valgusPct = n > 0 ? Float(valgusCount) / Float(n) : 0
+        let leanPct = n > 0 ? Float(leanCount) / Float(n) : 0
+
+        let backAngle75th: Float = {
+            let sorted = validReps.map(\.backAngleMax).sorted()
+            let idx = Int(Float(sorted.count) * 0.75)
+            return sorted[min(idx, sorted.count - 1)]
+        }()
+
+        var issues: [IssueCode] = []
+        if depthAtBottomMin < CoachingContract.Threshold.depthShallow {
+            issues.append(.insufficientDepth)
+        }
+        if leanCount >= 2 || (n > 0 && leanPct >= 0.25) || backAngle75th > CoachingContract.Threshold.forwardLean {
+            issues.append(.forwardLean)
+        }
+        if valgusCount >= 2 || (n > 0 && valgusPct >= 0.25) {
+            issues.append(.kneeValgus)
+        } else if validReps.contains(where: { $0.kneeAlignmentWorstNearBottom > CoachingContract.Threshold.kneeVarus }) {
+            let varusCount = validReps.filter { $0.kneeAlignmentWorstNearBottom > CoachingContract.Threshold.kneeVarus }.count
+            if varusCount >= 2 || (n > 0 && Float(varusCount) / Float(n) >= 0.25) {
+                issues.append(.kneeVarus)
+            }
+        }
+        issues = Array(issues.prefix(CoachingContract.maxIssuesInPayload))
+
+        let overallScore = calculateOverallScore3D(
+            depth: depthAtBottomMin,
+            backAngle: backAngleMaxOverall,
+            kneeAlignment: kneeWorstOverall,
+            exerciseType: .bodyweight
+        )
+        let summary = generateFormSummary3D(
+            depth: depthAtBottomMin,
+            backAngle: backAngleMaxOverall,
+            overallScore: overallScore
+        )
+
+        return FormAnalysis(
+            depth: depthAtBottomMin,
+            backAngle: backAngleMaxOverall,
+            kneeAlignment: kneeWorstOverall,
+            overallScore: overallScore,
+            issues: issues,
+            summary: summary,
+            repCount: repCount,
+            avgEccentricMs: tempoRepSamples > 0 ? Float(sumEccentricMs / Double(tempoRepSamples)) : nil,
+            avgPauseMs: tempoRepSamples > 0 ? Float(sumPauseMs / Double(tempoRepSamples)) : nil,
+            avgConcentricMs: tempoRepSamples > 0 ? Float(sumConcentricMs / Double(tempoRepSamples)) : nil,
+            avgBottomDepth: bottomDepthSamples > 0 ? Float(sumBottomDepth / Double(bottomDepthSamples)) : nil,
+            deepRepRatio: totalDepthSamples > 0 ? Float(deepFrameCount) / Float(totalDepthSamples) : nil
+        )
+    }
+
+    private func buildFormAnalysisFromFrameMetrics(_ f: FrameMetrics) -> FormAnalysis {
+        let overallScore = calculateOverallScore3D(
+            depth: f.depth,
+            backAngle: f.backAngle,
+            kneeAlignment: f.kneeAlignment,
+            exerciseType: trackedExerciseType
+        )
+        let issues = detectIssues3D(depth: f.depth, backAngle: f.backAngle, kneeAlignment: f.kneeAlignment)
+        let summary = generateFormSummary3D(
+            depth: f.depth,
+            backAngle: f.backAngle,
+            overallScore: overallScore
+        )
+        return FormAnalysis(
+            depth: f.depth,
+            backAngle: f.backAngle,
+            kneeAlignment: f.kneeAlignment,
+            overallScore: overallScore,
+            issues: issues,
+            summary: summary,
+            repCount: repCount,
+            avgEccentricMs: tempoRepSamples > 0 ? Float(sumEccentricMs / Double(tempoRepSamples)) : nil,
+            avgPauseMs: tempoRepSamples > 0 ? Float(sumPauseMs / Double(tempoRepSamples)) : nil,
+            avgConcentricMs: tempoRepSamples > 0 ? Float(sumConcentricMs / Double(tempoRepSamples)) : nil,
+            avgBottomDepth: bottomDepthSamples > 0 ? Float(sumBottomDepth / Double(bottomDepthSamples)) : nil,
+            deepRepRatio: totalDepthSamples > 0 ? Float(deepFrameCount) / Float(totalDepthSamples) : nil
+        )
+    }
     
     // MARK: - 3D Squat Form Analysis
     
     private func analyzeSquatForm3D(_ skeleton: Skeleton3D) -> FormAnalysis {
-        let movementDepthScore = calculateMovementDepthScore3D(skeleton)
+        let movementDepthScore = calculateHipDepth3D(skeleton)
         let backAngle = calculateBackAngle3D(skeleton)
         let kneeAlignment = calculateKneeAlignment3D(skeleton)
         let overallScore = calculateOverallScore3D(
-            depth: movementDepthScore, backAngle: backAngle, kneeAlignment: kneeAlignment
+            depth: movementDepthScore, backAngle: backAngle, kneeAlignment: kneeAlignment,
+            exerciseType: .barbell
         )
         let issues = detectIssues3D(
             depth: movementDepthScore, backAngle: backAngle, kneeAlignment: kneeAlignment
@@ -835,8 +1067,37 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         )
     }
     
-    /// Knee-angle based depth (0 = standing, 1 = deep squat). Uses 3D positions only.
-    private func calculateMovementDepthScore3D(_ skeleton: Skeleton3D) -> Float {
+    /// Hip-to-foot vertical displacement depth, normalized by leg length. Body-proportion invariant.
+    /// Self-calibrates: tracks the maximum hip height seen (standing reference).
+    /// Falls back to knee-angle depth until calibration data is available.
+    private func calculateHipDepth3D(_ skeleton: Skeleton3D) -> Float {
+        guard let leftHip = skeleton.position("leftHip"),
+              let rightHip = skeleton.position("rightHip"),
+              let leftAnkle = skeleton.position("leftAnkle"),
+              let rightAnkle = skeleton.position("rightAnkle") else { return 0.5 }
+
+        let hipCenter = (leftHip + rightHip) / 2.0
+        let ankleCenter = (leftAnkle + rightAnkle) / 2.0
+        let currentHipHeight = hipCenter.y - ankleCenter.y
+
+        let currentLegLen = length(hipCenter - ankleCenter)
+        if currentHipHeight > (standingHipHeight ?? 0) {
+            standingHipHeight = currentHipHeight
+            standingLegLength = currentLegLen
+        }
+
+        guard let refHeight = standingHipHeight,
+              let legLen = standingLegLength, legLen > 0.01 else {
+            return calculateMovementDepthScore3D_legacy(skeleton)
+        }
+
+        let displacement = refHeight - currentHipHeight
+        let depthRaw = displacement / legLen
+        return max(0, min(1, depthRaw))
+    }
+
+    /// Legacy knee-angle based depth. Used as fallback before hip-height calibration.
+    private func calculateMovementDepthScore3D_legacy(_ skeleton: Skeleton3D) -> Float {
         guard let leftHip = skeleton.position("leftHip"),
               let rightHip = skeleton.position("rightHip"),
               let leftKnee = skeleton.position("leftKnee"),
@@ -845,13 +1106,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
               let rightAnkle = skeleton.position("rightAnkle") else {
             return 0.5
         }
-        
+
         let leftKneeAngle = angleDegrees(a: leftHip, b: leftKnee, c: leftAnkle)
         let rightKneeAngle = angleDegrees(a: rightHip, b: rightKnee, c: rightAnkle)
         let avgKneeAngle = (leftKneeAngle + rightKneeAngle) / 2.0
-        
-        // Standing ≈ 170°  →  0.0
-        // Deep squat ≈ 60° →  1.0
+
         return max(0, min(1, (170 - avgKneeAngle) / 110))
     }
     
@@ -890,23 +1149,82 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         return max(-1, min(1, avg / 0.05))
     }
     
-    private func calculateOverallScore3D(depth: Float, backAngle: Float, kneeAlignment: Float) -> Float {
-        let depthScore = min(depth * 1.5, 1.0)
-        let angleScore = max(0, 1.0 - backAngle / 90.0)
-        let alignmentScore = 1.0 - abs(kneeAlignment) / 2.0
-        return min((depthScore * 0.4 + angleScore * 0.4 + alignmentScore * 0.2), 1.0)
+    // MARK: - Sub-Score Helpers (config-driven, body-proportion invariant)
+
+    /// Linear ramp between depthMinThreshold (score 0) and depthTarget (score 1).
+    private func computeDepthScore(_ depth: Float, config: SquatScoringConfig) -> Float {
+        if depth >= config.depthTarget { return 1.0 }
+        if depth <= config.depthMinThreshold { return 0.0 }
+        return (depth - config.depthMinThreshold)
+             / (config.depthTarget - config.depthMinThreshold)
+    }
+
+    /// Banded: perfect up to anglePerfectMax, gradual taper to 0.65 at angleAcceptableMax,
+    /// then steeper penalty beyond.
+    private func computeAngleScore(_ backAngle: Float, config: SquatScoringConfig) -> Float {
+        if backAngle <= config.anglePerfectMax { return 1.0 }
+        if backAngle <= config.angleAcceptableMax {
+            let t = (backAngle - config.anglePerfectMax)
+                  / (config.angleAcceptableMax - config.anglePerfectMax)
+            return 1.0 - t * 0.35
+        }
+        let excess = backAngle - config.angleAcceptableMax
+        return max(0, 0.65 - excess / 60.0)
+    }
+
+    /// Asymmetric: valgus (kneeAlignment < 0) is penalized heavily; varus only mildly.
+    private func computeAlignmentScore(_ kneeAlignment: Float, config: SquatScoringConfig) -> Float {
+        if kneeAlignment < config.valgusHeavyPenaltyBelow {
+            let severity = abs(kneeAlignment - config.valgusHeavyPenaltyBelow)
+            return max(0, 0.5 - severity * 0.5)
+        }
+        if kneeAlignment < 0 {
+            let t = abs(kneeAlignment) / abs(config.valgusHeavyPenaltyBelow)
+            return 1.0 - t * 0.5
+        }
+        if kneeAlignment > config.varusMildPenaltyAbove {
+            let excess = kneeAlignment - config.varusMildPenaltyAbove
+            return max(0.7, 1.0 - excess * 0.3)
+        }
+        return 1.0
+    }
+
+    /// Weighted overall score with exercise-type config and a minimum score floor
+    /// for reps that are clearly adequate on depth and alignment.
+    private func calculateOverallScore3D(
+        depth: Float, backAngle: Float, kneeAlignment: Float,
+        exerciseType: TrackedExerciseType
+    ) -> Float {
+        let config: SquatScoringConfig = (exerciseType == .barbell) ? .barbell : .bodyweight
+
+        let depthScore = computeDepthScore(depth, config: config)
+        let angleScore = computeAngleScore(backAngle, config: config)
+        let alignmentScore = computeAlignmentScore(kneeAlignment, config: config)
+
+        var score = depthScore * config.weightDepth
+                  + angleScore * config.weightAngle
+                  + alignmentScore * config.weightAlignment
+        score = min(score, 1.0)
+
+        if depthScore >= config.scoreFloorDepthMin
+            && alignmentScore >= config.scoreFloorAlignMin
+            && backAngle <= config.scoreFloorAngleMax {
+            score = max(score, config.scoreFloor)
+        }
+
+        return score
     }
     
-    private func detectIssues3D(depth: Float, backAngle: Float, kneeAlignment: Float) -> [String] {
-        var issues: [String] = []
-        if depth < 0.35 { issues.append("Insufficient Depth") }
-        if backAngle > 35.0 { issues.append("Forward Lean") }
-        if kneeAlignment < -0.2 {
-            issues.append("Knees Caving In")
-        } else if kneeAlignment > 0.2 {
-            issues.append("Knees Bowing Out")
+    private func detectIssues3D(depth: Float, backAngle: Float, kneeAlignment: Float) -> [IssueCode] {
+        var issues: [IssueCode] = []
+        if depth < CoachingContract.Threshold.depthShallow { issues.append(.insufficientDepth) }
+        if backAngle > CoachingContract.Threshold.forwardLean { issues.append(.forwardLean) }
+        if kneeAlignment < CoachingContract.Threshold.kneeValgus {
+            issues.append(.kneeValgus)
+        } else if kneeAlignment > CoachingContract.Threshold.kneeVarus {
+            issues.append(.kneeVarus)
         }
-        return Array(issues.prefix(2))
+        return Array(issues.prefix(CoachingContract.maxIssuesInPayload))
     }
     
     private func generateFormSummary3D(depth: Float, backAngle: Float, overallScore: Float) -> String {
@@ -932,12 +1250,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                            (eccentricScore * 0.15) +
                            (concentricScore * 0.15)
         
-        var issues: [String] = []
-        if gripWidthScore < 0.6 { issues.append("Grip Too Wide") }
-        if elbowPositionScore < 0.6 { issues.append("Elbows Flaring") }
-        if romScore < 0.6 { issues.append("Incomplete ROM") }
-        if eccentricScore < 0.6 { issues.append("Eccentric Too Fast") }
-        if concentricScore < 0.6 { issues.append("Concentric Too Slow") }
+        var issues: [IssueCode] = []
+        if gripWidthScore < CoachingContract.Threshold.gripTooWide { issues.append(.gripTooWide) }
+        if elbowPositionScore < CoachingContract.Threshold.elbowsFlaring { issues.append(.elbowsFlaring) }
+        if romScore < CoachingContract.Threshold.incompleteRom { issues.append(.incompleteRom) }
+        if eccentricScore < CoachingContract.Threshold.eccentricTooFast { issues.append(.eccentricTooFast) }
+        if concentricScore < CoachingContract.Threshold.concentricTooSlow { issues.append(.concentricTooSlow) }
         
         let summary = generateCloseGripBenchPressSummary(
             gripScore: gripWidthScore,
@@ -1055,9 +1373,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return 0.5
         }
         
-        // In Vision coordinates: Y=0 is top, Y=1 is bottom
-        // When squatting: nose Y increases (moves down)
-        // When standing: nose Y decreases (moves up)
+        // Normalized image coords (0–1): Y=0 is top, Y=1 is bottom (same as MediaPipe overlay)
+        // When squatting: nose Y increases (moves down); when standing: nose Y decreases (moves up)
         
         // Simple depth calculation: higher Y = deeper squat
         // Normalize to 0-1 range where 0 = standing, 1 = deep squat
@@ -1141,28 +1458,16 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     }
 
     // MARK: - Rule-based issue detection for cues
-    private func detectBodyweightIssues(depth: Float, backAngle: Float, kneeAlignment: Float) -> [String] {
-        var issues: [String] = []
-        
-        // Depth
-        if depth < 0.45 { // shallow
-            issues.append("Insufficient Depth")
+    private func detectBodyweightIssues(depth: Float, backAngle: Float, kneeAlignment: Float) -> [IssueCode] {
+        var issues: [IssueCode] = []
+        if depth < 0.45 { issues.append(.insufficientDepth) }
+        if backAngle > CoachingContract.Threshold.forwardLean { issues.append(.forwardLean) }
+        if kneeAlignment < CoachingContract.Threshold.kneeValgus {
+            issues.append(.kneeValgus)
+        } else if kneeAlignment > CoachingContract.Threshold.kneeVarus {
+            issues.append(.kneeVarus)
         }
-        
-        // Torso angle (forward lean)
-        if backAngle > 35.0 { // large lean
-            issues.append("Forward Lean")
-        }
-        
-        // Knee tracking
-        if kneeAlignment < -0.2 {
-            issues.append("Knees Caving In")
-        } else if kneeAlignment > 0.2 {
-            issues.append("Knees Bowing Out")
-        }
-        
-        // Limit to top two to avoid spamming
-        return Array(issues.prefix(2))
+        return Array(issues.prefix(CoachingContract.maxIssuesInPayload))
     }
     
     private func generateBodyweightFormSummary(depth: Float, backAngle: Float, overallScore: Float) -> String {
@@ -1239,9 +1544,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         setStartTime = nil
         lastRepValidationTime = nil
         lastSpokenRep = 0
-        reachedDeepThisCycle = false
-        consecutiveFramesDeep = 0
-        consecutiveFramesShallow = 0
+        resetSquatRepPhaseState()
         consecutiveFramesAtBottomBenchPress = 0
         consecutiveFramesAtTopBenchPress = 0
         framesSinceGoodPose = 0
@@ -1286,9 +1589,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         setStartTime = nil
         lastRepValidationTime = nil
         lastSpokenRep = 0
-        reachedDeepThisCycle = false
-        consecutiveFramesDeep = 0
-        consecutiveFramesShallow = 0
+        resetSquatRepPhaseState()
         consecutiveFramesAtBottomBenchPress = 0
         consecutiveFramesAtTopBenchPress = 0
         framesSinceGoodPose = 0
@@ -1305,6 +1606,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         deepFrameCount = 0
         totalDepthSamples = 0
         currentRepBottomDepthMax = 0
+        standingHipHeight = nil
+        standingLegLength = nil
         reachedBottomThisCycleBenchPress = false
         benchPressEccentricStartTime = nil
         benchPressBottomTime = nil
@@ -1351,69 +1654,269 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
     }
     
-    // Enhanced rep validation logic - MORE SENSITIVE
-    private func validateRep() -> Bool {
+    // MARK: - Squat Rep Detection (Phase State Machine)
+
+    // Nose-driven cycle constants. All normalized values are fractions of leg length.
+    // These defaults are intentionally slightly permissive to ensure we detect
+    // at least one rep per set before tightening later.
+    private let consecutiveFramesForPhaseTransition: Int = 2
+    private let noseDescentThresholdNormalized: Float = 0.05
+    private let noseAscentThresholdNormalized: Float = 0.05
+    private let topReturnToleranceNormalized: Float = 0.08
+    private let bottomNoseToleranceNormalized: Float = 0.05
+    /// Hip-to-knee depth validation: hips at or below knees when ≤ this tolerance.
+    private let hipKneeBottomToleranceNormalized: Float = 0.06
+    private let depthConsecutiveFramesForValidation: Int = 1
+
+    /// Nose Y and leg length for cycle detection. Returns nil if required joints missing.
+    private func squatRepNoseMetrics(_ skeleton: Skeleton3D) -> (noseY: Float, legLength: Float)? {
+        guard let nose = skeleton.position("nose"),
+              let lh = skeleton.position("leftHip"),
+              let rh = skeleton.position("rightHip"),
+              let la = skeleton.position("leftAnkle"),
+              let ra = skeleton.position("rightAnkle") else { return nil }
+        let hipCenter = (lh + rh) / 2
+        let ankleCenter = (la + ra) / 2
+        let legLen = standingLegLength ?? length(hipCenter - ankleCenter)
+        guard legLen > 0.01 else { return nil }
+        return (nose.y, legLen)
+    }
+
+    /// Hip-vs-knee vertical relationship for depth validation only (not phase transitions).
+    /// Returns nil if any required joint is missing.
+    private func squatRepHipKneeMetrics(_ skeleton: Skeleton3D) -> SquatRepFrame? {
+        guard let lh = skeleton.position("leftHip"),
+              let rh = skeleton.position("rightHip"),
+              let lk = skeleton.position("leftKnee"),
+              let rk = skeleton.position("rightKnee"),
+              let la = skeleton.position("leftAnkle"),
+              let ra = skeleton.position("rightAnkle") else { return nil }
+
+        let avgHipY = (lh.y + rh.y) / 2
+        let avgKneeY = (lk.y + rk.y) / 2
+        let hipCenter = (lh + rh) / 2
+        let ankleCenter = (la + ra) / 2
+        let legLen = standingLegLength ?? length(hipCenter - ankleCenter)
+        guard legLen > 0.01 else { return nil }
+
+        let delta = (avgHipY - avgKneeY) / legLen
+        return SquatRepFrame(avgHipY: avgHipY, avgKneeY: avgKneeY, legLength: legLen, normalizedHipKneeDelta: delta)
+    }
+
+    private func validateRep(skeleton: Skeleton3D?, formAnalysis: FormAnalysis, now: Date) -> Bool {
+        let requiredScore = trackedExerciseType == .bodyweight
+            ? (poseConfidenceThreshold * 0.2)
+            : (poseConfidenceThreshold * 0.5)
+        if formAnalysis.overallScore < requiredScore {
+            #if DEBUG
+            if trackedExerciseType == .bodyweight {
+                print("[SquatRepReject] low_score score=\(String(format: "%.3f", formAnalysis.overallScore)) required=\(String(format: "%.3f", requiredScore))")
+            }
+            #endif
+            return false
+        }
+
+        // Bodyweight 3D landmarks can emit duplicated near-identical frames; keep a small
+        // debounce to prevent double-counts, but not so large that it blocks normal reps.
+        let minRepInterval: TimeInterval = trackedExerciseType == .bodyweight ? 0.12 : minTimeBetweenReps
+        if let lastValidation = lastRepValidationTime,
+           now.timeIntervalSince(lastValidation) < minRepInterval {
+            #if DEBUG
+            if trackedExerciseType == .bodyweight {
+                print("[SquatRepReject] min_interval dt=\(String(format: "%.3f", now.timeIntervalSince(lastValidation))) min=\(String(format: "%.3f", minRepInterval))")
+            }
+            #endif
+            return false
+        }
+
+        switch trackedExerciseType {
+        case .closeGripBenchPress:
+            return validateCloseGripBenchPressRep(formAnalysis: formAnalysis, now: now)
+        case .bodyweight, .barbell, .benchPress:
+            return validateSquatRep(skeleton: skeleton, now: now)
+        }
+    }
+
+    private func validateRep(skeleton: Skeleton3D?) -> Bool {
         guard let formAnalysis = currentFormAnalysis else {
             return false
         }
-        
-        // Require minimum confidence in pose detection
-        // Made more lenient: only reject if score is very low
-        if formAnalysis.overallScore < (poseConfidenceThreshold * 0.5) {
+        return validateRep(skeleton: skeleton, formAnalysis: formAnalysis, now: Date())
+    }
+
+    /// Squat rep detection via nose-driven 4-phase state machine.
+    /// Primary signal: nose Y. Hip-to-knee used only for depth validation.
+    /// Valid rep: idleAtTop → descending → bottomReached → ascending → count (only if depth validated).
+    private func validateSquatRep(skeleton: Skeleton3D?, now: Date) -> Bool {
+        guard let skeleton = skeleton,
+              let noseMetrics = squatRepNoseMetrics(skeleton) else {
             return false
         }
+        let noseY = noseMetrics.noseY
+        let legLen = noseMetrics.legLength
+        // Bodyweight squats are generally less stable landmark-wise; use a slightly
+        // easier phase-transition requirement to ensure we detect at least one rep.
+        let required = trackedExerciseType == .bodyweight ? 1 : consecutiveFramesForPhaseTransition
         
-        let now = Date()
-        
-        // Time gating to prevent double counting
-        if let lastValidation = lastRepValidationTime,
-           now.timeIntervalSince(lastValidation) < minTimeBetweenReps {
-            return false
+        // Bodyweight tuning: keep the same state-machine algorithm, but loosen
+        // how aggressively we require nose/hip movement to call transitions.
+        let noseDescentThreshold = trackedExerciseType == .bodyweight
+            ? noseDescentThresholdNormalized * 0.6
+            : noseDescentThresholdNormalized
+        let noseAscentThreshold = trackedExerciseType == .bodyweight
+            ? noseAscentThresholdNormalized * 0.6
+            : noseAscentThresholdNormalized
+        let topReturnTolerance = trackedExerciseType == .bodyweight
+            ? topReturnToleranceNormalized * 1.4
+            : topReturnToleranceNormalized
+        let bottomNoseTolerance = trackedExerciseType == .bodyweight
+            ? bottomNoseToleranceNormalized * 1.4
+            : bottomNoseToleranceNormalized
+        let hipKneeBottomTolerance = trackedExerciseType == .bodyweight
+            ? hipKneeBottomToleranceNormalized * 1.5
+            : hipKneeBottomToleranceNormalized
+        let depthConsecutiveFrames = trackedExerciseType == .bodyweight
+            ? 1
+            : depthConsecutiveFramesForValidation
+        let hipKneeFrame = squatRepHipKneeMetrics(skeleton)
+
+        #if DEBUG
+        debugSquatRepState(noseY: noseY, legLen: legLen, hipKneeDelta: hipKneeFrame?.normalizedHipKneeDelta)
+        #endif
+
+        // Depth validation: hip-to-knee during descent/bottom
+        let isAtDepth = hipKneeFrame.map { $0.normalizedHipKneeDelta <= hipKneeBottomTolerance } ?? false
+        if squatRepPhase == .descending || squatRepPhase == .bottomReached {
+            if isAtDepth {
+                squatRepHipKneeBottomConsecFrames += 1
+                if squatRepHipKneeBottomConsecFrames >= depthConsecutiveFrames {
+                    squatRepHadValidDepth = true
+                }
+            } else {
+                squatRepHipKneeBottomConsecFrames = 0
+            }
         }
-        
-        // Use different validation logic based on exercise type
-        return switch trackedExerciseType {
-        case .closeGripBenchPress:
-            validateCloseGripBenchPressRep(formAnalysis: formAnalysis, now: now)
-        case .bodyweight, .barbell, .benchPress:
-            validateSquatRep(formAnalysis: formAnalysis, now: now)
+
+        switch squatRepPhase {
+        case .idleAtTop:
+            if squatRepTopNoseY == nil {
+                squatRepTopNoseY = noseY
+                squatRepConsecutiveFrames = 1
+            } else if let topY = squatRepTopNoseY {
+                let nearTop = abs(noseY - topY) <= topReturnTolerance * legLen
+                if nearTop {
+                    squatRepConsecutiveFrames = min(squatRepConsecutiveFrames + 1, required)
+                    if squatRepConsecutiveFrames >= required {
+                        squatRepTopLocked = true
+                    }
+                } else if squatRepTopLocked {
+                    let descentNeeded = noseDescentThreshold * legLen
+                    if abs(noseY - topY) >= descentNeeded {
+                        squatRepConsecutiveFrames = squatRepConsecutiveFrames >= required ? 1 : squatRepConsecutiveFrames + 1
+                        if squatRepConsecutiveFrames >= required {
+                            squatRepPhase = .descending
+                            squatRepCycleMinNoseY = noseY
+                            squatRepConsecutiveFrames = 0
+                        }
+                    } else {
+                        squatRepConsecutiveFrames = 0
+                    }
+                } else {
+                    squatRepConsecutiveFrames = 0
+                }
+            }
+            return false
+
+        case .descending:
+            if let topY = squatRepTopNoseY {
+                let currentExtreme = squatRepCycleMinNoseY ?? noseY
+                if abs(noseY - topY) > abs(currentExtreme - topY) {
+                    squatRepCycleMinNoseY = noseY
+                }
+            } else {
+                squatRepCycleMinNoseY = noseY
+            }
+            let bottomY = squatRepCycleMinNoseY ?? noseY
+            let nearBottom = abs(noseY - bottomY) <= bottomNoseTolerance * legLen
+            if nearBottom {
+                squatRepConsecutiveFrames += 1
+                if squatRepConsecutiveFrames >= required {
+                    squatRepPhase = .bottomReached
+                    squatRepConsecutiveFrames = 0
+                }
+            } else if let topY = squatRepTopNoseY, abs(noseY - topY) <= topReturnTolerance * legLen {
+                // Returned to top before reaching bottom — abandon.
+                squatRepConsecutiveFrames += 1
+                if squatRepConsecutiveFrames >= required {
+                    resetSquatRepPhaseState()
+                }
+            } else {
+                squatRepConsecutiveFrames = 0
+            }
+            return false
+
+        case .bottomReached:
+            guard let bottomY = squatRepCycleMinNoseY else {
+                resetSquatRepPhaseState()
+                return false
+            }
+            let ascentNeeded = noseAscentThreshold * legLen
+            if abs(noseY - bottomY) >= ascentNeeded {
+                squatRepConsecutiveFrames += 1
+                if squatRepConsecutiveFrames >= required {
+                    squatRepPhase = .ascending
+                    squatRepConsecutiveFrames = 0
+                }
+            } else if let topY = squatRepTopNoseY, abs(noseY - topY) <= topReturnTolerance * legLen {
+                // Returned to top without valid depth — reset without counting.
+                squatRepConsecutiveFrames += 1
+                if squatRepConsecutiveFrames >= required {
+                    resetSquatRepPhaseState()
+                }
+            } else {
+                squatRepConsecutiveFrames = 0
+            }
+            return false
+
+        case .ascending:
+            guard let topY = squatRepTopNoseY else {
+                resetSquatRepPhaseState()
+                return false
+            }
+            let nearTop = abs(noseY - topY) <= topReturnTolerance * legLen
+            if nearTop && squatRepHadValidDepth {
+                squatRepConsecutiveFrames += 1
+                if squatRepConsecutiveFrames >= required {
+                    lastRepValidationTime = now
+                    resetSquatRepPhaseState()
+                    return true
+                }
+            } else if nearTop && !squatRepHadValidDepth {
+                resetSquatRepPhaseState()
+            } else {
+                squatRepConsecutiveFrames = 0
+            }
+            return false
         }
     }
-    
-    /// Validate squat rep (bodyweight, barbell, or regular bench press fallback).
-    /// Uses consistent frames: transition to "deep" only after N consecutive deep frames;
-    /// count rep only after N consecutive shallow frames (reduces jitter and false reps).
-    private func validateSquatRep(formAnalysis: FormAnalysis, now: Date) -> Bool {
-        let depth = formAnalysis.depth
-        
-        let deep = deepDepthThreshold3D
-        let shallow = shallowDepthThreshold3D
-        
-        if depth >= deep {
-            consecutiveFramesDeep += 1
-            consecutiveFramesShallow = 0
-            if consecutiveFramesDeep >= consistentFramesForRepTransition && !reachedDeepThisCycle {
-                reachedDeepThisCycle = true
-            }
-            return false
-        }
-        
-        if depth <= shallow {
-            consecutiveFramesShallow += 1
-            if reachedDeepThisCycle && consecutiveFramesShallow >= consistentFramesForRepTransition {
-                lastRepValidationTime = now
-                reachedDeepThisCycle = false
-                consecutiveFramesDeep = 0
-                consecutiveFramesShallow = 0
-                return true
-            }
-            return false
-        }
-        
-        // In between: reset consecutive counters so we require clean transition
-        consecutiveFramesDeep = 0
-        consecutiveFramesShallow = 0
-        return false
+
+    #if DEBUG
+    private func debugSquatRepState(noseY: Float, legLen: Float, hipKneeDelta: Float?) {
+        let topStr = squatRepTopNoseY.map { String(format: "%.3f", $0) } ?? "nil"
+        let minStr = squatRepCycleMinNoseY.map { String(format: "%.3f", $0) } ?? "nil"
+        let deltaStr = hipKneeDelta.map { String(format: "%.3f", $0) } ?? "nil"
+        print("[SquatRep] phase=\(squatRepPhase) noseY=\(String(format: "%.3f", noseY)) top=\(topStr) min=\(minStr) hipKneeDelta=\(deltaStr) depthValid=\(squatRepHadValidDepth)")
+    }
+    #endif
+
+    private func resetSquatRepPhaseState() {
+        squatRepPhase = .idleAtTop
+        squatRepConsecutiveFrames = 0
+        squatRepTopNoseY = nil
+        squatRepCycleMinNoseY = nil
+        squatRepTopLocked = false
+        squatRepHadValidDepth = false
+        squatRepHipKneeBottomConsecFrames = 0
     }
     
     /// Validates close-grip bench press rep using state machine pattern detection.
@@ -1489,18 +1992,69 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     }
     
     /// Handles rep detection: increments rep count and stores form analysis for score calculation.
-    /// Stores the form analysis at rep completion so it's available even if pose is temporarily lost.
+    /// Bodyweight rep commit (commitBodyweightRepIfNeeded) is done on the analysis queue before this is dispatched.
     private func handleRepDetected() {
         repCount += 1
         consecutiveGoodReps += 1
         lastRepTime = Date()
         inactivityDetector.updateLastRep()
+        #if DEBUG
+        if trackedExerciseType == .bodyweight {
+            print("[SquatRepCount] repCount=\(repCount) consecutiveGoodReps=\(consecutiveGoodReps) workoutState=\(workoutState)")
+        }
+        #endif
         
         lastRepFormAnalysis = currentFormAnalysis
 
         if workoutState == .waiting && consecutiveGoodReps >= minRepsForSetStart {
+            #if DEBUG
+            if trackedExerciseType == .bodyweight {
+                print("[SquatSetStart] trigger consecutiveGoodReps=\(consecutiveGoodReps) min=\(minRepsForSetStart)")
+            }
+            #endif
             handleSetStart()
         }
+    }
+
+    /// Builds BodyweightRepMetrics from current-rep accumulators, validates, logs, appends only if valid, resets state.
+    private func commitBodyweightRepIfNeeded() {
+        let depthAtBottom = lastCompletedRepDepthAtBottom ?? 0
+        let backAngleMax = currentRepBackAngleMax ?? 0
+        let kneeWorst = currentRepKneeAlignmentWorst ?? 0
+        lastCompletedRepDepthAtBottom = nil
+
+        let shallowDepth = depthAtBottom < CoachingContract.Threshold.depthShallow
+        let excessiveForwardLean = backAngleMax > CoachingContract.Threshold.forwardLean
+        let kneeValgus = kneeWorst < CoachingContract.Threshold.kneeValgus
+
+        let valid = depthAtBottom >= bodyweightMinDepthForViableBottom
+            && bodyweightRepFrameCount >= bodyweightMinFramesInRep
+            && bodyweightKneeWindowSampleCount >= 1
+
+        let repIndex = bodyweightRepHistory.count + 1
+        #if DEBUG
+        print("[BodyweightRep] rep=\(repIndex) depthAtBottom=\(depthAtBottom) backAngleMax=\(backAngleMax) kneeWorst=\(kneeWorst) valid=\(valid) shallow=\(shallowDepth) lean=\(excessiveForwardLean) valgus=\(kneeValgus)")
+        #endif
+
+        let metrics = BodyweightRepMetrics(
+            depthAtBottom: depthAtBottom,
+            backAngleMax: backAngleMax,
+            kneeAlignmentWorstNearBottom: kneeWorst,
+            shallowDepth: shallowDepth,
+            excessiveForwardLean: excessiveForwardLean,
+            kneeValgus: kneeValgus,
+            valid: valid,
+            timestamp: Date().timeIntervalSince1970
+        )
+        if valid {
+            bodyweightRepHistory.append(metrics)
+        }
+
+        bodyweightRepPhase = .idle
+        currentRepBackAngleMax = nil
+        currentRepKneeAlignmentWorst = nil
+        bodyweightRepFrameCount = 0
+        bodyweightKneeWindowSampleCount = 0
     }
     
     private func handleSetStart() {
@@ -1509,6 +2063,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             self.workoutState = .exercising
         }
         setStartTime = Date()
+        // Reset squat rep phase state for new set
+        resetSquatRepPhaseState()
         // Reset aggregations at the start of a set
         issueCounts.removeAll()
         positiveCounts.removeAll()
@@ -1525,6 +2081,17 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         deepFrameCount = 0
         totalDepthSamples = 0
         currentRepBottomDepthMax = 0
+        lastCompletedRepDepthAtBottom = nil
+        // Hip-depth calibration (re-calibrate each set)
+        standingHipHeight = nil
+        standingLegLength = nil
+        // Bodyweight rep-level state
+        bodyweightRepHistory.removeAll()
+        bodyweightRepPhase = .idle
+        currentRepBackAngleMax = nil
+        currentRepKneeAlignmentWorst = nil
+        bodyweightRepFrameCount = 0
+        bodyweightKneeWindowSampleCount = 0
     }
     
     private func handleSetEnd() {
@@ -1534,10 +2101,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             
             self.workoutState = .resting
             // Reset rep count for next set (but keep total workout state)
-            let completedReps = self.repCount
             self.repCount = 0
             self.consecutiveGoodReps = 0
-            self.reachedDeepThisCycle = false
+            self.resetSquatRepPhaseState()
             self.lastRepValidationTime = nil
         }
         
@@ -1563,7 +2129,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         guard workoutState == .waiting else { return }
         
         // If we detect a rep while waiting, it might be the start of a new set
-        if validateRep() {
+        if validateRep(skeleton: lastSmoothedSkeleton) {
             consecutiveGoodReps += 1
             
             if consecutiveGoodReps >= minRepsForSetStart {
@@ -1579,38 +2145,39 @@ class OnDevicePoseManager: NSObject, ObservableObject {
 
     // MARK: - Aggregation helpers
     private func aggregateFeedback(from analysis: FormAnalysis) {
-        // Count issues
         for issue in analysis.issues {
             issueCounts[issue, default: 0] += 1
         }
-        // Positives
-        if analysis.depth >= 0.6 { positiveCounts["Good Depth", default: 0] += 1 }
-        if abs(analysis.backAngle) <= 25 { positiveCounts["Chest Tall", default: 0] += 1 }
-        if abs(analysis.kneeAlignment) <= 0.1 { positiveCounts["Knees Over Toes", default: 0] += 1 }
+        if analysis.depth >= CoachingContract.PositiveThreshold.goodDepth {
+            positiveCounts[.goodDepth, default: 0] += 1
+        }
+        if abs(analysis.backAngle) <= CoachingContract.PositiveThreshold.chestTall {
+            positiveCounts[.chestTall, default: 0] += 1
+        }
+        if abs(analysis.kneeAlignment) <= CoachingContract.PositiveThreshold.kneesTracking {
+            positiveCounts[.kneesOverToes, default: 0] += 1
+        }
     }
     
     // MARK: - Legacy Two-Point Feedback (Deprecated)
-    // This method is no longer used - replaced with single natural feedback
     @available(*, deprecated, message: "Use OpenAICoachingManager.analyzeAndGetNaturalFeedback instead")
     private func aggregatedTwoPointFeedback() -> (String, String) {
-        // Choose most frequent positive
         let topPositiveKey = positiveCounts.max(by: { $0.value < $1.value })?.key
         let good = (topPositiveKey.flatMap { positiveCueByKey[$0] }) ?? {
             if let analysis = currentFormAnalysis {
-                if analysis.depth >= 0.6 { return "Good depth" }
-                if abs(analysis.backAngle) <= 25 { return "Chest tall" }
+                if analysis.depth >= CoachingContract.PositiveThreshold.goodDepth { return "Good depth" }
+                if abs(analysis.backAngle) <= CoachingContract.PositiveThreshold.chestTall { return "Chest tall" }
             }
             return "Controlled tempo"
         }()
         
-        // Choose most frequent issue
         let topIssue = issueCounts.max(by: { $0.value < $1.value })?.key
         let improve: String = {
             if let issue = topIssue, let cue = cueByIssue[issue] { return cue }
             if let analysis = currentFormAnalysis {
-                if analysis.issues.contains("Knees Caving In") { return "Push your knees out" }
-                if analysis.issues.contains("Knees Bowing Out") { return "Keep your knees over your toes" }
-                if analysis.issues.contains("Forward Lean") { return "Lift your chest" }
+                if analysis.issues.contains(.kneeValgus) { return "Push your knees out" }
+                if analysis.issues.contains(.kneeVarus) { return "Keep your knees over your toes" }
+                if analysis.issues.contains(.forwardLean) { return "Lift your chest" }
                 if analysis.depth < 0.45 { return "Squat a little deeper" }
             }
             return "Brace your core"
@@ -1639,6 +2206,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             sumPauseMs += pauseMs
         }
         if let start = repStartTime, lastDepth > topThresh && currentDepth <= topThresh {
+            if currentRepBottomDepthMax > 0 {
+                sumBottomDepth += Double(currentRepBottomDepthMax)
+                bottomDepthSamples += 1
+            }
+            lastCompletedRepDepthAtBottom = currentRepBottomDepthMax > 0 ? currentRepBottomDepthMax : nil
             let totalMs = (now - start) * 1000.0
             var eccMs = totalMs * 0.5
             var conMs = totalMs * 0.5
@@ -1651,10 +2223,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             sumEccentricMs += eccMs
             sumConcentricMs += conMs
             tempoRepSamples += 1
-            if currentRepBottomDepthMax > 0 {
-                sumBottomDepth += Double(currentRepBottomDepthMax)
-                bottomDepthSamples += 1
-            }
             repStartTime = nil
             bottomTime = nil
             currentRepBottomDepthMax = 0

@@ -152,6 +152,18 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
         poseManager.resetRepCount()
     }
     
+    /// Use when ending a **Track** set only. Does **not** set `isAnalyzingPose = false`.
+    ///
+    /// `captureOutput` only calls `poseManager.analyzeFrame` while `isAnalyzingPose` is true.
+    /// `stopPoseAnalysis()` therefore freezes the skeleton until the next **Begin Set**. This method
+    /// resets rep/UI state while keeping frames flowing so the overlay stays live in `.armed`.
+    func endTrackSetKeepingPoseActive() {
+        DispatchQueue.main.async {
+            self.currentFormAnalysis = nil
+        }
+        poseManager.resetRepCount()
+    }
+    
     func stopCamera() {
         captureSession?.stopRunning()
         captureSession = nil
@@ -161,8 +173,8 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
 
 // MARK: - Video Data Output Delegate
 extension SharedCameraSessionManager: AVCaptureVideoDataOutputSampleBufferDelegate {
+    /// Forwards pixels to MediaPipe only when not in setup mode and `isAnalyzingPose` is true (`stopPoseAnalysis` vs `endTrackSetKeepingPoseActive`).
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        // Only analyze pose if we're in workout mode and pose analysis is active
         guard !isSetupMode && isAnalyzingPose else { return }
         
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
@@ -219,9 +231,19 @@ class ActiveWorkoutCameraPreviewView: UIView {
     }
 }
 
-// MARK: - Pose Visualization Overlay
+// MARK: - Pose overlay (2D skeleton)
 
-/// Skeleton edges in Vision body pose order (joint names from OnDevicePoseManager.extractKeyPoints).
+/// Maps MediaPipe **normalized image** landmarks (top-left origin, x right, y down, \[0,1\]) into
+/// full-screen SwiftUI coordinates for a **mirrored** front-camera preview in portrait.
+///
+/// Same transform is used by `DebugPoseOverlay` so debug dots match the main skeleton.
+enum PoseOverlayCoordinateMapping {
+    static func viewPoint(normalized p: CGPoint, canvasSize: CGSize) -> CGPoint {
+        CGPoint(x: (1.0 - p.y) * canvasSize.width, y: (1.0 - p.x) * canvasSize.height)
+    }
+}
+
+/// Skeleton segments; joint names match `MediaPipePoseAdapter` overlay keys.
 private let poseSkeletonEdges: [(String, String)] = [
     ("leftShoulder", "rightShoulder"),
     ("leftShoulder", "leftElbow"),
@@ -245,11 +267,10 @@ struct PoseVisualizationOverlay: View {
     @ObservedObject private var poseManager = OnDevicePoseManager.shared
     
     var body: some View {
-        GeometryReader { geometry in
+        GeometryReader { _ in
             ZStack {
-                // Landmark skeleton and joints (normalized 0–1, origin top-left)
                 if let landmarks = poseManager.currentNormalizedLandmarks, !landmarks.isEmpty {
-                    PoseLandmarkSkeletonView(landmarks: landmarks, size: geometry.size)
+                    PoseLandmarkSkeletonView(landmarks: landmarks)
                 }
                 
                 // Pose detection status
@@ -345,27 +366,20 @@ struct PoseVisualizationOverlay: View {
                 }
             }
         }
+        .ignoresSafeArea()
     }
 }
 
-// MARK: - Pose Landmark Skeleton (lines + joints)
-
-/// Draws skeleton edges and landmark circles from normalized landmarks (0–1, origin top-left).
-/// Transform: portrait (normX, normY) → preview view, with horizontal flip so overlay matches
-/// the mirrored front-camera preview.
+/// Renders `poseSkeletonEdges` and joint dots using `PoseOverlayCoordinateMapping` (Canvas uses `canvasSize`, not an external `GeometryReader` size).
 struct PoseLandmarkSkeletonView: View {
     let landmarks: [String: CGPoint]
-    let size: CGSize
     
     var body: some View {
         Canvas { context, canvasSize in
             func viewPoint(_ p: CGPoint) -> CGPoint {
-                let viewX = (1.0 - p.y) * size.width   // flip X so overlay matches mirrored preview
-                let viewY = (1.0 - p.x) * size.height
-                return CGPoint(x: viewX, y: viewY)
+                PoseOverlayCoordinateMapping.viewPoint(normalized: p, canvasSize: canvasSize)
             }
             
-            // Draw skeleton edges
             for (a, b) in poseSkeletonEdges {
                 guard let pa = landmarks[a], let pb = landmarks[b] else { continue }
                 var path = Path()
@@ -374,7 +388,6 @@ struct PoseLandmarkSkeletonView: View {
                 context.stroke(path, with: .color(.green), lineWidth: 3)
             }
             
-            // Draw landmark circles
             for (_, point) in landmarks {
                 let center = viewPoint(point)
                 let r: CGFloat = 6

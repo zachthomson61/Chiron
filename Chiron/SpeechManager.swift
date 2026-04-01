@@ -777,9 +777,7 @@ class SpeechManager: NSObject, ObservableObject {
         }
         
         do {
-            let startTime = Date()
             let audioData = try await fetchOpenAITTS(text)
-            let duration = Date().timeIntervalSince(startTime)
             audioCacheQueue.async(flags: .barrier) { self.audioCache[text] = audioData }
             DispatchQueue.main.async { self.playAudioData(audioData) }
         } catch {
@@ -930,7 +928,8 @@ class SpeechManager: NSObject, ObservableObject {
         } else if repAnalysis.postureScore < 0.6 {
             speechText += "Keep that chest up. "
         } else if let first = repAnalysis.issues.first {
-            speechText += "Watch your \(first.lowercased()). "
+            let displayName = IssueCode(rawValue: first).map { CoachingContract.displayName(for: $0).lowercased() } ?? first.lowercased()
+            speechText += "Watch your \(displayName). "
         } else {
             speechText += "Keep that form! "
         }

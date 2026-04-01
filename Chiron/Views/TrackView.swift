@@ -271,7 +271,8 @@ struct TrackView: View {
     }
 
     private func endSet() {
-        cameraManager.stopPoseAnalysis()
+        // Do not call `stopPoseAnalysis()` here — it clears `isAnalyzingPose` and freezes the overlay until the next set.
+        cameraManager.endTrackSetKeepingPoseActive()
         setsCompletedInSession += 1
         trackViewState = .armed
 

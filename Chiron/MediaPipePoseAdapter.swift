@@ -89,6 +89,9 @@ struct MediaPipePoseAdapter {
     }
 
     // MARK: - Overlay (normalised image coords, same keys as overlay UI)
+    //
+    // These CGPoints become `OnDevicePoseManager.currentNormalizedLandmarks`. On-screen mapping
+    // for the mirrored front camera is `PoseOverlayCoordinateMapping` (SharedCameraSessionManager).
 
     private func buildOverlayLandmarks(from imagePose: [NormalizedLandmark]) -> ([String: CGPoint], [String: Float]) {
         var overlay: [String: CGPoint] = [:]

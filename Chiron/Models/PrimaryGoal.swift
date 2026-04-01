@@ -95,9 +95,9 @@ class UserPreferencesManager: ObservableObject {
         }
     }
     
+    /// Hook for future remote sync. `persistGoal()` only calls this when `primaryGoal` is non-nil.
     private func syncToBackend() {
-        // TODO: Sync with Firebase/backend when available
-        guard let goal = primaryGoal else { return }
+        // TODO: Push goal to backend when account sync exists.
     }
     
     private func trackGoalChanged(from oldGoal: PrimaryGoal, to newGoal: PrimaryGoal?) {

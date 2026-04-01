@@ -176,15 +176,7 @@ class WorkoutViewModel: ObservableObject {
         let fileExists = FileManager.default.fileExists(atPath: videoURL.path)
         
         if !fileExists {
-            // Try to get file size to see if it's a valid file
-            if let fileSize = try? FileManager.default.attributesOfItem(atPath: videoURL.path)[.size] as? Int64 {
-            } else {
-            }
             return
-        }
-        
-        // Get file size
-        if let fileSize = try? FileManager.default.attributesOfItem(atPath: videoURL.path)[.size] as? Int64 {
         }
         
         isUploading = true
@@ -197,7 +189,7 @@ class WorkoutViewModel: ObservableObject {
                 switch result {
                 case .success(let downloadURL):
                     self?.uploadWorkoutData(downloadURL: downloadURL)
-                case .failure(let error):
+                case .failure:
                     self?.uploadProgress = 0.0
                 }
             }
@@ -321,14 +313,14 @@ class WorkoutViewModel: ObservableObject {
             feedbackManager.addFeedback(feedbackItem)
         }
         
-        // Add rep-specific feedback
         for repAnalysis in cloudFeedback.repAnalyses {
             for issue in repAnalysis.issues {
+                let displayMessage = IssueCode(rawValue: issue).map { CoachingContract.displayName(for: $0) } ?? issue
                 let feedbackItem = FeedbackItem(
                     type: .cloudAnalysis,
                     severity: .warning,
                     title: "Rep \(repAnalysis.repNumber) Issue",
-                    message: issue,
+                    message: displayMessage,
                     repNumber: repAnalysis.repNumber,
                     exerciseType: selectedExercise,
                     formScore: repAnalysis.overallScore

@@ -1,10 +1,12 @@
 //
 //  VideoTestRunner.swift
-//  Chiron
 //
-//  Runs MediaPipe pose detection in video mode over bundled test clips
-//  (test_squat, test_deadlift, test_bench, test_row). Records per-frame
-//  landmarks to JSON and aggregates latency/jitter for validation.
+//  Bundled MP4s → `PoseLandmarker` (video mode) → JSON landmark dump + latency/jitter stats.
+//
+//  **Concurrency:** `runAll()` spawns a `Task`; `processVideo` is `async` and uses
+//  `AVURLAsset.loadTracks` / `load(.duration)` / `track.load(.nominalFrameRate)` (iOS 16+).
+//  UI updates use `MainActor.run`. Progress uses `let progressFrameCount = totalFrames` before
+//  `MainActor.run` so Swift 6 does not flag capturing a mutating loop variable in the closure.
 //
 
 import Foundation
@@ -49,23 +51,24 @@ final class VideoTestRunner: ObservableObject {
         isRunning = true
         results = []
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        Task { [weak self] in
+            guard let self else { return }
             for name in VideoTestRunner.testVideos {
-                DispatchQueue.main.async { self?.currentVideo = name }
-                if let result = self?.processVideo(name: name) {
-                    DispatchQueue.main.async { self?.results.append(result) }
+                await MainActor.run { self.currentVideo = name }
+                if let result = await self.processVideo(name: name) {
+                    await MainActor.run { self.results.append(result) }
                 }
             }
-            DispatchQueue.main.async {
-                self?.isRunning = false
-                self?.currentVideo = ""
+            await MainActor.run {
+                self.isRunning = false
+                self.currentVideo = ""
             }
         }
     }
 
     // MARK: - Process One Video
 
-    private func processVideo(name: String) -> VideoTestResult? {
+    private func processVideo(name: String) async -> VideoTestResult? {
         guard let path = Bundle.main.path(forResource: name, ofType: "mp4") else {
             return VideoTestResult(
                 videoName: name, totalFrames: 0, framesWithPose: 0,
@@ -74,8 +77,14 @@ final class VideoTestRunner: ObservableObject {
         }
 
         let url = URL(fileURLWithPath: path)
-        let asset = AVAsset(url: url)
-        guard let track = asset.tracks(withMediaType: .video).first else { return nil }
+        let asset = AVURLAsset(url: url)
+        let tracks: [AVAssetTrack]
+        do {
+            tracks = try await asset.loadTracks(withMediaType: .video)
+        } catch {
+            return nil
+        }
+        guard let track = tracks.first else { return nil }
 
         let modelPath = Bundle.main.path(forResource: "pose_landmarker_full", ofType: "task")!
         let options = PoseLandmarkerOptions()
@@ -100,9 +109,17 @@ final class VideoTestRunner: ObservableObject {
         reader.add(trackOutput)
         reader.startReading()
 
-        let fps = track.nominalFrameRate
-        let duration = CMTimeGetSeconds(asset.duration)
-        let estimatedFrames = max(1, Int(fps * Float(duration)))
+        let durationCM: CMTime
+        let fps: Float
+        do {
+            durationCM = try await asset.load(.duration)
+            fps = try await track.load(.nominalFrameRate)
+        } catch {
+            reader.cancelReading()
+            return nil
+        }
+        let durationSeconds = CMTimeGetSeconds(durationCM)
+        let estimatedFrames = max(1, Int(fps * Float(durationSeconds)))
 
         var totalFrames = 0
         var framesWithPose = 0
@@ -117,7 +134,8 @@ final class VideoTestRunner: ObservableObject {
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
             totalFrames += 1
             timestampMs += frameDurationMs
-            DispatchQueue.main.async { self.progress = Double(totalFrames) / Double(estimatedFrames) }
+            let progressFrameCount = totalFrames
+            await MainActor.run { self.progress = Double(progressFrameCount) / Double(estimatedFrames) }
 
             let start = CACurrentMediaTime()
             guard let mpImage = try? MPImage(pixelBuffer: pixelBuffer),

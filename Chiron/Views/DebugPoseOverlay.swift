@@ -1,11 +1,8 @@
 //
 //  DebugPoseOverlay.swift
-//  Chiron
 //
-//  Optional overlay that draws MediaPipe landmark points and short labels on the
-//  camera feed. Toggle via DebugPoseOverlay.isEnabled (e.g. Settings → Developer →
-//  Pose Metrics → “Show debug overlay”). Uses same coordinate transform as the
-//  main skeleton overlay so it aligns with the mirrored preview.
+//  Developer-only landmark labels. Toggle: `DebugPoseOverlay.isEnabled` (e.g. Settings → Pose Metrics).
+//  Coordinates: `PoseOverlayCoordinateMapping` in SharedCameraSessionManager (must match main skeleton).
 //
 
 import SwiftUI
@@ -16,11 +13,11 @@ struct DebugPoseOverlay: View {
 
     var body: some View {
         if DebugPoseOverlay.isEnabled {
-            GeometryReader { geometry in
-                Canvas { context, _ in
+            GeometryReader { _ in
+                Canvas { context, canvasSize in
                     guard let landmarks = poseManager.currentNormalizedLandmarks, !landmarks.isEmpty else { return }
                     for (name, point) in landmarks {
-                        let viewPt = viewPoint(point, size: geometry.size)
+                        let viewPt = PoseOverlayCoordinateMapping.viewPoint(normalized: point, canvasSize: canvasSize)
                         let r: CGFloat = 5
                         let rect = CGRect(x: viewPt.x - r, y: viewPt.y - r, width: r * 2, height: r * 2)
                         context.fill(Path(ellipseIn: rect), with: .color(.yellow.opacity(0.9)))
@@ -30,11 +27,8 @@ struct DebugPoseOverlay: View {
                 }
                 .allowsHitTesting(false)
             }
+            .ignoresSafeArea()
         }
-    }
-
-    private func viewPoint(_ p: CGPoint, size: CGSize) -> CGPoint {
-        CGPoint(x: (1.0 - p.y) * size.width, y: (1.0 - p.x) * size.height)
     }
 
     private func abbrev(for jointName: String) -> String {

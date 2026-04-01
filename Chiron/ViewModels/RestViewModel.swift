@@ -61,27 +61,34 @@ class RestViewModel: ObservableObject {
         // Update state to loading
         state = .loading
         
+        let previousCue = OpenAICoachingManager.shared.getLastCuedText(exerciseType: .closeGripBenchPress)
+
         // Fetch asynchronously - explicitly use MainActor to ensure state updates are on main thread
         Task { @MainActor in
             do {
-                let response = try await OpenAIClient.shared.getBenchCoaching(summary: summary)
+                let response = try await OpenAIClient.shared.getBenchCoaching(summary: summary, previousCue: previousCue)
                 
-                // Update state on main actor (guaranteed by @MainActor Task)
                 self.state = .success(response)
                 
-                // Speak the coaching feedback
+                // Record the primary cue we just gave so the next set can reference it
+                if let firstWarning = summary.keyWarnings.first,
+                   let code = IssueCode(rawValue: firstWarning) {
+                    OpenAICoachingManager.shared.recordLastCued(
+                        exerciseType: .closeGripBenchPress,
+                        cue: CoachingContract.cue(for: code)
+                    )
+                }
+
                 speakCoaching(response)
                 
             } catch let error as OpenAIClientError {
-                self.state = .error(error.localizedDescription ?? "Unknown error")
+                self.state = .error(error.localizedDescription)
                 
-                // Speak fallback feedback
                 speakFallbackCoaching(summary: summary)
                 
             } catch {
                 self.state = .error(error.localizedDescription)
                 
-                // Speak fallback feedback
                 speakFallbackCoaching(summary: summary)
             }
         }

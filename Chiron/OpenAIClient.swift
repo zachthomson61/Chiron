@@ -124,11 +124,11 @@ actor OpenAIClient {
     /// - Parameter summary: Compact summary of the set metrics
     /// - Returns: Structured coaching response
     /// - Throws: OpenAIClientError on failure
-    func getBenchCoaching(summary: CloseGripBenchSummary) async throws -> CoachingResponse {
+    func getBenchCoaching(summary: CloseGripBenchSummary, previousCue: String? = nil) async throws -> CoachingResponse {
         let praiseOnly = summary.formScore >= 75
         
         // Build the request with appropriate prompt and JSON schema
-        let request = try buildRequest(summary: summary, praiseOnly: praiseOnly)
+        let request = try buildRequest(summary: summary, praiseOnly: praiseOnly, previousCue: previousCue)
         
         debugLog("Request URL: \(baseURL)")
         
@@ -164,7 +164,7 @@ actor OpenAIClient {
     
     // MARK: - Request Building
     
-    private func buildRequest(summary: CloseGripBenchSummary, praiseOnly: Bool) throws -> URLRequest {
+    private func buildRequest(summary: CloseGripBenchSummary, praiseOnly: Bool, previousCue: String? = nil) throws -> URLRequest {
         guard let url = URL(string: baseURL) else {
             throw OpenAIClientError.invalidURL
         }
@@ -181,7 +181,7 @@ actor OpenAIClient {
         
         // Build the prompt
         let systemPrompt = "You are a strength coach. Be concise. Never mention being an AI."
-        let userPrompt = buildUserPrompt(summary: summary, praiseOnly: praiseOnly)
+        let userPrompt = buildUserPrompt(summary: summary, praiseOnly: praiseOnly, previousCue: previousCue)
         
         // Build the request body with JSON schema
         let body: [String: Any] = [
@@ -205,46 +205,68 @@ actor OpenAIClient {
         return request
     }
     
-    private func buildUserPrompt(summary: CloseGripBenchSummary, praiseOnly: Bool) -> String {
-        guard let summaryJSON = summary.toJSONString() else {
-            return "Generate coaching for close-grip bench press."
+    private func buildUserPrompt(summary: CloseGripBenchSummary, praiseOnly: Bool, previousCue: String? = nil) -> String {
+        let resolvedWarnings: [[String: String]] = summary.keyWarnings.compactMap { code in
+            guard let issueCode = IssueCode(rawValue: code) else { return nil }
+            return [
+                "issue": code,
+                "display_name": CoachingContract.displayName(for: issueCode),
+                "cue": CoachingContract.cue(for: issueCode),
+            ]
         }
-        
+
+        let warningsJSON: String = {
+            guard let data = try? JSONSerialization.data(
+                withJSONObject: resolvedWarnings, options: [.sortedKeys]),
+                  let str = String(data: data, encoding: .utf8) else { return "[]" }
+            return str
+        }()
+
+        let previousCueBlock: String
+        if let prev = previousCue, !prev.isEmpty {
+            previousCueBlock = """
+
+            PREVIOUS SET CUE: "\(prev)"
+            If the same or similar issue applies this set, reference it (e.g. "keep working on that" or "same focus").
+            If they improved on it, acknowledge briefly (e.g. "that looked better").
+            Do NOT repeat the previous cue verbatim.
+            """
+        } else {
+            previousCueBlock = ""
+        }
+
         let policyInstruction: String
         if praiseOnly {
             policyInstruction = """
-            IMPORTANT: The form score is \(summary.formScore) (>= 75), which is GOOD.
-            You MUST NOT provide any critical feedback or corrective cues.
+            The form score is >= 75 (GOOD). Provide praise only.
             The fix_next array MUST be empty [].
-            Only provide positive reinforcement: call out 1-2 things done well.
             The tone MUST be "praise_only".
             """
         } else {
             policyInstruction = """
-            The form score is \(summary.formScore) (< 75), which indicates room for improvement.
-            Provide exactly 1 thing done well in did_well (find something positive even if score is low).
-            Provide 1-2 short, actionable corrective cues in fix_next based on the keyWarnings.
-            Each cue should be <= 12 words and actionable.
+            The form score is < 75. Provide 1 thing done well and 1-2 corrective cues.
+            Use ONLY the pre-determined issues below — do NOT invent new ones.
+            Each cue should be <= 12 words and use the provided cue text, rephrased naturally.
             The tone MUST be "mixed".
             """
         }
-        
+
         return """
-        Generate coaching feedback for a close-grip bench press set.
-        
-        Set summary (JSON):
-        \(summaryJSON)
-        
-        \(policyInstruction)
-        
-        Close-grip bench press coaching priorities:
-        - Grip width: should be just outside ribs (narrower than regular bench)
-        - Elbow position: elbows should be tucked to sides (not flared)
-        - ROM: full lockout at top, bar touches chest at bottom
-        - Tempo: slow controlled eccentric (1+ sec), explosive concentric
-        
-        Keep the headline short and encouraging (like "Solid set!" or "Great control!").
-        Keep did_well items specific to the metrics or general close-grip bench mechanics.
+        You are phrasing pre-determined coaching feedback for a close-grip bench press set.
+
+        PRE-DETERMINED ISSUES:
+        \(warningsJSON)
+
+        REPS: \(summary.reps)
+
+        \(policyInstruction)\(previousCueBlock)
+
+        RULES:
+        - Do NOT assess form or interpret metrics.
+        - Only phrase the pre-determined issues and positive notes.
+        - Do NOT use technical terms (eccentric, concentric, valgus, varus).
+        - Keep the headline short and encouraging.
+        - Keep did_well items specific to close-grip bench press mechanics.
         """
     }
     
@@ -356,12 +378,11 @@ actor OpenAIClient {
     
     // MARK: - Debug Logging
     
+    /// Redacts `apiKey` substring before printing. No-op in Release; skips if key is empty.
     private func debugLog(_ message: String) {
-        // Never log the API key
-        if apiKey.isEmpty {
-            return
-        }
-        
-        let safeMessage = message.replacingOccurrences(of: apiKey, with: "[REDACTED]")
+        guard !apiKey.isEmpty else { return }
+        #if DEBUG
+        print("[OpenAIClient]", message.replacingOccurrences(of: apiKey, with: "[REDACTED]"))
+        #endif
     }
 }
