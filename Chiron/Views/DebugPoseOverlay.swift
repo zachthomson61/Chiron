@@ -17,10 +17,15 @@ struct DebugPoseOverlay: View {
     var body: some View {
         if DebugPoseOverlay.isEnabled {
             GeometryReader { geometry in
-                Canvas { context, _ in
+                Canvas { context, canvasSize in
                     guard let landmarks = poseManager.currentNormalizedLandmarks, !landmarks.isEmpty else { return }
+                    let previewLayer = SharedCameraSessionManager.shared.poseOverlayPreviewLayer
                     for (name, point) in landmarks {
-                        let viewPt = viewPoint(point, size: geometry.size)
+                        guard let viewPt = OverlayMapper.map(
+                            normalizedPoint: point,
+                            previewLayer: previewLayer,
+                            overlaySize: canvasSize
+                        ) else { continue }
                         let r: CGFloat = 5
                         let rect = CGRect(x: viewPt.x - r, y: viewPt.y - r, width: r * 2, height: r * 2)
                         context.fill(Path(ellipseIn: rect), with: .color(.yellow.opacity(0.9)))
@@ -30,11 +35,8 @@ struct DebugPoseOverlay: View {
                 }
                 .allowsHitTesting(false)
             }
+            .ignoresSafeArea()
         }
-    }
-
-    private func viewPoint(_ p: CGPoint, size: CGSize) -> CGPoint {
-        CGPoint(x: (1.0 - p.y) * size.width, y: (1.0 - p.x) * size.height)
     }
 
     private func abbrev(for jointName: String) -> String {
@@ -45,12 +47,22 @@ struct DebugPoseOverlay: View {
         case "rightElbow": return "RE"
         case "leftWrist": return "LW"
         case "rightWrist": return "RW"
+        case "leftPinky": return "LP"
+        case "rightPinky": return "RP"
+        case "leftIndex": return "LI"
+        case "rightIndex": return "RI"
+        case "leftThumb": return "LTh"
+        case "rightThumb": return "RTh"
         case "leftHip": return "LH"
         case "rightHip": return "RH"
         case "leftKnee": return "LK"
         case "rightKnee": return "RK"
         case "leftAnkle": return "LA"
         case "rightAnkle": return "RA"
+        case "leftHeel": return "LHe"
+        case "rightHeel": return "RHe"
+        case "leftFootIndex": return "LFi"
+        case "rightFootIndex": return "RFi"
         case "nose": return "N"
         case "leftEye": return "LEy"
         case "rightEye": return "REy"

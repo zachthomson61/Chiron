@@ -113,6 +113,9 @@ final class SetupCameraPreviewView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         previewLayer?.frame = bounds
+        if let pl = previewLayer {
+            SharedCameraSessionManager.shared.registerPoseOverlayPreviewLayer(pl)
+        }
     }
     
     deinit {

@@ -54,6 +54,9 @@ struct TrackView: View {
                 PoseVisualizationOverlay()
                     .allowsHitTesting(false)
             }
+            // Developer toggle (Settings → Pose Metrics); uses same `OverlayMapper` as the skeleton.
+            DebugPoseOverlay()
+                .allowsHitTesting(false)
 
             // Top bar: exercise selector pill (centered) and info button (trailing). Uses ZStack so
             // the pill stays geometrically centered; the info button is overlaid and does not shift center.
@@ -165,8 +168,40 @@ struct TrackView: View {
                     .transition(.opacity)
                 }
 
+                // Tracking: pipeline status card + Test feedback button
+                if trackViewState == .tracking {
+                    TrackPipelineStatusCard(
+                        formAnalysis: cameraManager.poseManager.currentFormAnalysis
+                            ?? cameraManager.poseManager.lastRepFormAnalysis,
+                        exerciseType: selectedExercise.map { TrackedExerciseType.from(exerciseName: $0.name) } ?? .bodyweight
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+                }
+
                 // Primary action button (matches app primary button proportions)
                 if trackViewState == .armed || trackViewState == .tracking {
+                    if trackViewState == .tracking {
+                        // Test feedback: request phrasing from current form without ending set
+                        Button {
+                            requestTestFeedback()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "waveform.badge.mic")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("Test feedback")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .foregroundColor(.primary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Color.white.opacity(0.9))
+                            .clipShape(RoundedRectangle(cornerRadius: 22))
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 8)
+                    }
+
                     Button {
                         handlePrimaryAction()
                     } label: {
@@ -270,6 +305,24 @@ struct TrackView: View {
         trackViewState = .tracking
     }
 
+    /// Requests coaching feedback using the new pipeline (metrics → flags → payload → LLM phrasing)
+    /// without ending the set. Use "Test feedback" to verify the pipeline in real time.
+    private func requestTestFeedback() {
+        let formAnalysis = cameraManager.poseManager.currentFormAnalysis
+            ?? cameraManager.poseManager.lastRepFormAnalysis
+        guard let analysis = formAnalysis, let exercise = selectedExercise else {
+            SpeechManager.shared.speak("No form data yet. Move in frame and try again.")
+            return
+        }
+        let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
+        coachingManager.analyzeAndGetNaturalFeedback(
+            formAnalysis: analysis,
+            exerciseType: exerciseType
+        ) { feedback in
+            SpeechManager.shared.speak(feedback)
+        }
+    }
+
     private func endSet() {
         cameraManager.stopPoseAnalysis()
         setsCompletedInSession += 1
@@ -302,6 +355,7 @@ struct TrackView: View {
     // MARK: - Lifecycle
 
     private func onAppear() {
+        ScreenKeepAlive.begin()
         cameraManager.setupCameraSession()
         cameraManager.switchToWorkoutMode()
         if let session = cameraManager.getCaptureSession(), !session.isRunning {
@@ -316,6 +370,7 @@ struct TrackView: View {
     }
 
     private func onDisappear() {
+        ScreenKeepAlive.end()
         if trackViewState == .tracking {
             cameraManager.stopPoseAnalysis()
             trackViewState = .armed
@@ -396,6 +451,8 @@ class TrackCameraPreviewUIView: UIView {
         }
         let layer = AVCaptureVideoPreviewLayer(session: session)
         layer.videoGravity = .resizeAspectFill
+        layer.connection?.automaticallyAdjustsVideoMirroring = false
+        layer.connection?.isVideoMirrored = true
         self.layer.addSublayer(layer)
         previewLayer = layer
     }
@@ -403,6 +460,9 @@ class TrackCameraPreviewUIView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         previewLayer?.frame = bounds
+        if let pl = previewLayer {
+            SharedCameraSessionManager.shared.registerPoseOverlayPreviewLayer(pl)
+        }
     }
 }
 
@@ -477,6 +537,87 @@ struct FramingOverlayView: View {
             }
         }
         .stroke(color, lineWidth: lineWidth)
+    }
+}
+
+// MARK: - Track Pipeline Status Card (new coaching pipeline)
+
+/// Shows the live phrasing payload and detected issues so you can test the pipeline in real time.
+/// Displays: feedback_state, primary/secondary issue (display names), positive_note, rep count.
+struct TrackPipelineStatusCard: View {
+    var formAnalysis: FormAnalysis?
+    var exerciseType: TrackedExerciseType
+
+    var body: some View {
+        Group {
+            if let analysis = formAnalysis {
+                let payload = CoachingLogic.buildPayload(from: analysis, exerciseType: exerciseType)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Pipeline status")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.white.opacity(0.9))
+
+                    if payload.feedbackState != .normal {
+                        Text("State: \(payload.feedbackState.rawValue)")
+                            .font(.caption2)
+                            .foregroundColor(.yellow)
+                    } else {
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                if let primary = payload.primaryIssue {
+                                    Text("Primary: \(CoachingContract.displayName(for: primary))")
+                                        .font(.caption2)
+                                        .foregroundColor(.white.opacity(0.95))
+                                }
+                                if let secondary = payload.secondaryIssue {
+                                    Text("Secondary: \(CoachingContract.displayName(for: secondary))")
+                                        .font(.caption2)
+                                        .foregroundColor(.white.opacity(0.8))
+                                }
+                                if payload.primaryIssue == nil, payload.secondaryIssue == nil {
+                                    Text("No issues — praise only")
+                                        .font(.caption2)
+                                        .foregroundColor(.green.opacity(0.9))
+                                }
+                                if let note = payload.positiveNote {
+                                    Text("Positive: \(note)")
+                                        .font(.caption2)
+                                        .foregroundColor(.white.opacity(0.75))
+                                        .lineLimit(1)
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(exerciseType == .bodyweight ? "Reps: —" : "Reps: \(payload.repCount)")
+                                    .font(.caption2)
+                                    .foregroundColor(.white.opacity(0.9))
+                                Text("Score: \(Int(analysis.overallScore * 100))%")
+                                    .font(.caption2)
+                                    .foregroundColor(.white.opacity(0.8))
+                            }
+                        }
+                        if !analysis.issues.isEmpty {
+                            Text("Detected: \(analysis.issues.map { CoachingContract.displayName(for: $0) }.joined(separator: ", "))")
+                                .font(.caption2)
+                                .foregroundColor(.white.opacity(0.7))
+                                .lineLimit(2)
+                        }
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.black.opacity(0.55))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                Text("Waiting for pose…")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.8))
+                    .padding(10)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.black.opacity(0.4))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+        }
     }
 }
 

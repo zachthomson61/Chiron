@@ -89,6 +89,10 @@ struct MediaPipePoseAdapter {
     }
 
     // MARK: - Overlay (normalised image coords, same keys as overlay UI)
+    //
+    // Normalized landmarks use MediaPipe image space: origin top-left, x right, y down, range [0, 1].
+    // `OverlayMapper` feeds these into `AVCaptureVideoPreviewLayer.layerPointConverted(fromCaptureDevicePoint:)`
+    // so the skeleton matches the on-screen preview (including aspect-fill and front-camera mirroring).
 
     private func buildOverlayLandmarks(from imagePose: [NormalizedLandmark]) -> ([String: CGPoint], [String: Float]) {
         var overlay: [String: CGPoint] = [:]
@@ -109,17 +113,25 @@ struct MediaPipePoseAdapter {
     }
 
     /// MediaPipe 33-landmark index → app joint name. See MediaPipe Pose landmark spec.
+    /// Indices 17–22 are hand (pinky, index, thumb); 29–32 are heel and foot index.
     private static let worldIndexMap: [(Int, String)] = [
         (0, "nose"), (11, "leftShoulder"), (12, "rightShoulder"),
         (13, "leftElbow"), (14, "rightElbow"), (15, "leftWrist"), (16, "rightWrist"),
+        (17, "leftPinky"), (18, "rightPinky"), (19, "leftIndex"), (20, "rightIndex"),
+        (21, "leftThumb"), (22, "rightThumb"),
         (23, "leftHip"), (24, "rightHip"), (25, "leftKnee"), (26, "rightKnee"),
         (27, "leftAnkle"), (28, "rightAnkle"),
+        (29, "leftHeel"), (30, "rightHeel"), (31, "leftFootIndex"), (32, "rightFootIndex"),
     ]
 
     private static let overlayIndexMap: [(Int, String)] = [
         (0, "nose"), (2, "leftEye"), (5, "rightEye"), (7, "leftEar"), (8, "rightEar"),
         (11, "leftShoulder"), (12, "rightShoulder"), (13, "leftElbow"), (14, "rightElbow"),
-        (15, "leftWrist"), (16, "rightWrist"), (23, "leftHip"), (24, "rightHip"),
-        (25, "leftKnee"), (26, "rightKnee"), (27, "leftAnkle"), (28, "rightAnkle"),
+        (15, "leftWrist"), (16, "rightWrist"),
+        (17, "leftPinky"), (18, "rightPinky"), (19, "leftIndex"), (20, "rightIndex"),
+        (21, "leftThumb"), (22, "rightThumb"),
+        (23, "leftHip"), (24, "rightHip"), (25, "leftKnee"), (26, "rightKnee"),
+        (27, "leftAnkle"), (28, "rightAnkle"),
+        (29, "leftHeel"), (30, "rightHeel"), (31, "leftFootIndex"), (32, "rightFootIndex"),
     ]
 }

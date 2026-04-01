@@ -3113,6 +3113,9 @@ final class TestViewCameraPreviewUIView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         previewLayer?.frame = bounds
+        if let pl = previewLayer {
+            SharedCameraSessionManager.shared.registerPoseOverlayPreviewLayer(pl)
+        }
     }
     
     func updateProcessor(_ processor: SegmentationProcessor) {
@@ -3140,6 +3143,12 @@ private final class TestViewVideoDelegate: NSObject, AVCaptureVideoDataOutputSam
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         // Process frame with mirroring (front camera) and rotation (portrait orientation)
         processor?.process(sampleBuffer: sampleBuffer, mirrored: true, rotated: true)
+        
+        // Also run pose analysis so any pose/skeleton overlay stays live during test mode.
+        // The test view replaces the shared pose-analysis delegate, so we multiplex here.
+        if let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+            OnDevicePoseManager.shared.analyzeFrame(pixelBuffer)
+        }
     }
 }
 

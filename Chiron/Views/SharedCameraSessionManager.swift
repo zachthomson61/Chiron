@@ -42,6 +42,13 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
     @Published var currentFormAnalysis: FormAnalysis?
     @Published var coachingFeedback: String = ""
     
+    /// Preview layer used for pose overlay mapping; registered from preview UIViews in `layoutSubviews`.
+    weak var poseOverlayPreviewLayer: AVCaptureVideoPreviewLayer?
+    
+    func registerPoseOverlayPreviewLayer(_ layer: AVCaptureVideoPreviewLayer) {
+        poseOverlayPreviewLayer = layer
+    }
+    
     private override init() {
         super.init()
     }
@@ -153,6 +160,7 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
     }
     
     func stopCamera() {
+        poseOverlayPreviewLayer = nil
         captureSession?.stopRunning()
         captureSession = nil
         videoDataOutput = nil
@@ -190,44 +198,53 @@ struct ActiveWorkoutCameraView: UIViewRepresentable {
 }
 
 class ActiveWorkoutCameraPreviewView: UIView {
+    private var previewLayer: AVCaptureVideoPreviewLayer?
+    
     override init(frame: CGRect) {
         super.init(frame: frame)
-        setupCamera()
     }
     
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        setupCamera()
     }
     
-    private func setupCamera() {
-        // Use the shared camera session manager
-        if let session = SharedCameraSessionManager.shared.getCaptureSession() {
-            let previewLayer = AVCaptureVideoPreviewLayer(session: session)
-            previewLayer.videoGravity = .resizeAspectFill
-            layer.addSublayer(previewLayer)
-            previewLayer.frame = bounds
-        }
+    private func ensurePreviewLayer() {
+        guard previewLayer == nil else { return }
+        guard let session = SharedCameraSessionManager.shared.getCaptureSession() else { return }
+        let layer = AVCaptureVideoPreviewLayer(session: session)
+        layer.videoGravity = .resizeAspectFill
+        layer.connection?.automaticallyAdjustsVideoMirroring = false
+        layer.connection?.isVideoMirrored = true
+        self.layer.addSublayer(layer)
+        previewLayer = layer
     }
     
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Update the frame of the preview layer
-        if let previewLayer = layer.sublayers?.first as? AVCaptureVideoPreviewLayer {
-            previewLayer.frame = bounds
+        ensurePreviewLayer()
+        previewLayer?.frame = bounds
+        if let pl = previewLayer {
+            SharedCameraSessionManager.shared.registerPoseOverlayPreviewLayer(pl)
         }
     }
 }
 
 // MARK: - Pose Visualization Overlay
 
-/// Skeleton edges in Vision body pose order (joint names from OnDevicePoseManager.extractKeyPoints).
+/// Skeleton edges for overlay; joint names match MediaPipePoseAdapter overlay keys.
+/// Legs include ankle→heel and ankle→footIndex so the lowest dots reflect actual foot position.
 private let poseSkeletonEdges: [(String, String)] = [
     ("leftShoulder", "rightShoulder"),
     ("leftShoulder", "leftElbow"),
     ("rightShoulder", "rightElbow"),
     ("leftElbow", "leftWrist"),
     ("rightElbow", "rightWrist"),
+    ("leftWrist", "leftPinky"),
+    ("rightWrist", "rightPinky"),
+    ("leftWrist", "leftIndex"),
+    ("rightWrist", "rightIndex"),
+    ("leftWrist", "leftThumb"),
+    ("rightWrist", "rightThumb"),
     ("leftShoulder", "leftHip"),
     ("rightShoulder", "rightHip"),
     ("leftHip", "rightHip"),
@@ -235,6 +252,10 @@ private let poseSkeletonEdges: [(String, String)] = [
     ("rightHip", "rightKnee"),
     ("leftKnee", "leftAnkle"),
     ("rightKnee", "rightAnkle"),
+    ("leftAnkle", "leftHeel"),
+    ("rightAnkle", "rightHeel"),
+    ("leftAnkle", "leftFootIndex"),
+    ("rightAnkle", "rightFootIndex"),
     ("nose", "leftEye"),
     ("nose", "rightEye"),
     ("leftEye", "leftEar"),
@@ -245,11 +266,11 @@ struct PoseVisualizationOverlay: View {
     @ObservedObject private var poseManager = OnDevicePoseManager.shared
     
     var body: some View {
-        GeometryReader { geometry in
+        GeometryReader { _ in
             ZStack {
                 // Landmark skeleton and joints (normalized 0–1, origin top-left)
                 if let landmarks = poseManager.currentNormalizedLandmarks, !landmarks.isEmpty {
-                    PoseLandmarkSkeletonView(landmarks: landmarks, size: geometry.size)
+                    PoseLandmarkSkeletonView(landmarks: landmarks)
                 }
                 
                 // Pose detection status
@@ -294,7 +315,7 @@ struct PoseVisualizationOverlay: View {
                                 .foregroundColor(.white)
                                 .shadow(color: .black, radius: 1)
                             
-                            Text("Reps: \(poseManager.repCount)")
+                            Text(poseManager.trackedExerciseType == .bodyweight ? "Reps: —" : "Reps: \(poseManager.repCount)")
                                 .font(.caption)
                                 .foregroundColor(.white)
                                 .shadow(color: .black, radius: 1)
@@ -345,38 +366,36 @@ struct PoseVisualizationOverlay: View {
                 }
             }
         }
+        .ignoresSafeArea()
     }
 }
 
 // MARK: - Pose Landmark Skeleton (lines + joints)
 
 /// Draws skeleton edges and landmark circles from normalized landmarks (0–1, origin top-left).
-/// Transform: portrait (normX, normY) → preview view, with horizontal flip so overlay matches
-/// the mirrored front-camera preview.
+/// Points are mapped through `SharedCameraSessionManager.poseOverlayPreviewLayer` via `OverlayMapper`.
 struct PoseLandmarkSkeletonView: View {
     let landmarks: [String: CGPoint]
-    let size: CGSize
     
     var body: some View {
         Canvas { context, canvasSize in
-            func viewPoint(_ p: CGPoint) -> CGPoint {
-                let viewX = (1.0 - p.y) * size.width   // flip X so overlay matches mirrored preview
-                let viewY = (1.0 - p.x) * size.height
-                return CGPoint(x: viewX, y: viewY)
+            let previewLayer = SharedCameraSessionManager.shared.poseOverlayPreviewLayer
+
+            func viewPoint(_ p: CGPoint) -> CGPoint? {
+                OverlayMapper.map(normalizedPoint: p, previewLayer: previewLayer, overlaySize: canvasSize)
             }
-            
-            // Draw skeleton edges
+
             for (a, b) in poseSkeletonEdges {
                 guard let pa = landmarks[a], let pb = landmarks[b] else { continue }
+                guard let va = viewPoint(pa), let vb = viewPoint(pb) else { continue }
                 var path = Path()
-                path.move(to: viewPoint(pa))
-                path.addLine(to: viewPoint(pb))
+                path.move(to: va)
+                path.addLine(to: vb)
                 context.stroke(path, with: .color(.green), lineWidth: 3)
             }
-            
-            // Draw landmark circles
+
             for (_, point) in landmarks {
-                let center = viewPoint(point)
+                guard let center = viewPoint(point) else { continue }
                 let r: CGFloat = 6
                 let rect = CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)
                 context.fill(Path(ellipseIn: rect), with: .color(.cyan))
