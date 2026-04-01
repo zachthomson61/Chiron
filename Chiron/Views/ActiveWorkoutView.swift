@@ -87,6 +87,7 @@ struct ActiveWorkoutView: View {
             }
         }
         .onAppear {
+            ScreenKeepAlive.begin()
             // Set squat type for exercise-specific pose detection
             SharedCameraSessionManager.shared.poseManager.trackedExerciseType = exerciseType.trackedExerciseType
             
@@ -100,6 +101,7 @@ struct ActiveWorkoutView: View {
             startRepCountTimer()
         }
         .onDisappear {
+            ScreenKeepAlive.end()
             // Stop pose analysis when leaving workout
             if SharedCameraSessionManager.shared.isAnalyzingPose {
                 SharedCameraSessionManager.shared.stopPoseAnalysis()

@@ -202,6 +202,7 @@ struct BarbellBackSquatActiveWorkoutView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear {
+            ScreenKeepAlive.begin()
             // Set squat type for barbell back squat
             SharedCameraSessionManager.shared.poseManager.trackedExerciseType = .barbell
             
@@ -219,6 +220,7 @@ struct BarbellBackSquatActiveWorkoutView: View {
             startRepCountTimer()
         }
         .onDisappear {
+            ScreenKeepAlive.end()
             // Stop pose analysis when leaving workout
             if SharedCameraSessionManager.shared.isAnalyzingPose {
                 SharedCameraSessionManager.shared.stopPoseAnalysis()

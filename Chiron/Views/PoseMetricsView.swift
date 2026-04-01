@@ -34,7 +34,7 @@ struct PoseMetricsView: View {
             }
 
             Section("Rep Tracking") {
-                MetricRow(label: "Rep count", value: "\(poseManager.repCount)")
+                MetricRow(label: "Rep count", value: poseManager.trackedExerciseType == .bodyweight ? "\(poseManager.repCount) (internal)" : "\(poseManager.repCount)")
                 MetricRow(label: "Current set", value: "\(poseManager.currentSet)")
                 MetricRow(label: "Workout state", value: workoutStateLabel)
                 MetricRow(label: "Analysis source", value: analysisSourceLabel)

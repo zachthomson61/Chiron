@@ -80,10 +80,9 @@ struct CloseGripBenchSummary: Codable {
         // For bench press, we use avgBottomDepth if available
         let rangeOfMotionPct: Double? = formAnalysis.avgBottomDepth.map { Double($0) * 100.0 }
         
-        // Key warnings only populated if form score < 75
         let keyWarnings: [String]
         if formScore < 75 {
-            keyWarnings = formAnalysis.issues
+            keyWarnings = formAnalysis.issues.map { $0.rawValue }
         } else {
             keyWarnings = []
         }

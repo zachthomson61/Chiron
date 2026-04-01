@@ -202,6 +202,7 @@ struct BodyweightSquatActiveWorkoutView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear {
+            ScreenKeepAlive.begin()
             // Set squat type for bodyweight squat
             SharedCameraSessionManager.shared.poseManager.trackedExerciseType = .bodyweight
             
@@ -219,6 +220,7 @@ struct BodyweightSquatActiveWorkoutView: View {
             startRepCountTimer()
         }
         .onDisappear {
+            ScreenKeepAlive.end()
             // Stop pose analysis when leaving workout
             if SharedCameraSessionManager.shared.isAnalyzingPose {
                 SharedCameraSessionManager.shared.stopPoseAnalysis()
@@ -244,7 +246,7 @@ struct BodyweightSquatActiveWorkoutView: View {
         case .waiting:
             return "Ready"  // More subtle message
         case .exercising:
-            return "Set \(poseManager.currentSet)\nRep \(poseManager.repCount)"
+            return "Set \(poseManager.currentSet)\nRep —"
         case .resting:
             return "Set complete!\nRest for \(formatRestTime())"
         case .finished:

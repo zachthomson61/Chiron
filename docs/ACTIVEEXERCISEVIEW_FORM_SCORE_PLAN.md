@@ -90,7 +90,7 @@ Keep using `FormAnalysis.overallScore` as the main signal. In WorkoutActiveView 
 **Option B – Extend OnDevicePoseManager:**
 Add a small "baseline" form scorer inside `OnDevicePoseManager` that:
 
-- Consumes existing joint data (from `extractKeyPoints` / `analyzeForm` pipeline).
+- Consumes existing joint data from the MediaPipe pipeline (OnDevicePoseManager form analysis; see docs/POSE_PIPELINE_MEDIAPIPE.md).
 - Applies simple penalties (e.g. knee/hip/elbow deviation, torso lean, L/R asymmetry), starts at 100, clamps 1–100.
 - Exposes a `@Published` form score (1–100) used by WorkoutActiveView. Smoothing and gating can live here or in the view.
 

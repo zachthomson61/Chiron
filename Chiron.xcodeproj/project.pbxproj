@@ -43,9 +43,9 @@
 		042491222E3E948900AC3367 /* Exceptions for "Chiron" folder in "Chiron" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Features/PlanBuilder/OneQuestionFlow/README.md,
 				Info.plist,
-				"TestVideos/README.md",
-				"Features/PlanBuilder/OneQuestionFlow/README.md",
+				TestVideos/README.md,
 			);
 			target = 0446A7F02E31DA8200A13506 /* Chiron */;
 		};
@@ -62,15 +62,11 @@
 		};
 		0446A8062E31DA8300A13506 /* ChironTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = ChironTests;
 			sourceTree = "<group>";
 		};
 		0446A8102E31DA8300A13506 /* ChironUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = ChironUITests;
 			sourceTree = "<group>";
 		};
@@ -141,7 +137,6 @@
 				5CCBF75ADCBE31B19D74892C /* Pods-Chiron.debug.xcconfig */,
 				3A8E645A7B15D6FBAE5235F8 /* Pods-Chiron.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};

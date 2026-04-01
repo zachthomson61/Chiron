@@ -54,6 +54,56 @@ struct Skeleton3D {
     }
 }
 
+// MARK: - Squat Scoring Config
+
+/// Centralizes all tunable squat scoring constants per exercise type.
+/// Depth uses hip-to-foot vertical displacement normalized by leg length.
+/// Back angle uses banded thresholds instead of linear 0-90 mapping.
+/// Knee alignment penalizes valgus (inward collapse) more than varus.
+struct SquatScoringConfig {
+    // Depth (hip-displacement / legLength)
+    let depthMinThreshold: Float
+    let depthTarget: Float
+
+    // Back angle bands (degrees from vertical)
+    let anglePerfectMax: Float
+    let angleAcceptableMax: Float
+
+    // Knee alignment
+    let valgusHeavyPenaltyBelow: Float
+    let varusMildPenaltyAbove: Float
+
+    // Weights
+    let weightDepth: Float
+    let weightAngle: Float
+    let weightAlignment: Float
+
+    // Score floor: when depth + alignment are strong and angle is acceptable,
+    // the overall score should not drop below this value.
+    let scoreFloorDepthMin: Float
+    let scoreFloorAlignMin: Float
+    let scoreFloorAngleMax: Float
+    let scoreFloor: Float
+
+    static let bodyweight = SquatScoringConfig(
+        depthMinThreshold: 0.30, depthTarget: 0.55,
+        anglePerfectMax: 20, angleAcceptableMax: 45,
+        valgusHeavyPenaltyBelow: -0.3, varusMildPenaltyAbove: 0.5,
+        weightDepth: 0.55, weightAngle: 0.20, weightAlignment: 0.25,
+        scoreFloorDepthMin: 0.85, scoreFloorAlignMin: 0.75,
+        scoreFloorAngleMax: 45, scoreFloor: 0.80
+    )
+
+    static let barbell = SquatScoringConfig(
+        depthMinThreshold: 0.30, depthTarget: 0.50,
+        anglePerfectMax: 35, angleAcceptableMax: 60,
+        valgusHeavyPenaltyBelow: -0.3, varusMildPenaltyAbove: 0.5,
+        weightDepth: 0.50, weightAngle: 0.15, weightAlignment: 0.35,
+        scoreFloorDepthMin: 0.85, scoreFloorAlignMin: 0.75,
+        scoreFloorAngleMax: 60, scoreFloor: 0.80
+    )
+}
+
 // MARK: - 3D Angle Helper
 
 /// Returns the angle at vertex `b` formed by rays b→a and b→c, in degrees (0–180).
