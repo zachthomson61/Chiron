@@ -324,7 +324,7 @@ struct TrackView: View {
     }
 
     private func endSet() {
-        cameraManager.stopPoseAnalysis()
+        cameraManager.endTrackSetKeepingPoseActive()
         setsCompletedInSession += 1
         trackViewState = .armed
 

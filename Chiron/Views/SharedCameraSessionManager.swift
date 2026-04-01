@@ -159,6 +159,15 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
         poseManager.resetRepCount()
     }
     
+    /// Ends a Track-tab set without stopping camera pose updates, so the skeleton overlay keeps moving between sets.
+    /// Full coaching still only runs during an active set from the Track UI; this only clears shared form UI and rep count.
+    func endTrackSetKeepingPoseActive() {
+        DispatchQueue.main.async {
+            self.currentFormAnalysis = nil
+        }
+        poseManager.resetRepCount()
+    }
+    
     func stopCamera() {
         poseOverlayPreviewLayer = nil
         captureSession?.stopRunning()
