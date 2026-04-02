@@ -1,0 +1,160 @@
+{
+  "version": "1.0.0",
+  "description": "Single source of truth for coaching issue definitions, metrics, thresholds, and priority rules. Swift and Python must stay in sync with this contract.",
+
+  "issues": [
+    {
+      "issue_code": "insufficient_depth",
+      "display_name": "Insufficient Depth",
+      "severity": "high",
+      "cue": "Sit deeper until hips reach knee level",
+      "exercise_scope": ["squat"]
+    },
+    {
+      "issue_code": "forward_lean",
+      "display_name": "Forward Lean",
+      "severity": "high",
+      "cue": "Keep your chest tall and proud",
+      "exercise_scope": ["squat"]
+    },
+    {
+      "issue_code": "knee_valgus",
+      "display_name": "Knees Caving In",
+      "severity": "medium",
+      "cue": "Push your knees out over your toes",
+      "exercise_scope": ["squat"]
+    },
+    {
+      "issue_code": "knee_varus",
+      "display_name": "Knees Bowing Out",
+      "severity": "low",
+      "cue": "Keep your knees tracking straight ahead",
+      "exercise_scope": ["squat"]
+    },
+    {
+      "issue_code": "grip_too_wide",
+      "display_name": "Grip Too Wide",
+      "severity": "medium",
+      "cue": "Bring your grip in closer to your ribs",
+      "exercise_scope": ["close_grip_bench_press"]
+    },
+    {
+      "issue_code": "elbows_flaring",
+      "display_name": "Elbows Flaring",
+      "severity": "high",
+      "cue": "Tuck those elbows to your sides",
+      "exercise_scope": ["close_grip_bench_press"]
+    },
+    {
+      "issue_code": "incomplete_rom",
+      "display_name": "Incomplete ROM",
+      "severity": "medium",
+      "cue": "Lock out fully at the top and touch your chest at the bottom",
+      "exercise_scope": ["close_grip_bench_press", "bench_press"]
+    },
+    {
+      "issue_code": "eccentric_too_fast",
+      "display_name": "Eccentric Too Fast",
+      "severity": "medium",
+      "cue": "Take more time lowering the bar",
+      "exercise_scope": ["close_grip_bench_press"]
+    },
+    {
+      "issue_code": "concentric_too_slow",
+      "display_name": "Concentric Too Slow",
+      "severity": "low",
+      "cue": "Press up a little faster",
+      "exercise_scope": ["close_grip_bench_press"]
+    }
+  ],
+
+  "priority_order": [
+    "insufficient_depth",
+    "forward_lean",
+    "elbows_flaring",
+    "knee_valgus",
+    "grip_too_wide",
+    "incomplete_rom",
+    "eccentric_too_fast",
+    "knee_varus",
+    "concentric_too_slow"
+  ],
+
+  "suppression_rules": {
+    "max_issues_in_payload": 2,
+    "suppress_secondary_when_primary_severity": "high",
+    "praise_only_when_no_issues": true
+  },
+
+  "positive_notes": {
+    "good_depth": "good depth on that set",
+    "chest_tall": "chest stayed nice and tall",
+    "knees_tracking": "knees tracked well over your toes",
+    "controlled_tempo": "tempo stayed controlled",
+    "solid_lockout": "solid lockout at the top",
+    "elbows_tucked": "elbows stayed tucked nicely"
+  },
+
+  "feedback_states": [
+    "confidence_low",
+    "insufficient_visibility",
+    "too_few_reps",
+    "metrics_inconclusive"
+  ],
+
+  "metrics": {
+    "depth": {
+      "range": [0.0, 1.0],
+      "description": "0 = standing, 1 = deep squat (or full ROM for bench)",
+      "thresholds": {
+        "shallow": 0.35,
+        "good": 0.6
+      }
+    },
+    "back_angle": {
+      "unit": "degrees",
+      "description": "Torso lean angle from vertical",
+      "thresholds": {
+        "forward_lean": 35.0
+      }
+    },
+    "knee_alignment": {
+      "range": [-1.0, 1.0],
+      "description": "Negative = valgus (caving in), positive = varus (bowing out)",
+      "thresholds": {
+        "valgus": -0.2,
+        "varus": 0.2
+      }
+    },
+    "grip_width_score": {
+      "range": [0.0, 1.0],
+      "thresholds": {
+        "too_wide": 0.6
+      }
+    },
+    "elbow_position_score": {
+      "range": [0.0, 1.0],
+      "thresholds": {
+        "flaring": 0.6
+      }
+    },
+    "rom_score": {
+      "range": [0.0, 1.0],
+      "thresholds": {
+        "incomplete": 0.6
+      }
+    },
+    "eccentric_score": {
+      "range": [0.0, 1.0],
+      "thresholds": {
+        "too_fast": 0.6
+      }
+    },
+    "concentric_score": {
+      "range": [0.0, 1.0],
+      "thresholds": {
+        "too_slow": 0.6
+      }
+    }
+  }
+}
