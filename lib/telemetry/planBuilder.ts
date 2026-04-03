@@ -58,25 +58,10 @@ interface AnalyticsService {
   page(name?: string, properties?: Record<string, any>): void;
 }
 
-// Mock analytics service for development
 class MockAnalytics implements AnalyticsService {
-  track(event: string, properties?: Record<string, any>): void {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[Analytics]', event, properties);
-    }
-  }
-  
-  identify(userId: string, traits?: Record<string, any>): void {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[Analytics Identify]', userId, traits);
-    }
-  }
-  
-  page(name?: string, properties?: Record<string, any>): void {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[Analytics Page]', name, properties);
-    }
-  }
+  track(_event: string, _properties?: Record<string, any>): void {}
+  identify(_userId: string, _traits?: Record<string, any>): void {}
+  page(_name?: string, _properties?: Record<string, any>): void {}
 }
 
 // Get analytics service (could be Segment, Amplitude, Mixpanel, etc.)
@@ -140,7 +125,7 @@ export function trackEvent(
   
   // Send to server for server-side analytics
   if (typeof window !== 'undefined' && window.fetch) {
-    sendToServer(event, enrichedProperties).catch(console.error);
+    sendToServer(event, enrichedProperties).catch(() => {});
   }
 }
 
@@ -155,11 +140,8 @@ async function sendToServer(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ event, properties })
     });
-  } catch (error) {
+  } catch {
     // Silently fail - don't break the user experience
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Failed to send analytics to server:', error);
-    }
   }
 }
 

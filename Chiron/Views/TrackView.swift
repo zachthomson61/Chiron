@@ -10,6 +10,13 @@ import SwiftUI
 import SwiftData
 import AVFoundation
 
+// MARK: - Sheet presentation (explicit types avoid Swift 6 / SDK inference issues)
+
+private let trackLibrarySheetDetents: Set<PresentationDetent> = [
+    PresentationDetent.large,
+    PresentationDetent.fraction(0.65)
+]
+
 // MARK: - Track View State
 
 enum TrackViewState {
@@ -22,6 +29,7 @@ enum TrackViewState {
 
 struct TrackView: View {
     @Environment(\.modelContext) private var modelContext
+    /// Same sort as `ExerciseLibraryView` — keypath + order avoids `SortDescriptor` overload ambiguity (Swift 6).
     @Query(sort: \Exercise.name, order: .forward) private var exercises: [Exercise]
 
     @State private var trackViewState: TrackViewState = .idle
@@ -36,9 +44,9 @@ struct TrackView: View {
     /// Pulsing scale for the tracking form score circle (matches WorkoutActiveView formScoreIndicator).
     @State private var trackingPulseScale: CGFloat = 1.0
     /// Sheet detent selection so exercise selector opens at full height (top of screen).
-    @State private var exerciseSelectorDetent: PresentationDetent = .large
+    @State private var exerciseSelectorDetent: PresentationDetent = PresentationDetent.large
     /// Sheet detent selection so info sheet opens at full height (top of screen).
-    @State private var infoSheetDetent: PresentationDetent = .large
+    @State private var infoSheetDetent: PresentationDetent = PresentationDetent.large
 
     @ObservedObject private var cameraManager = SharedCameraSessionManager.shared
     @ObservedObject private var coachingManager = OpenAICoachingManager.shared
@@ -204,9 +212,9 @@ struct TrackView: View {
                     showExerciseSelector = false
                 }
             )
-            .presentationDetents([.large, .fraction(0.65)], selection: $exerciseSelectorDetent)
-            .presentationDragIndicator(.visible)
-            .onAppear { exerciseSelectorDetent = .large }
+            .presentationDetents(trackLibrarySheetDetents, selection: $exerciseSelectorDetent)
+            .presentationDragIndicator(Visibility.visible)
+            .onAppear { exerciseSelectorDetent = PresentationDetent.large }
         }
         .sheet(isPresented: $showExerciseInfo) {
             if let exercise = selectedExercise {
@@ -218,9 +226,9 @@ struct TrackView: View {
                             }
                         }
                 }
-                .presentationDetents([.large, .fraction(0.65)], selection: $infoSheetDetent)
-                .presentationDragIndicator(.visible)
-                .onAppear { infoSheetDetent = .large }
+                .presentationDetents(trackLibrarySheetDetents, selection: $infoSheetDetent)
+                .presentationDragIndicator(Visibility.visible)
+                .onAppear { infoSheetDetent = PresentationDetent.large }
             }
         }
     }
@@ -266,7 +274,7 @@ struct TrackView: View {
         let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
         cameraManager.poseManager.trackedExerciseType = exerciseType
         cameraManager.startPoseAnalysis()
-        cameraManager.poseManager.resetRepCount()
+        cameraManager.poseManager.startManualSet()
         trackViewState = .tracking
     }
 

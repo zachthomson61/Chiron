@@ -1,6 +1,9 @@
 .cursor/debug.log
 xcuserdata/
 
+# Claude / agent worktrees (never commit)
+.claude/
+
 # Dependencies
 node_modules/
 Pods/

@@ -13,6 +13,7 @@
 //  (see CoachingContract.swift).
 //
 
+import Combine
 import Foundation
 
 // MARK: - OpenAI Coaching Manager
@@ -64,7 +65,6 @@ class OpenAICoachingManager: ObservableObject {
         // Short-circuit non-normal feedback states without calling the LLM
         guard payload.feedbackState == .normal else {
             let fb = Self.insufficientDataFallback
-            print("Coaching: path=feedback_state state=\(payload.feedbackState.rawValue)")
             completion(fb)
             return
         }
@@ -134,7 +134,6 @@ class OpenAICoachingManager: ObservableObject {
 
         guard let url = URL(string: baseURL) else {
             let fb = generateFallbackFeedback(payload: payload, exerciseType: exerciseType)
-            print("Coaching: path=api_fallback reason=invalid_url")
             completion(fb)
             return
         }
@@ -161,7 +160,6 @@ class OpenAICoachingManager: ObservableObject {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
             let fb = generateFallbackFeedback(payload: payload, exerciseType: exerciseType)
-            print("Coaching: path=api_fallback reason=json_serialization")
             completion(fb)
             return
         }
@@ -169,16 +167,13 @@ class OpenAICoachingManager: ObservableObject {
         let completionLock = NSLock()
         var didComplete = false
 
-        let safeComplete: (String, String) -> Void = { feedback, path in
+        let safeComplete: (String, String) -> Void = { feedback, _ in
             completionLock.lock()
             defer { completionLock.unlock() }
             guard !didComplete else { return }
             didComplete = true
-            print("Coaching: \(path) feedbackLen=\(feedback.count)")
             DispatchQueue.main.async { completion(feedback) }
         }
-
-        print("Coaching: openai_request_started=true")
 
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
             guard let self = self else { return }

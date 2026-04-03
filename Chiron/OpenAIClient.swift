@@ -130,8 +130,6 @@ actor OpenAIClient {
         // Build the request with appropriate prompt and JSON schema
         let request = try buildRequest(summary: summary, praiseOnly: praiseOnly, previousCue: previousCue)
         
-        debugLog("Request URL: \(baseURL)")
-        
         // Execute the request
         let (data, response) = try await executeRequest(request)
         
@@ -139,8 +137,6 @@ actor OpenAIClient {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw OpenAIClientError.unknownError
         }
-        
-        debugLog("HTTP Status: \(httpResponse.statusCode)")
         
         // Check for errors
         try handleHTTPStatus(httpResponse.statusCode, data: data)
@@ -150,7 +146,6 @@ actor OpenAIClient {
         
         // Hard-filter: if praiseOnly, ensure fix_next is empty (policy enforcement)
         if praiseOnly && !coachingResponse.fix_next.isEmpty {
-            debugLog("Policy enforcement: Clearing fix_next for score >= 75")
             coachingResponse = CoachingResponse(
                 tone: "praise_only",
                 headline: coachingResponse.headline,
@@ -335,11 +330,6 @@ actor OpenAIClient {
     }
     
     private func parseResponse(_ data: Data) throws -> CoachingResponse {
-        if let responseString = String(data: data, encoding: .utf8) {
-            let truncated = String(responseString.prefix(2000))
-            debugLog("Response body (first 2k chars): \(truncated)")
-        }
-        
         // Parse the Responses API response structure
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw OpenAIClientError.decodingFailed("Invalid JSON response")
@@ -374,15 +364,5 @@ actor OpenAIClient {
         } catch {
             throw OpenAIClientError.decodingFailed(error.localizedDescription)
         }
-    }
-    
-    // MARK: - Debug Logging
-    
-    /// Redacts `apiKey` substring before printing. No-op in Release; skips if key is empty.
-    private func debugLog(_ message: String) {
-        guard !apiKey.isEmpty else { return }
-        #if DEBUG
-        print("[OpenAIClient]", message.replacingOccurrences(of: apiKey, with: "[REDACTED]"))
-        #endif
     }
 }

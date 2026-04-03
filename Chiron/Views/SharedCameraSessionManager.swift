@@ -236,7 +236,7 @@ class ActiveWorkoutCameraPreviewView: UIView {
 /// Maps MediaPipe **normalized image** landmarks (top-left origin, x right, y down, \[0,1\]) into
 /// full-screen SwiftUI coordinates for a **mirrored** front-camera preview in portrait.
 ///
-/// Same transform is used by `DebugPoseOverlay` so debug dots match the main skeleton.
+/// Used for the main pose skeleton overlay on the camera preview.
 enum PoseOverlayCoordinateMapping {
     static func viewPoint(normalized p: CGPoint, canvasSize: CGSize) -> CGPoint {
         CGPoint(x: (1.0 - p.y) * canvasSize.width, y: (1.0 - p.x) * canvasSize.height)
