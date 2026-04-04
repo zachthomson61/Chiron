@@ -49,6 +49,8 @@ struct TrackView: View {
     @State private var infoSheetDetent: PresentationDetent = PresentationDetent.large
 
     @ObservedObject private var cameraManager = SharedCameraSessionManager.shared
+    /// Rep count is published here; `cameraManager` alone does not trigger redraws when reps change.
+    @ObservedObject private var poseManager = OnDevicePoseManager.shared
     @ObservedObject private var coachingManager = OpenAICoachingManager.shared
 
     private let lastTrackedExerciseKey = "lastTrackedExerciseName"
@@ -93,7 +95,10 @@ struct TrackView: View {
                         HStack {
                             Spacer(minLength: 0)
                             if trackViewState == .tracking {
-                                TrackFormScoreTrackingView(trackingPulseScale: $trackingPulseScale)
+                                TrackFormScoreTrackingView(
+                                    repCount: poseManager.repCount,
+                                    trackingPulseScale: $trackingPulseScale
+                                )
                             } else {
                                 Button {
                                     showExerciseSelector = true
@@ -252,6 +257,8 @@ struct TrackView: View {
         if trackViewState == .tracking {
             cameraManager.stopPoseAnalysis()
         }
+        cameraManager.suppressRepCounting = false
+        cameraManager.trackExplicitSetActive = false
         trackViewState = .idle
         selectedExercise = nil
         setsCompletedInSession = 0
@@ -273,13 +280,23 @@ struct TrackView: View {
 
         let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
         cameraManager.poseManager.trackedExerciseType = exerciseType
-        cameraManager.startPoseAnalysis()
+        // Keep pose pipeline on (already from `startPoseTrackingOnly`) without `startPoseAnalysis()`, which
+        // calls `resetRepCountingState()` and async-sets `workoutState = .waiting` — that can race after
+        // `startManualSet()` and break rep/set state.
+        if !cameraManager.isAnalyzingPose {
+            cameraManager.startPoseTrackingOnly()
+        }
+        cameraManager.poseManager.resetRepCount()
         cameraManager.poseManager.startManualSet()
+        cameraManager.suppressRepCounting = false
+        cameraManager.trackExplicitSetActive = true
         trackViewState = .tracking
     }
 
     private func endSet() {
         // Do not call `stopPoseAnalysis()` here — it clears `isAnalyzingPose` and freezes the overlay until the next set.
+        cameraManager.trackExplicitSetActive = false
+        cameraManager.suppressRepCounting = true
         cameraManager.endTrackSetKeepingPoseActive()
         setsCompletedInSession += 1
         trackViewState = .armed
@@ -312,6 +329,7 @@ struct TrackView: View {
 
     private func onAppear() {
         cameraManager.setupCameraSession()
+        // Other flows call `switchToSetupMode()`; re-selecting this tab does not always rerun `onAppear`, so `RootTabView` also calls `switchToWorkoutMode` when Track is selected.
         cameraManager.switchToWorkoutMode()
         if let session = cameraManager.getCaptureSession(), !session.isRunning {
             DispatchQueue.global(qos: .userInitiated).async {
@@ -320,11 +338,14 @@ struct TrackView: View {
         }
         cameraSessionReady = true
         // Start pose tracking immediately so overlay/smoothing run before user presses Begin Set.
+        cameraManager.suppressRepCounting = true
         cameraManager.startPoseTrackingOnly()
         restoreLastTrackedExercise()
     }
 
     private func onDisappear() {
+        cameraManager.suppressRepCounting = false
+        cameraManager.trackExplicitSetActive = false
         if trackViewState == .tracking {
             cameraManager.stopPoseAnalysis()
             trackViewState = .armed
@@ -491,8 +512,9 @@ struct FramingOverlayView: View {
 
 // MARK: - Track Form Score (tracking state only)
 
-/// Form score circle in steady "TRACKING" state with blue pulsing ring. Matches WorkoutActiveView formScoreIndicator tracking state and animations. No score is computed yet.
+/// Live rep count during a Track set with blue pulsing ring (same visual language as form-score tracking).
 struct TrackFormScoreTrackingView: View {
+    var repCount: Int
     @Binding var trackingPulseScale: CGFloat
 
     var body: some View {
@@ -516,16 +538,18 @@ struct TrackFormScoreTrackingView: View {
                     trackingPulseScale = 1.0
                 }
 
-            VStack(spacing: 2) {
-                Text("...")
-                    .font(.neueMontrealBold(size: 14))
-                    .foregroundColor(.blue.opacity(0.9))
-                Text("TRACKING")
-                    .font(.neueMontrealBold(size: 8))
-                    .foregroundColor(.blue.opacity(0.8))
+            VStack(spacing: 0) {
+                Text("\(repCount)")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                Text("REPS")
+                    .font(.neueMontrealBold(size: 7))
+                    .foregroundColor(.blue.opacity(0.85))
             }
         }
-        .frame(width: 56, height: 56)
+        .frame(width: 64, height: 64)
         .shadow(color: Color.blue.opacity(0.3), radius: 4)
     }
 }

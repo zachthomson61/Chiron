@@ -223,6 +223,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var bwRepCycleStartTime: Date?
     /// Consecutive frames near top while descending (abandon shallow bounce).
     private var bwEarlyTopReturnFrames: Int = 0
+    /// EMA-smoothed shoulder Y (overlay coords). Reduces MediaPipe jitter.
+    private var bwSmoothedShoulderY: Float?
+    /// Previous frame's smoothed shoulder Y, used to compute velocity.
+    private var bwPrevSmoothedShoulderY: Float?
+    /// Smoothed frame-to-frame velocity (positive = downward in overlay coords).
+    private var bwShoulderVelocity: Float = 0
     
     // MARK: - Automatic Set Detection Properties
     private var inactivityDetector = InactivityDetector()
@@ -483,7 +489,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         // Rep counting should not advance while we're in setup mode (e.g. test overlays).
         // Set start may be explicit (Track `startManualSet`) or rep-driven (`checkForNextSetStart` after reps while `.waiting`).
         // The squat rep state machine is advanced only from this path (never from `checkForNextSetStart`).
-        if !SharedCameraSessionManager.shared.isInSetupMode {
+        if !SharedCameraSessionManager.shared.isInSetupMode,
+           !SharedCameraSessionManager.shared.suppressRepCounting {
             let now = Date()
             if validateRep(skeleton: smoothed, overlay: landmarks, formAnalysis: formAnalysis, now: now) {
                 if trackedExerciseType == .bodyweight {
@@ -495,7 +502,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             }
 
             DispatchQueue.main.async {
-                self.checkForSetEnd()
+                if !SharedCameraSessionManager.shared.trackExplicitSetActive {
+                    self.checkForSetEnd()
+                }
                 self.checkForNextSetStart()
             }
         }
@@ -1826,6 +1835,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         bwEarlyTopReturnFrames = 0
         bwRepCycleStartTime = nil
         squatRepCycleHipKneeParallelMet = false
+        bwSmoothedShoulderY = nil
+        bwPrevSmoothedShoulderY = nil
+        bwShoulderVelocity = 0
     }
 
     private func updateBodyweightHipKneeParallelTag(skeleton: Skeleton3D) {
@@ -1837,12 +1849,36 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     }
 
     /// Mid-shoulder vertical motion in overlay Y (normalized by leg span). No secondary hip/knee gating.
+    /// Uses EMA-smoothed shoulder Y and velocity confirmation for robust angle-independent rep detection.
     private func validateBodyweightSquatRep(overlay: [String: CGPoint], skeleton: Skeleton3D, now: Date) -> Bool {
         let profile = activeBodyweightRepProfile
         guard let ls = overlay["leftShoulder"], let rs = overlay["rightShoulder"] else { return false }
         guard let legSpan = bodyweightOverlayLegSpanY(overlay) else { return false }
 
-        let shoulderY = Float((ls.y + rs.y) / 2)
+        let rawShoulderY = Float((ls.y + rs.y) / 2)
+
+        // EMA smoothing: reduces MediaPipe landmark jitter across all camera angles.
+        let alpha = profile.shoulderEMAAlpha
+        let smoothed: Float
+        if let prev = bwSmoothedShoulderY {
+            smoothed = alpha * rawShoulderY + (1 - alpha) * prev
+        } else {
+            smoothed = rawShoulderY
+        }
+        bwPrevSmoothedShoulderY = bwSmoothedShoulderY
+        bwSmoothedShoulderY = smoothed
+
+        // Velocity: positive = moving down in overlay coords, negative = moving up.
+        let rawVelocity: Float
+        if let prev = bwPrevSmoothedShoulderY {
+            rawVelocity = smoothed - prev
+        } else {
+            rawVelocity = 0
+        }
+        // Smooth velocity with same alpha to damp noise.
+        bwShoulderVelocity = alpha * rawVelocity + (1 - alpha) * bwShoulderVelocity
+
+        let shoulderY = smoothed
 
         switch bwShoulderPhase {
         case .idleAtTop:
@@ -1853,6 +1889,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     bwShoulderConsecutive += 1
                     if bwShoulderConsecutive >= profile.framesForTopLock {
                         bwTopLocked = true
+                        bwTopRefShoulderY = shoulderY
                         bwShoulderConsecutive = 0
                     }
                 } else {
@@ -1863,18 +1900,15 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             }
 
             let top = bwTopRefShoulderY!
-            if shoulderY - top >= profile.repDescentExcursionNormalized * legSpan {
-                bwShoulderConsecutive += 1
-                if bwShoulderConsecutive >= 1 {
-                    bwShoulderPhase = .descending
-                    bwRepCycleStartTime = now
-                    bwShoulderConsecutive = 0
-                    bwEarlyTopReturnFrames = 0
-                    bwCycleExtremeShoulderY = shoulderY
-                    updateBodyweightHipKneeParallelTag(skeleton: skeleton)
-                }
-            } else {
+            let excursion = shoulderY - top
+            let velocityConfirmed = bwShoulderVelocity >= profile.velocityDescentConfirm
+            if excursion >= profile.repDescentExcursionNormalized * legSpan, velocityConfirmed {
+                bwShoulderPhase = .descending
+                bwRepCycleStartTime = now
                 bwShoulderConsecutive = 0
+                bwEarlyTopReturnFrames = 0
+                bwCycleExtremeShoulderY = shoulderY
+                updateBodyweightHipKneeParallelTag(skeleton: skeleton)
             }
             return false
 
@@ -1899,6 +1933,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 bwShoulderConsecutive = 0
             }
 
+            // Shallow bounce rejection: returned near top before reaching bottom depth.
             if exc < profile.repDescentExcursionNormalized * legSpan * 0.35 {
                 bwEarlyTopReturnFrames += 1
                 if bwEarlyTopReturnFrames >= profile.framesForTopReturnConfirm {
@@ -1912,8 +1947,14 @@ class OnDevicePoseManager: NSObject, ObservableObject {
 
         case .bottomReached:
             updateBodyweightHipKneeParallelTag(skeleton: skeleton)
+            // Track the deepest point even after bottom is confirmed.
+            if let extreme = bwCycleExtremeShoulderY {
+                bwCycleExtremeShoulderY = max(extreme, shoulderY)
+            }
+            // Transition to ascending: require upward position recovery AND upward velocity.
             if let extreme = bwCycleExtremeShoulderY,
-               shoulderY < extreme - profile.repAscentRecoveryNormalized * legSpan {
+               shoulderY < extreme - profile.repAscentRecoveryNormalized * legSpan,
+               bwShoulderVelocity <= profile.velocityAscentConfirm {
                 bwShoulderPhase = .ascending
                 bwShoulderConsecutive = 0
             }
@@ -1941,15 +1982,31 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     }
                     lastCountedRepHipKneeDepthQualityMet = squatRepCycleHipKneeParallelMet
                     lastRepValidationTime = now
+                    // Preserve EMA continuity across reps for smooth tracking.
+                    let savedSmoothed = bwSmoothedShoulderY
+                    let savedPrev = bwPrevSmoothedShoulderY
+                    let savedVel = bwShoulderVelocity
+                    // Adaptive top reference: update to current standing position for next rep.
+                    let returnedTopY = shoulderY
                     resetBodyweightSquatRepCycleState()
+                    bwTopRefShoulderY = returnedTopY
+                    bwTopLocked = true
+                    bwSmoothedShoulderY = savedSmoothed
+                    bwPrevSmoothedShoulderY = savedPrev
+                    bwShoulderVelocity = savedVel
                     return true
                 }
             } else {
                 bwShoulderConsecutive = 0
             }
 
-            if shoulderY - top > profile.repBottomExcursionNormalized * legSpan * 0.88 {
+            // If user sinks back down during ascent, re-enter bottomReached.
+            // Use velocity to confirm genuine re-descent vs noise.
+            let reDescentExc = shoulderY - top
+            if reDescentExc > profile.repBottomExcursionNormalized * legSpan * 0.80,
+               bwShoulderVelocity >= profile.velocityDescentConfirm {
                 bwShoulderPhase = .bottomReached
+                bwShoulderConsecutive = 0
             }
             return false
         }

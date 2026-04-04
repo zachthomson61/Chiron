@@ -42,6 +42,12 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
     @Published var currentFormAnalysis: FormAnalysis?
     @Published var coachingFeedback: String = ""
     
+    /// When `true`, pose frames still run but rep validation does not advance (e.g. Track tab while framing or between sets).
+    var suppressRepCounting: Bool = false
+    
+    /// When `true`, Track tab has started a set via "Begin Set" — skip inactivity-based `handleSetEnd` so pauses between reps do not zero the counter.
+    var trackExplicitSetActive: Bool = false
+    
     private override init() {
         super.init()
     }

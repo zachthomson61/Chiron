@@ -114,6 +114,11 @@ struct RootTabView: View {
             // Ensure the tab is marked as loaded when selected
             loadedTabs.insert(selectedTab)
             
+            // `TrackView.onAppear` may not run again when returning to this tab; coached workouts leave the shared session in setup mode, which blocks `captureOutput` and rep tracking until we re-attach the workout delegate.
+            if selectedTab == .track {
+                SharedCameraSessionManager.shared.switchToWorkoutMode()
+            }
+            
             #if os(iOS)
             UIImpactFeedbackGenerator(style: .light).impactOccurred() // Light haptic on tab switch
             #endif
