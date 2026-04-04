@@ -122,6 +122,13 @@ struct SquatRepDetectionProfile: Sendable {
     var hipKneeDepthQualityToleranceNormalized: Float
     var repAccumulationStartDepth: Float
 
+    // Shoulder Y EMA smoothing factor (0…1). Lower = heavier smoothing. 0.35 is a good default.
+    var shoulderEMAAlpha: Float
+    // Minimum smoothed velocity (per-frame delta / legSpan) to confirm descent direction.
+    var velocityDescentConfirm: Float
+    // Minimum smoothed velocity (negative = upward) to confirm ascent direction.
+    var velocityAscentConfirm: Float
+
     // Per-frame extension state (hysteresis on hip depth 0…1) — UI / debug; not used to gate rep count.
     var extensionUpEnterMaxDepth: Float
     var extensionUpExitDepth: Float
@@ -172,6 +179,9 @@ enum SquatRepProfileTable {
         repGoodDepthThreshold: 0.40,
         hipKneeDepthQualityToleranceNormalized: 0.10,
         repAccumulationStartDepth: 0.18,
+        shoulderEMAAlpha: 0.35,
+        velocityDescentConfirm: 0.004,
+        velocityAscentConfirm: -0.004,
         extensionUpEnterMaxDepth: 0.14,
         extensionUpExitDepth: 0.18,
         extensionDownEnterDepth: 0.30,
@@ -200,6 +210,9 @@ enum SquatRepProfileTable {
         repGoodDepthThreshold: 0.38,
         hipKneeDepthQualityToleranceNormalized: 0.11,
         repAccumulationStartDepth: 0.16,
+        shoulderEMAAlpha: 0.33,
+        velocityDescentConfirm: 0.003,
+        velocityAscentConfirm: -0.003,
         extensionUpEnterMaxDepth: 0.16,
         extensionUpExitDepth: 0.20,
         extensionDownEnterDepth: 0.28,
@@ -226,6 +239,9 @@ enum SquatRepProfileTable {
         repGoodDepthThreshold: 0.39,
         hipKneeDepthQualityToleranceNormalized: 0.105,
         repAccumulationStartDepth: 0.17,
+        shoulderEMAAlpha: 0.34,
+        velocityDescentConfirm: 0.0035,
+        velocityAscentConfirm: -0.0035,
         extensionUpEnterMaxDepth: 0.15,
         extensionUpExitDepth: 0.19,
         extensionDownEnterDepth: 0.29,
@@ -254,6 +270,9 @@ enum SquatRepProfileTable {
         repGoodDepthThreshold: 0.36,
         hipKneeDepthQualityToleranceNormalized: 0.12,
         repAccumulationStartDepth: 0.15,
+        shoulderEMAAlpha: 0.30,
+        velocityDescentConfirm: 0.003,
+        velocityAscentConfirm: -0.003,
         extensionUpEnterMaxDepth: 0.18,
         extensionUpExitDepth: 0.22,
         extensionDownEnterDepth: 0.27,
@@ -280,6 +299,9 @@ enum SquatRepProfileTable {
         repGoodDepthThreshold: 0.38,
         hipKneeDepthQualityToleranceNormalized: 0.11,
         repAccumulationStartDepth: 0.15,
+        shoulderEMAAlpha: 0.32,
+        velocityDescentConfirm: 0.0035,
+        velocityAscentConfirm: -0.0035,
         extensionUpEnterMaxDepth: 0.17,
         extensionUpExitDepth: 0.21,
         extensionDownEnterDepth: 0.28,
@@ -306,6 +328,9 @@ enum SquatRepProfileTable {
         repGoodDepthThreshold: 0.37,
         hipKneeDepthQualityToleranceNormalized: 0.115,
         repAccumulationStartDepth: 0.15,
+        shoulderEMAAlpha: 0.30,
+        velocityDescentConfirm: 0.003,
+        velocityAscentConfirm: -0.003,
         extensionUpEnterMaxDepth: 0.175,
         extensionUpExitDepth: 0.215,
         extensionDownEnterDepth: 0.275,
@@ -334,6 +359,9 @@ enum SquatRepProfileTable {
         repGoodDepthThreshold: 0.39,
         hipKneeDepthQualityToleranceNormalized: 0.10,
         repAccumulationStartDepth: 0.17,
+        shoulderEMAAlpha: 0.32,
+        velocityDescentConfirm: 0.003,
+        velocityAscentConfirm: -0.003,
         extensionUpEnterMaxDepth: 0.15,
         extensionUpExitDepth: 0.19,
         extensionDownEnterDepth: 0.29,
@@ -360,6 +388,9 @@ enum SquatRepProfileTable {
         repGoodDepthThreshold: 0.40,
         hipKneeDepthQualityToleranceNormalized: 0.10,
         repAccumulationStartDepth: 0.18,
+        shoulderEMAAlpha: 0.35,
+        velocityDescentConfirm: 0.004,
+        velocityAscentConfirm: -0.004,
         extensionUpEnterMaxDepth: 0.145,
         extensionUpExitDepth: 0.185,
         extensionDownEnterDepth: 0.305,
@@ -386,6 +417,9 @@ enum SquatRepProfileTable {
         repGoodDepthThreshold: 0.395,
         hipKneeDepthQualityToleranceNormalized: 0.102,
         repAccumulationStartDepth: 0.175,
+        shoulderEMAAlpha: 0.32,
+        velocityDescentConfirm: 0.0035,
+        velocityAscentConfirm: -0.0035,
         extensionUpEnterMaxDepth: 0.148,
         extensionUpExitDepth: 0.188,
         extensionDownEnterDepth: 0.298,
