@@ -227,3 +227,63 @@ class Landmark2DSmoother {
     }
 }
 
+// MARK: - Standing Calibration Gate (testable)
+
+/// Requires N consecutive stable frames within a tolerance band before locking a reference value.
+/// Used by `calculateHipDepth3D` to prevent single-frame noise from poisoning standing calibration.
+struct StandingCalibrationGate {
+    private(set) var lockedValue: Float?
+    private var candidate: Float?
+    private var consecutiveFrames: Int = 0
+    let requiredFrames: Int
+    let tolerance: Float
+
+    init(requiredFrames: Int = 5, tolerance: Float = 0.03) {
+        self.requiredFrames = requiredFrames
+        self.tolerance = tolerance
+    }
+
+    /// Feed a new measurement. Returns `true` if `lockedValue` was updated this frame.
+    @discardableResult
+    mutating func push(_ value: Float) -> Bool {
+        if let cand = candidate {
+            let band = cand * tolerance
+            if abs(value - cand) <= band {
+                consecutiveFrames += 1
+                if value > cand { candidate = value }
+                if consecutiveFrames >= requiredFrames {
+                    let stable = candidate!
+                    if stable > (lockedValue ?? 0) {
+                        lockedValue = stable
+                        candidate = nil
+                        consecutiveFrames = 0
+                        return true
+                    }
+                    candidate = nil
+                    consecutiveFrames = 0
+                }
+            } else if value > cand {
+                candidate = value
+                consecutiveFrames = 1
+            } else {
+                // Shorter than candidate — only reset if significantly below (user walked away)
+                if value < cand * 0.85 {
+                    candidate = nil
+                    consecutiveFrames = 0
+                }
+                // Otherwise keep candidate alive (user may be mid-squat)
+            }
+        } else {
+            candidate = value
+            consecutiveFrames = 1
+        }
+        return false
+    }
+
+    mutating func reset() {
+        lockedValue = nil
+        candidate = nil
+        consecutiveFrames = 0
+    }
+}
+

@@ -68,6 +68,9 @@ struct BodyweightRepMetrics {
     let kneeValgus: Bool
     /// True if hip–knee relationship met parallel-depth quality (secondary; does not gate counting).
     let hipKneeDepthQualityMet: Bool
+    /// True if 3D depth was below primary threshold but above secondary floor.
+    /// Indicates camera-angle compression rather than actually shallow squat.
+    let reducedDepthConfidence: Bool
     let valid: Bool
     let timestamp: TimeInterval
 }
@@ -182,6 +185,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     @Published var workoutState: WorkoutState = .waiting
     @Published var currentSet: Int = 0
     @Published var trackedExerciseType: TrackedExerciseType = .bodyweight
+
+    /// Enables per-frame debug logging for squat rep detection.
+    /// Toggle from the debug overlay in TrackView. Zero overhead when false.
+    @Published var debugLoggerEnabled: Bool = false {
+        didSet { SquatRepDebugLogger.shared.isEnabled = debugLoggerEnabled }
+    }
     
     /// Stores form analysis at rep completion for score calculation.
     /// 
@@ -215,21 +224,33 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var activeBodyweightRepProfile: SquatRepDetectionProfile = SquatRepProfileTable.profile(for: .chest_side)
 
     // MARK: - Bodyweight shoulder-vertical rep state
-    private var bwShoulderPhase: BodyweightVerticalRepPhase = .idleAtTop
-    private var bwTopRefShoulderY: Float?
-    private var bwCycleExtremeShoulderY: Float?
-    private var bwTopLocked: Bool = false
-    private var bwShoulderConsecutive: Int = 0
+
+    #if DEBUG
+    /// Enable to log every state-machine transition, commit decision, and calibration event.
+    private let repDebugLog: Bool = false
+    #else
+    private let repDebugLog: Bool = false
+    #endif
+
+    private func repLog(_ msg: @autoclosure () -> String) {
+        guard repDebugLog else { return }
+        print("[RepDebug] \(msg())")
+    }
+
+    // MARK: - Bodyweight squat rep detection state
+    //
+    // Knee-angle hysteresis: UP ↔ DOWN with EMA-smoothed angle.
+    // See validateBodyweightSquatRep() for the algorithm.
+
+    private var bwRepPhase: BodyweightVerticalRepPhase = .up
+    private var bwSmoothedKneeAngle: Float?          // EMA-smoothed knee angle
     private var bwRepCycleStartTime: Date?
-    /// Consecutive frames near top while descending (abandon shallow bounce).
-    private var bwEarlyTopReturnFrames: Int = 0
-    /// EMA-smoothed shoulder Y (overlay coords). Reduces MediaPipe jitter.
-    private var bwSmoothedShoulderY: Float?
-    /// Previous frame's smoothed shoulder Y, used to compute velocity.
-    private var bwPrevSmoothedShoulderY: Float?
-    /// Smoothed frame-to-frame velocity (positive = downward in overlay coords).
-    private var bwShoulderVelocity: Float = 0
-    
+    private var bwBadFrameStreak: Int = 0
+    private let bwBadFrameLimit: Int = 15
+    private var bwLastRejectReason: String?   // transient, for debug CSV
+    private var bwSelectedSide: String = ""   // "L" or "R"
+    private var bwRawKneeAngle: Float?        // unsmoothed, for debug CSV
+
     // MARK: - Automatic Set Detection Properties
     private var inactivityDetector = InactivityDetector()
     private var consecutiveGoodReps = 0
@@ -357,6 +378,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     // Hip-based depth calibration (self-calibrates to standing reference each set)
     private var standingHipHeight: Float?
     private var standingLegLength: Float?
+    /// Stable-frame gate for standing calibration (Bug 1 fix).
+    private var standingCalibrationCandidate: Float?
+    private var standingCalibrationFrames: Int = 0
+    private let standingCalibrationRequired: Int = 5
+    private let standingCalibrationTolerance: Float = 0.03 // 3% band
 
     // ROM tracking (depth-based)
     private var sumBottomDepth: Double = 0
@@ -485,7 +511,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
         
         aggregateFeedback(from: formAnalysis)
-        
+
+        // Build debug frame before rep counting so we capture pre-event state.
+        var debugRepCounted = false
+        var debugCommitValid: Bool?
+        bwLastRejectReason = nil // Clear transient reject reason from previous frame
+
         // Rep counting should not advance while we're in setup mode (e.g. test overlays).
         // Set start may be explicit (Track `startManualSet`) or rep-driven (`checkForNextSetStart` after reps while `.waiting`).
         // The squat rep state machine is advanced only from this path (never from `checkForNextSetStart`).
@@ -493,8 +524,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
            !SharedCameraSessionManager.shared.suppressRepCounting {
             let now = Date()
             if validateRep(skeleton: smoothed, overlay: landmarks, formAnalysis: formAnalysis, now: now) {
+                debugRepCounted = true
                 if trackedExerciseType == .bodyweight {
+                    let preValid = bodyweightRepHistory.count
                     commitBodyweightRepIfNeeded()
+                    debugCommitValid = bodyweightRepHistory.count > preValid
                 }
                 DispatchQueue.main.async {
                     self.handleRepDetected()
@@ -508,8 +542,45 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 self.checkForNextSetStart()
             }
         }
+
+        // Log debug frame (zero overhead when disabled).
+        if SquatRepDebugLogger.shared.isEnabled, trackedExerciseType == .bodyweight {
+            let profile = activeBodyweightRepProfile
+            var frame = SquatRepDebugFrame(
+                timestamp: CACurrentMediaTime(),
+                frameIndex: SquatRepDebugLogger.shared.nextFrameIndex
+            )
+            // Knee angle
+            frame.kneeAngleRaw = bwRawKneeAngle
+            frame.kneeAngleSmoothed = bwSmoothedKneeAngle
+            frame.selectedSide = bwSelectedSide
+            // State machine
+            frame.phase = bwRepPhase.rawValue
+            // 2D overlay
+            frame.overlayHipY = Float(((landmarks["leftHip"]?.y ?? 0) + (landmarks["rightHip"]?.y ?? 0)) / 2)
+            frame.overlayKneeY = Float(((landmarks["leftKnee"]?.y ?? 0) + (landmarks["rightKnee"]?.y ?? 0)) / 2)
+            frame.overlayAnkleY = Float(((landmarks["leftAnkle"]?.y ?? 0) + (landmarks["rightAnkle"]?.y ?? 0)) / 2)
+            frame.overlayLegSpan = bodyweightOverlayLegSpanY(landmarks)
+            // Depth
+            frame.hipDepth3D = tempoDepth
+            // Calibration
+            frame.standingHipHeight = standingHipHeight
+            frame.standingLegLength = standingLegLength
+            // Thresholds
+            frame.downAngleThreshold = profile.downAngleThreshold
+            frame.upAngleThreshold = profile.upAngleThreshold
+            // Rep accumulation
+            frame.peakDepthThisRep = bodyweightCurrentRepPeakDepth
+            frame.repFrameCount = bodyweightRepFrameCount
+            frame.kneeWindowSamples = bodyweightKneeWindowSampleCount
+            // Events
+            frame.repCounted = debugRepCounted
+            frame.repCommitValid = debugCommitValid
+            frame.rejectReason = bwLastRejectReason
+            SquatRepDebugLogger.shared.log(frame)
+        }
     }
-    
+
     // MARK: - Form Analysis (2D overlay)
 
     private func analyzeFormFrom2DOverlay(_ points: [String: CGPoint]) -> FormAnalysis {
@@ -1152,9 +1223,46 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         let currentHipHeight = hipCenter.y - ankleCenter.y
 
         let currentLegLen = length(hipCenter - ankleCenter)
-        if currentHipHeight > (standingHipHeight ?? 0) {
-            standingHipHeight = currentHipHeight
-            standingLegLength = currentLegLen
+
+        // Stable-frame gate: require N consecutive frames within tolerance band
+        // before locking standingHipHeight. Prevents single-frame noise poisoning.
+        if let candidate = standingCalibrationCandidate {
+            let tolerance = candidate * standingCalibrationTolerance
+            if abs(currentHipHeight - candidate) <= tolerance {
+                standingCalibrationFrames += 1
+                // Track the max within the stable window as the candidate
+                if currentHipHeight > candidate {
+                    standingCalibrationCandidate = currentHipHeight
+                }
+                if standingCalibrationFrames >= standingCalibrationRequired {
+                    let stableHeight = standingCalibrationCandidate!
+                    if stableHeight > (standingHipHeight ?? 0) {
+                        let prev = standingHipHeight
+                        standingHipHeight = stableHeight
+                        standingLegLength = currentLegLen
+                        repLog("CALIBRATION LOCKED  hipHeight=\(stableHeight) prev=\(prev.map { String($0) } ?? "nil") legLen=\(currentLegLen) after \(standingCalibrationRequired) stable frames")
+                    }
+                    // Reset candidate so we can detect taller standing later
+                    standingCalibrationCandidate = nil
+                    standingCalibrationFrames = 0
+                }
+            } else if currentHipHeight > candidate {
+                // Taller frame: restart candidate with new height
+                standingCalibrationCandidate = currentHipHeight
+                standingCalibrationFrames = 1
+            } else {
+                // Shorter than candidate — user may be mid-squat. Only reset if
+                // significantly shorter (walked away, new person, etc.)
+                if currentHipHeight < candidate * 0.85 {
+                    standingCalibrationCandidate = nil
+                    standingCalibrationFrames = 0
+                }
+                // Otherwise: just ignore this frame, keep candidate alive
+            }
+        } else {
+            // No candidate yet: start tracking
+            standingCalibrationCandidate = currentHipHeight
+            standingCalibrationFrames = 1
         }
 
         guard let refHeight = standingHipHeight,
@@ -1643,6 +1751,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         bodyweightRepPhase = .idle
         bodyweightCurrentRepPeakDepth = 0
         lastCountedRepHipKneeDepthQualityMet = false
+        bwSmoothedKneeAngle = nil
+        bwRawKneeAngle = nil
         consecutiveFramesAtBottomBenchPress = 0
         consecutiveFramesAtTopBenchPress = 0
         framesSinceGoodPose = 0
@@ -1703,6 +1813,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         bodyweightRepPhase = .idle
         bodyweightCurrentRepPeakDepth = 0
         lastCountedRepHipKneeDepthQualityMet = false
+        bwSmoothedKneeAngle = nil
+        bwRawKneeAngle = nil
         consecutiveFramesAtBottomBenchPress = 0
         consecutiveFramesAtTopBenchPress = 0
         framesSinceGoodPose = 0
@@ -1721,6 +1833,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         currentRepBottomDepthMax = 0
         standingHipHeight = nil
         standingLegLength = nil
+        standingCalibrationCandidate = nil
+        standingCalibrationFrames = 0
         reachedBottomThisCycleBenchPress = false
         benchPressEccentricStartTime = nil
         benchPressBottomTime = nil
@@ -1821,194 +1935,108 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         return span > 0.02 ? span : nil
     }
 
-    private func rejectBodyweightRep(reason _: SquatRepRejectReason, note _: String = "") {
+    private func rejectBodyweightRep(reason: SquatRepRejectReason, note: String = "") {
+        repLog("REP REJECTED  reason=\(reason.rawValue) \(note)")
+        bwLastRejectReason = "\(reason.rawValue) \(note)"
         resetBodyweightSquatRepCycleState()
         abortInProgressBodyweightRepAccumulation()
     }
 
     private func resetBodyweightSquatRepCycleState() {
-        bwShoulderPhase = .idleAtTop
-        bwTopRefShoulderY = nil
-        bwCycleExtremeShoulderY = nil
-        bwTopLocked = false
-        bwShoulderConsecutive = 0
-        bwEarlyTopReturnFrames = 0
+        bwRepPhase = .up
+        bwSmoothedKneeAngle = nil
         bwRepCycleStartTime = nil
+        bwBadFrameStreak = 0
+        bwRawKneeAngle = nil
         squatRepCycleHipKneeParallelMet = false
-        bwSmoothedShoulderY = nil
-        bwPrevSmoothedShoulderY = nil
-        bwShoulderVelocity = 0
     }
 
-    private func updateBodyweightHipKneeParallelTag(skeleton: Skeleton3D) {
-        guard let frame = squatRepHipKneeMetrics(skeleton) else { return }
-        let tol = activeBodyweightRepProfile.hipKneeDepthQualityToleranceNormalized
-        if frame.normalizedHipKneeDelta <= tol {
-            squatRepCycleHipKneeParallelMet = true
-        }
-    }
-
-    /// Mid-shoulder vertical motion in overlay Y (normalized by leg span). No secondary hip/knee gating.
-    /// Uses EMA-smoothed shoulder Y and velocity confirmation for robust angle-independent rep detection.
+    // MARK: - Bodyweight squat rep detection (knee angle)
+    //
+    // Algorithm (matches the MediaPipe squat_counter.py reference script):
+    //   1. Extract 3D hip, knee, ankle from the better-visible side.
+    //   2. Compute the knee angle (hip→knee→ankle) via angleDegrees().
+    //   3. Apply EMA smoothing to reduce landmark jitter.
+    //   4. Two-state machine (UP / DOWN) with hysteresis:
+    //        UP  → DOWN when smoothed angle ≤ downAngleThreshold  (user squats)
+    //        DOWN → UP  when smoothed angle ≥ upAngleThreshold    (user stands — rep counted)
+    //   5. Timing gates reject impossibly fast or slow cycles.
+    //
     private func validateBodyweightSquatRep(overlay: [String: CGPoint], skeleton: Skeleton3D, now: Date) -> Bool {
         let profile = activeBodyweightRepProfile
-        guard let ls = overlay["leftShoulder"], let rs = overlay["rightShoulder"] else { return false }
-        guard let legSpan = bodyweightOverlayLegSpanY(overlay) else { return false }
 
-        let rawShoulderY = Float((ls.y + rs.y) / 2)
+        // --- 1. Extract 3D hip, knee, ankle from the better-visible side ---
 
-        // EMA smoothing: reduces MediaPipe landmark jitter across all camera angles.
-        let alpha = profile.shoulderEMAAlpha
-        let smoothed: Float
-        if let prev = bwSmoothedShoulderY {
-            smoothed = alpha * rawShoulderY + (1 - alpha) * prev
-        } else {
-            smoothed = rawShoulderY
+        let rh = skeleton.position("rightHip"),  rk = skeleton.position("rightKnee"),  ra = skeleton.position("rightAnkle")
+        let lh = skeleton.position("leftHip"),   lk = skeleton.position("leftKnee"),   la = skeleton.position("leftAnkle")
+        let rightOk = rh != nil && rk != nil && ra != nil
+        let leftOk  = lh != nil && lk != nil && la != nil
+
+        let hip: SIMD3<Float>, knee: SIMD3<Float>, ankle: SIMD3<Float>
+        if rightOk, leftOk {
+            // Both visible — prefer the side with more spatial spread (closer to camera in side view).
+            let rSpread = abs(rh!.x - ra!.x) + abs(rh!.y - ra!.y)
+            let lSpread = abs(lh!.x - la!.x) + abs(lh!.y - la!.y)
+            if rSpread >= lSpread { hip = rh!; knee = rk!; ankle = ra!; bwSelectedSide = "R" }
+            else                  { hip = lh!; knee = lk!; ankle = la!; bwSelectedSide = "L" }
+        } else if rightOk { hip = rh!; knee = rk!; ankle = ra!; bwSelectedSide = "R" }
+          else if leftOk  { hip = lh!; knee = lk!; ankle = la!; bwSelectedSide = "L" }
+          else {
+            bwBadFrameStreak += 1
+            if bwBadFrameStreak >= bwBadFrameLimit { bwSmoothedKneeAngle = nil }
+            return false
         }
-        bwPrevSmoothedShoulderY = bwSmoothedShoulderY
-        bwSmoothedShoulderY = smoothed
+        bwBadFrameStreak = 0
 
-        // Velocity: positive = moving down in overlay coords, negative = moving up.
-        let rawVelocity: Float
-        if let prev = bwPrevSmoothedShoulderY {
-            rawVelocity = smoothed - prev
+        // --- 2. Knee angle + EMA ---
+
+        let rawAngle = angleDegrees(a: hip, b: knee, c: ankle)  // standing ≈ 170°, deep squat ≈ 60–90°
+        bwRawKneeAngle = rawAngle
+
+        let alpha = profile.kneeAngleEMAAlpha
+        let smoothed: Float = if let prev = bwSmoothedKneeAngle {
+            alpha * rawAngle + (1 - alpha) * prev
         } else {
-            rawVelocity = 0
+            rawAngle
         }
-        // Smooth velocity with same alpha to damp noise.
-        bwShoulderVelocity = alpha * rawVelocity + (1 - alpha) * bwShoulderVelocity
+        bwSmoothedKneeAngle = smoothed
 
-        let shoulderY = smoothed
+        // --- 3. UP / DOWN state machine ---
 
-        switch bwShoulderPhase {
-        case .idleAtTop:
-            if !bwTopLocked {
-                if bwTopRefShoulderY == nil { bwTopRefShoulderY = shoulderY }
-                let top = bwTopRefShoulderY!
-                if abs(shoulderY - top) <= profile.repTopLockToleranceNormalized * legSpan {
-                    bwShoulderConsecutive += 1
-                    if bwShoulderConsecutive >= profile.framesForTopLock {
-                        bwTopLocked = true
-                        bwTopRefShoulderY = shoulderY
-                        bwShoulderConsecutive = 0
-                    }
-                } else {
-                    bwShoulderConsecutive = 0
-                    bwTopRefShoulderY = shoulderY
-                }
+        switch bwRepPhase {
+        case .up:
+            if smoothed <= profile.downAngleThreshold {
+                bwRepPhase = .down
+                bwRepCycleStartTime = now
+                repLog("UP→DOWN  angle=\(smoothed)")
+            }
+            return false
+
+        case .down:
+            guard smoothed >= profile.upAngleThreshold else { return false }
+
+            let dur = now.timeIntervalSince(bwRepCycleStartTime ?? now)
+            if let last = lastRepValidationTime, now.timeIntervalSince(last) < profile.minRepInterval {
+                rejectBodyweightRep(reason: .minRepInterval, note: "dt=\(now.timeIntervalSince(last))")
+                return false
+            }
+            if dur < profile.minRepCycleDuration {
+                rejectBodyweightRep(reason: .minCycleDuration, note: "dur=\(dur)")
+                return false
+            }
+            if dur > profile.maxRepCycleDuration {
+                rejectBodyweightRep(reason: .maxCycleDuration, note: "dur=\(dur)")
                 return false
             }
 
-            let top = bwTopRefShoulderY!
-            let excursion = shoulderY - top
-            let velocityConfirmed = bwShoulderVelocity >= profile.velocityDescentConfirm
-            if excursion >= profile.repDescentExcursionNormalized * legSpan, velocityConfirmed {
-                bwShoulderPhase = .descending
-                bwRepCycleStartTime = now
-                bwShoulderConsecutive = 0
-                bwEarlyTopReturnFrames = 0
-                bwCycleExtremeShoulderY = shoulderY
-                updateBodyweightHipKneeParallelTag(skeleton: skeleton)
-            }
-            return false
-
-        case .descending:
-            let top = bwTopRefShoulderY ?? shoulderY
-            updateBodyweightHipKneeParallelTag(skeleton: skeleton)
-            if let extreme = bwCycleExtremeShoulderY {
-                bwCycleExtremeShoulderY = max(extreme, shoulderY)
-            } else {
-                bwCycleExtremeShoulderY = shoulderY
-            }
-
-            let exc = shoulderY - top
-            if exc >= profile.repBottomExcursionNormalized * legSpan {
-                bwShoulderConsecutive += 1
-                if bwShoulderConsecutive >= profile.framesForBottomConfirm {
-                    bwShoulderPhase = .bottomReached
-                    bwShoulderConsecutive = 0
-                    bwEarlyTopReturnFrames = 0
-                }
-            } else {
-                bwShoulderConsecutive = 0
-            }
-
-            // Shallow bounce rejection: returned near top before reaching bottom depth.
-            if exc < profile.repDescentExcursionNormalized * legSpan * 0.35 {
-                bwEarlyTopReturnFrames += 1
-                if bwEarlyTopReturnFrames >= profile.framesForTopReturnConfirm {
-                    rejectBodyweightRep(reason: .shallowBounceAborted, note: "returnedToTopBeforeBottom")
-                    return false
-                }
-            } else {
-                bwEarlyTopReturnFrames = 0
-            }
-            return false
-
-        case .bottomReached:
-            updateBodyweightHipKneeParallelTag(skeleton: skeleton)
-            // Track the deepest point even after bottom is confirmed.
-            if let extreme = bwCycleExtremeShoulderY {
-                bwCycleExtremeShoulderY = max(extreme, shoulderY)
-            }
-            // Transition to ascending: require upward position recovery AND upward velocity.
-            if let extreme = bwCycleExtremeShoulderY,
-               shoulderY < extreme - profile.repAscentRecoveryNormalized * legSpan,
-               bwShoulderVelocity <= profile.velocityAscentConfirm {
-                bwShoulderPhase = .ascending
-                bwShoulderConsecutive = 0
-            }
-            return false
-
-        case .ascending:
-            updateBodyweightHipKneeParallelTag(skeleton: skeleton)
-
-            let top = bwTopRefShoulderY ?? shoulderY
-            if shoulderY - top <= profile.repReturnToTopToleranceNormalized * legSpan {
-                bwShoulderConsecutive += 1
-                if bwShoulderConsecutive >= profile.framesForTopReturnConfirm {
-                    let dur = now.timeIntervalSince(bwRepCycleStartTime ?? now)
-                    if let last = lastRepValidationTime, now.timeIntervalSince(last) < profile.minRepInterval {
-                        rejectBodyweightRep(reason: .minRepInterval, note: "dt=\(now.timeIntervalSince(last))")
-                        return false
-                    }
-                    if dur < profile.minRepCycleDuration {
-                        rejectBodyweightRep(reason: .minCycleDuration, note: "dur=\(dur)")
-                        return false
-                    }
-                    if dur > profile.maxRepCycleDuration {
-                        rejectBodyweightRep(reason: .maxCycleDuration, note: "dur=\(dur)")
-                        return false
-                    }
-                    lastCountedRepHipKneeDepthQualityMet = squatRepCycleHipKneeParallelMet
-                    lastRepValidationTime = now
-                    // Preserve EMA continuity across reps for smooth tracking.
-                    let savedSmoothed = bwSmoothedShoulderY
-                    let savedPrev = bwPrevSmoothedShoulderY
-                    let savedVel = bwShoulderVelocity
-                    // Adaptive top reference: update to current standing position for next rep.
-                    let returnedTopY = shoulderY
-                    resetBodyweightSquatRepCycleState()
-                    bwTopRefShoulderY = returnedTopY
-                    bwTopLocked = true
-                    bwSmoothedShoulderY = savedSmoothed
-                    bwPrevSmoothedShoulderY = savedPrev
-                    bwShoulderVelocity = savedVel
-                    return true
-                }
-            } else {
-                bwShoulderConsecutive = 0
-            }
-
-            // If user sinks back down during ascent, re-enter bottomReached.
-            // Use velocity to confirm genuine re-descent vs noise.
-            let reDescentExc = shoulderY - top
-            if reDescentExc > profile.repBottomExcursionNormalized * legSpan * 0.80,
-               bwShoulderVelocity >= profile.velocityDescentConfirm {
-                bwShoulderPhase = .bottomReached
-                bwShoulderConsecutive = 0
-            }
-            return false
+            // Rep counted.
+            lastCountedRepHipKneeDepthQualityMet = squatRepCycleHipKneeParallelMet
+            lastRepValidationTime = now
+            bwRepPhase = .up
+            bwRepCycleStartTime = nil
+            squatRepCycleHipKneeParallelMet = false
+            repLog("DOWN→UP  REP COUNTED  angle=\(smoothed) dur=\(dur)")
+            return true
         }
     }
 
@@ -2261,6 +2289,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     }
 
     /// Builds BodyweightRepMetrics from current-rep accumulators, validates, appends only if valid, resets state.
+    /// Bug 2 fix: if shoulder state machine completed a full cycle, use a reduced secondary depth floor
+    /// (65% of normal min) so angle-dependent 3D depth compression doesn't silently discard valid reps.
     private func commitBodyweightRepIfNeeded() {
         let depthAtBottom = bodyweightCurrentRepPeakDepth
         let backAngleMax = currentRepBackAngleMax ?? 0
@@ -2268,15 +2298,26 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         let hipKneeQ = lastCountedRepHipKneeDepthQualityMet
         let p = activeBodyweightRepProfile
         let goodDepth = p.repGoodDepthThreshold
-        let minBottom = max(bodyweightMinDepthForViableBottom, p.repCountDepthThreshold * 0.82)
+        let primaryMinBottom = max(bodyweightMinDepthForViableBottom, p.repCountDepthThreshold * 0.82)
+        // Secondary floor: 60% of primary. The shoulder state machine already validated a full
+        // down-up cycle, so we trust the rep happened — just with compressed 3D depth from the angle.
+        let secondaryMinBottom = primaryMinBottom * 0.60
 
         let shallowDepth = depthAtBottom < goodDepth
         let excessiveForwardLean = backAngleMax > CoachingContract.Threshold.forwardLean
         let kneeValgus = kneeWorst < CoachingContract.Threshold.kneeValgus
 
-        let valid = depthAtBottom >= minBottom
-            && bodyweightRepFrameCount >= bodyweightMinFramesInRep
+        let meetsFrameAndSampleGates = bodyweightRepFrameCount >= bodyweightMinFramesInRep
             && bodyweightKneeWindowSampleCount >= 1
+        let meetsPrimaryDepth = depthAtBottom >= primaryMinBottom
+        let meetsSecondaryDepth = depthAtBottom >= secondaryMinBottom
+        let usedSecondaryFloor = !meetsPrimaryDepth && meetsSecondaryDepth
+        let valid = (meetsPrimaryDepth || meetsSecondaryDepth) && meetsFrameAndSampleGates
+
+        if usedSecondaryFloor {
+            repLog("COMMIT (secondary floor)  depth=\(depthAtBottom) primaryMin=\(primaryMinBottom) secondaryMin=\(secondaryMinBottom)")
+        }
+        repLog("COMMIT  depth=\(depthAtBottom) minBottom=\(primaryMinBottom) frames=\(bodyweightRepFrameCount) kneeSamples=\(bodyweightKneeWindowSampleCount) valid=\(valid) hipKneeQ=\(hipKneeQ) secondaryUsed=\(usedSecondaryFloor)")
 
         let metrics = BodyweightRepMetrics(
             depthAtBottom: depthAtBottom,
@@ -2286,6 +2327,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             excessiveForwardLean: excessiveForwardLean,
             kneeValgus: kneeValgus,
             hipKneeDepthQualityMet: hipKneeQ,
+            reducedDepthConfidence: usedSecondaryFloor,
             valid: valid,
             timestamp: Date().timeIntervalSince1970
         )
@@ -2335,6 +2377,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         lastCompletedRepDepthAtBottom = nil
         standingHipHeight = nil
         standingLegLength = nil
+        standingCalibrationCandidate = nil
+        standingCalibrationFrames = 0
         bodyweightRepHistory.removeAll()
         bodyweightRepPhase = .idle
         currentRepBackAngleMax = nil
@@ -2343,6 +2387,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         bodyweightKneeWindowSampleCount = 0
         bodyweightCurrentRepPeakDepth = 0
         lastCountedRepHipKneeDepthQualityMet = false
+        bwSmoothedKneeAngle = nil
+        bwRawKneeAngle = nil
     }
 
     /// Call when the user explicitly starts a set (e.g. Track “Begin Set”). Forces `.exercising` and full per-set reset.
@@ -2404,8 +2450,48 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
     }
 
+    /// Suppress rep counting and abandon the current rep cycle during set transitions
+    /// (e.g. between sets). After `suppressDuration`, re-enables counting only if not exercising.
+    func beginEndSetTransition(suppressDuration: TimeInterval = 3.0) {
+        SharedCameraSessionManager.shared.suppressRepCounting = true
+        abandonSquatRepCycle()
+        DispatchQueue.main.asyncAfter(deadline: .now() + suppressDuration) {
+            if self.workoutState != .exercising {
+                SharedCameraSessionManager.shared.suppressRepCounting = false
+            }
+        }
+    }
+
+    /// Remove the last counted rep if it was validated within `window` seconds of now.
+    /// Called by the UI when the user presses End Set to strip phantom reps caused by
+    /// reaching toward the phone.
+    func retroactiveEndSetFilter(window: TimeInterval = 3.0) {
+        guard let lastVal = lastRepValidationTime,
+              Date().timeIntervalSince(lastVal) < window,
+              repCount > 0 else { return }
+        DispatchQueue.main.async {
+            self.repCount -= 1
+            if self.trackedExerciseType == .bodyweight && !self.bodyweightRepHistory.isEmpty {
+                self.bodyweightRepHistory.removeLast()
+            }
+        }
+        repLog("RETROACTIVE END-SET FILTER  removed last rep (validated \(Date().timeIntervalSince(lastVal))s ago, window=\(window)s)")
+    }
+
     // Public method to allow UI to force end a set and use aggregated feedback
     func forceEndCurrentSet() {
+        // Guard against phantom last rep: if the most recent rep was validated within
+        // the last 1 second, it was likely triggered by the end-set motion itself.
+        if let lastVal = lastRepValidationTime,
+           Date().timeIntervalSince(lastVal) < 1.0,
+           repCount > 0 {
+            DispatchQueue.main.async {
+                self.repCount -= 1
+                if self.trackedExerciseType == .bodyweight && !self.bodyweightRepHistory.isEmpty {
+                    self.bodyweightRepHistory.removeLast()
+                }
+            }
+        }
         handleSetEnd()
     }
 

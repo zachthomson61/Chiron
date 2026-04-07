@@ -2,13 +2,16 @@
 //  SquatViewpointProfile.swift
 //  Chiron
 //
-//  Viewpoint classification (camera height × view) and per-bucket rep-detection profiles
-//  for bodyweight squats only. Deterministic heuristics — no ML.
+//  Rep detection profile and viewpoint classification for bodyweight squats.
+//
+//  Rep counting uses a knee-angle hysteresis state machine (UP/DOWN).
+//  Viewpoint classification (camera height x view) is still used for
+//  the extension-frame UI indicator and the profile name display,
+//  but no longer affects rep detection thresholds.
 //
 
 import Foundation
 import CoreGraphics
-import simd
 
 // MARK: - Viewpoint categories
 
@@ -26,7 +29,7 @@ enum CameraViewCategory: String, Sendable {
     case unknown
 }
 
-/// Nine recording buckets + unknown (falls back to chest_side profile).
+/// Nine recording buckets + unknown.
 enum SquatViewpointBucket: String, CaseIterable, Sendable {
     case floor_front
     case floor_side
@@ -88,54 +91,43 @@ enum SquatRepRejectReason: String, Sendable {
     case minRepInterval
     case minCycleDuration
     case maxCycleDuration
-    case shallowBounceAborted
+    case badVisibility
 }
 
-// MARK: - Vertical (shoulder-driven) rep phases (bodyweight)
+// MARK: - Knee-angle rep phases (bodyweight)
 
-enum BodyweightVerticalRepPhase: Sendable {
-    case idleAtTop
-    case descending
-    case bottomReached
-    case ascending
+enum BodyweightVerticalRepPhase: String, Sendable {
+    case up
+    case down
 }
 
 // MARK: - Rep detection profile
 
-/// Thresholds tunable per viewpoint bucket. Vertical rep excursions are normalized by leg length (hip–ankle) in overlay Y.
+/// Knee-angle thresholds for rep counting + form analysis parameters.
 struct SquatRepDetectionProfile: Sendable {
-    var repTopLockToleranceNormalized: Float
-    var repDescentExcursionNormalized: Float
-    var repBottomExcursionNormalized: Float
-    var repAscentRecoveryNormalized: Float
-    var repReturnToTopToleranceNormalized: Float
-    var framesForTopLock: Int
-    var framesForBottomConfirm: Int
-    var framesForTopReturnConfirm: Int
+    // Knee angle thresholds (degrees). Standing ≈ 170°, parallel squat ≈ 80–100°.
+    var downAngleThreshold: Float       // enter DOWN when smoothed angle ≤ this
+    var upAngleThreshold: Float         // return to UP when smoothed angle ≥ this
+    var kneeAngleEMAAlpha: Float        // EMA smoothing factor (0…1). Lower = smoother.
 
+    // Rep timing
     var minRepInterval: TimeInterval
     var minRepCycleDuration: TimeInterval
     var maxRepCycleDuration: TimeInterval
 
+    // Form analysis depth thresholds (driven by 3D hip depth, not knee angle)
     var repCountDepthThreshold: Float
     var repGoodDepthThreshold: Float
     var hipKneeDepthQualityToleranceNormalized: Float
     var repAccumulationStartDepth: Float
 
-    // Shoulder Y EMA smoothing factor (0…1). Lower = heavier smoothing. 0.35 is a good default.
-    var shoulderEMAAlpha: Float
-    // Minimum smoothed velocity (per-frame delta / legSpan) to confirm descent direction.
-    var velocityDescentConfirm: Float
-    // Minimum smoothed velocity (negative = upward) to confirm ascent direction.
-    var velocityAscentConfirm: Float
-
-    // Per-frame extension state (hysteresis on hip depth 0…1) — UI / debug; not used to gate rep count.
+    // Per-frame extension state (hysteresis on hip depth 0…1) — UI only; does not gate rep count.
     var extensionUpEnterMaxDepth: Float
     var extensionUpExitDepth: Float
     var extensionDownEnterDepth: Float
     var extensionDownExitDepth: Float
 
-    // Form analysis influence (0…1, multiply effective weight / require stronger evidence)
+    // Form analysis influence (0…1)
     var formWeightDepth: Float
     var formWeightKneeTracking: Float
     var formWeightForwardLean: Float
@@ -145,43 +137,22 @@ struct SquatRepDetectionProfile: Sendable {
 // MARK: - Profile table
 
 enum SquatRepProfileTable {
-    /// Unknown or unclassified viewpoint uses chest_side-equivalent baseline.
+    /// All viewpoints use the same default profile.
     static func profile(for bucket: SquatViewpointBucket) -> SquatRepDetectionProfile {
-        switch bucket {
-        case .chest_side: return chestSideBaseline
-        case .chest_front: return chestFront
-        case .chest_oblique: return chestOblique
-        case .floor_front: return floorFront
-        case .floor_side: return floorSide
-        case .floor_oblique: return floorOblique
-        case .head_front: return headFront
-        case .head_side: return headSide
-        case .head_oblique: return headOblique
-        case .unknown: return chestSideBaseline
-        }
+        return defaultProfile
     }
 
-    // MARK: Baseline: chest_side (reference)
-
-    private static let chestSideBaseline = SquatRepDetectionProfile(
-        repTopLockToleranceNormalized: 0.08,
-        repDescentExcursionNormalized: 0.05,
-        repBottomExcursionNormalized: 0.10,
-        repAscentRecoveryNormalized: 0.05,
-        repReturnToTopToleranceNormalized: 0.08,
-        framesForTopLock: 2,
-        framesForBottomConfirm: 2,
-        framesForTopReturnConfirm: 2,
+    private static let defaultProfile = SquatRepDetectionProfile(
+        downAngleThreshold: 100,
+        upAngleThreshold: 160,
+        kneeAngleEMAAlpha: 0.25,
         minRepInterval: 0.35,
         minRepCycleDuration: 0.45,
-        maxRepCycleDuration: 5.0,
-        repCountDepthThreshold: 0.26,
-        repGoodDepthThreshold: 0.40,
+        maxRepCycleDuration: 6.0,
+        repCountDepthThreshold: 0.22,
+        repGoodDepthThreshold: 0.38,
         hipKneeDepthQualityToleranceNormalized: 0.10,
-        repAccumulationStartDepth: 0.18,
-        shoulderEMAAlpha: 0.35,
-        velocityDescentConfirm: 0.004,
-        velocityAscentConfirm: -0.004,
+        repAccumulationStartDepth: 0.16,
         extensionUpEnterMaxDepth: 0.14,
         extensionUpExitDepth: 0.18,
         extensionDownEnterDepth: 0.30,
@@ -191,250 +162,11 @@ enum SquatRepProfileTable {
         formWeightForwardLean: 1.0,
         formIssueEvidenceMultiplier: 1.0
     )
-
-    // MARK: chest_front — depth less reliable in 3D; trust knees more in form weights
-
-    private static let chestFront = SquatRepDetectionProfile(
-        repTopLockToleranceNormalized: 0.09,
-        repDescentExcursionNormalized: 0.045,
-        repBottomExcursionNormalized: 0.09,
-        repAscentRecoveryNormalized: 0.045,
-        repReturnToTopToleranceNormalized: 0.09,
-        framesForTopLock: 2,
-        framesForBottomConfirm: 2,
-        framesForTopReturnConfirm: 2,
-        minRepInterval: 0.35,
-        minRepCycleDuration: 0.5,
-        maxRepCycleDuration: 5.0,
-        repCountDepthThreshold: 0.22,
-        repGoodDepthThreshold: 0.38,
-        hipKneeDepthQualityToleranceNormalized: 0.11,
-        repAccumulationStartDepth: 0.16,
-        shoulderEMAAlpha: 0.33,
-        velocityDescentConfirm: 0.003,
-        velocityAscentConfirm: -0.003,
-        extensionUpEnterMaxDepth: 0.16,
-        extensionUpExitDepth: 0.20,
-        extensionDownEnterDepth: 0.28,
-        extensionDownExitDepth: 0.24,
-        formWeightDepth: 0.65,
-        formWeightKneeTracking: 1.15,
-        formWeightForwardLean: 0.85,
-        formIssueEvidenceMultiplier: 1.15
-    )
-
-    private static let chestOblique = SquatRepDetectionProfile(
-        repTopLockToleranceNormalized: 0.085,
-        repDescentExcursionNormalized: 0.048,
-        repBottomExcursionNormalized: 0.095,
-        repAscentRecoveryNormalized: 0.048,
-        repReturnToTopToleranceNormalized: 0.085,
-        framesForTopLock: 2,
-        framesForBottomConfirm: 2,
-        framesForTopReturnConfirm: 2,
-        minRepInterval: 0.35,
-        minRepCycleDuration: 0.48,
-        maxRepCycleDuration: 5.0,
-        repCountDepthThreshold: 0.24,
-        repGoodDepthThreshold: 0.39,
-        hipKneeDepthQualityToleranceNormalized: 0.105,
-        repAccumulationStartDepth: 0.17,
-        shoulderEMAAlpha: 0.34,
-        velocityDescentConfirm: 0.0035,
-        velocityAscentConfirm: -0.0035,
-        extensionUpEnterMaxDepth: 0.15,
-        extensionUpExitDepth: 0.19,
-        extensionDownEnterDepth: 0.29,
-        extensionDownExitDepth: 0.25,
-        formWeightDepth: 0.8,
-        formWeightKneeTracking: 0.95,
-        formWeightForwardLean: 0.9,
-        formIssueEvidenceMultiplier: 1.2
-    )
-
-    // MARK: floor_* — more tolerant vertical band; looser extension bands
-
-    private static let floorFront = SquatRepDetectionProfile(
-        repTopLockToleranceNormalized: 0.11,
-        repDescentExcursionNormalized: 0.04,
-        repBottomExcursionNormalized: 0.085,
-        repAscentRecoveryNormalized: 0.04,
-        repReturnToTopToleranceNormalized: 0.11,
-        framesForTopLock: 2,
-        framesForBottomConfirm: 2,
-        framesForTopReturnConfirm: 2,
-        minRepInterval: 0.32,
-        minRepCycleDuration: 0.42,
-        maxRepCycleDuration: 5.5,
-        repCountDepthThreshold: 0.20,
-        repGoodDepthThreshold: 0.36,
-        hipKneeDepthQualityToleranceNormalized: 0.12,
-        repAccumulationStartDepth: 0.15,
-        shoulderEMAAlpha: 0.30,
-        velocityDescentConfirm: 0.003,
-        velocityAscentConfirm: -0.003,
-        extensionUpEnterMaxDepth: 0.18,
-        extensionUpExitDepth: 0.22,
-        extensionDownEnterDepth: 0.27,
-        extensionDownExitDepth: 0.23,
-        formWeightDepth: 0.6,
-        formWeightKneeTracking: 1.1,
-        formWeightForwardLean: 0.8,
-        formIssueEvidenceMultiplier: 1.2
-    )
-
-    private static let floorSide = SquatRepDetectionProfile(
-        repTopLockToleranceNormalized: 0.10,
-        repDescentExcursionNormalized: 0.042,
-        repBottomExcursionNormalized: 0.09,
-        repAscentRecoveryNormalized: 0.042,
-        repReturnToTopToleranceNormalized: 0.10,
-        framesForTopLock: 2,
-        framesForBottomConfirm: 2,
-        framesForTopReturnConfirm: 2,
-        minRepInterval: 0.32,
-        minRepCycleDuration: 0.4,
-        maxRepCycleDuration: 5.5,
-        repCountDepthThreshold: 0.22,
-        repGoodDepthThreshold: 0.38,
-        hipKneeDepthQualityToleranceNormalized: 0.11,
-        repAccumulationStartDepth: 0.15,
-        shoulderEMAAlpha: 0.32,
-        velocityDescentConfirm: 0.0035,
-        velocityAscentConfirm: -0.0035,
-        extensionUpEnterMaxDepth: 0.17,
-        extensionUpExitDepth: 0.21,
-        extensionDownEnterDepth: 0.28,
-        extensionDownExitDepth: 0.24,
-        formWeightDepth: 1.05,
-        formWeightKneeTracking: 0.75,
-        formWeightForwardLean: 1.05,
-        formIssueEvidenceMultiplier: 1.05
-    )
-
-    private static let floorOblique = SquatRepDetectionProfile(
-        repTopLockToleranceNormalized: 0.105,
-        repDescentExcursionNormalized: 0.041,
-        repBottomExcursionNormalized: 0.088,
-        repAscentRecoveryNormalized: 0.041,
-        repReturnToTopToleranceNormalized: 0.105,
-        framesForTopLock: 2,
-        framesForBottomConfirm: 2,
-        framesForTopReturnConfirm: 2,
-        minRepInterval: 0.32,
-        minRepCycleDuration: 0.43,
-        maxRepCycleDuration: 5.5,
-        repCountDepthThreshold: 0.21,
-        repGoodDepthThreshold: 0.37,
-        hipKneeDepthQualityToleranceNormalized: 0.115,
-        repAccumulationStartDepth: 0.15,
-        shoulderEMAAlpha: 0.30,
-        velocityDescentConfirm: 0.003,
-        velocityAscentConfirm: -0.003,
-        extensionUpEnterMaxDepth: 0.175,
-        extensionUpExitDepth: 0.215,
-        extensionDownEnterDepth: 0.275,
-        extensionDownExitDepth: 0.235,
-        formWeightDepth: 0.75,
-        formWeightKneeTracking: 0.9,
-        formWeightForwardLean: 0.88,
-        formIssueEvidenceMultiplier: 1.22
-    )
-
-    // MARK: head_* — compressed vertical; slightly tighter excursion, looser return
-
-    private static let headFront = SquatRepDetectionProfile(
-        repTopLockToleranceNormalized: 0.09,
-        repDescentExcursionNormalized: 0.04,
-        repBottomExcursionNormalized: 0.088,
-        repAscentRecoveryNormalized: 0.04,
-        repReturnToTopToleranceNormalized: 0.095,
-        framesForTopLock: 2,
-        framesForBottomConfirm: 2,
-        framesForTopReturnConfirm: 3,
-        minRepInterval: 0.36,
-        minRepCycleDuration: 0.5,
-        maxRepCycleDuration: 4.8,
-        repCountDepthThreshold: 0.23,
-        repGoodDepthThreshold: 0.39,
-        hipKneeDepthQualityToleranceNormalized: 0.10,
-        repAccumulationStartDepth: 0.17,
-        shoulderEMAAlpha: 0.32,
-        velocityDescentConfirm: 0.003,
-        velocityAscentConfirm: -0.003,
-        extensionUpEnterMaxDepth: 0.15,
-        extensionUpExitDepth: 0.19,
-        extensionDownEnterDepth: 0.29,
-        extensionDownExitDepth: 0.25,
-        formWeightDepth: 0.7,
-        formWeightKneeTracking: 1.05,
-        formWeightForwardLean: 0.9,
-        formIssueEvidenceMultiplier: 1.12
-    )
-
-    private static let headSide = SquatRepDetectionProfile(
-        repTopLockToleranceNormalized: 0.085,
-        repDescentExcursionNormalized: 0.046,
-        repBottomExcursionNormalized: 0.095,
-        repAscentRecoveryNormalized: 0.046,
-        repReturnToTopToleranceNormalized: 0.09,
-        framesForTopLock: 2,
-        framesForBottomConfirm: 2,
-        framesForTopReturnConfirm: 3,
-        minRepInterval: 0.36,
-        minRepCycleDuration: 0.48,
-        maxRepCycleDuration: 4.8,
-        repCountDepthThreshold: 0.25,
-        repGoodDepthThreshold: 0.40,
-        hipKneeDepthQualityToleranceNormalized: 0.10,
-        repAccumulationStartDepth: 0.18,
-        shoulderEMAAlpha: 0.35,
-        velocityDescentConfirm: 0.004,
-        velocityAscentConfirm: -0.004,
-        extensionUpEnterMaxDepth: 0.145,
-        extensionUpExitDepth: 0.185,
-        extensionDownEnterDepth: 0.305,
-        extensionDownExitDepth: 0.265,
-        formWeightDepth: 1.05,
-        formWeightKneeTracking: 0.8,
-        formWeightForwardLean: 1.0,
-        formIssueEvidenceMultiplier: 1.05
-    )
-
-    private static let headOblique = SquatRepDetectionProfile(
-        repTopLockToleranceNormalized: 0.088,
-        repDescentExcursionNormalized: 0.044,
-        repBottomExcursionNormalized: 0.092,
-        repAscentRecoveryNormalized: 0.044,
-        repReturnToTopToleranceNormalized: 0.092,
-        framesForTopLock: 2,
-        framesForBottomConfirm: 2,
-        framesForTopReturnConfirm: 3,
-        minRepInterval: 0.36,
-        minRepCycleDuration: 0.49,
-        maxRepCycleDuration: 4.8,
-        repCountDepthThreshold: 0.24,
-        repGoodDepthThreshold: 0.395,
-        hipKneeDepthQualityToleranceNormalized: 0.102,
-        repAccumulationStartDepth: 0.175,
-        shoulderEMAAlpha: 0.32,
-        velocityDescentConfirm: 0.0035,
-        velocityAscentConfirm: -0.0035,
-        extensionUpEnterMaxDepth: 0.148,
-        extensionUpExitDepth: 0.188,
-        extensionDownEnterDepth: 0.298,
-        extensionDownExitDepth: 0.258,
-        formWeightDepth: 0.85,
-        formWeightKneeTracking: 0.92,
-        formWeightForwardLean: 0.93,
-        formIssueEvidenceMultiplier: 1.15
-    )
 }
 
 // MARK: - Extension frame state (hysteresis)
 
 enum SquatExtensionFrameClassifier {
-    /// Update finite-state hysteresis: `up` = shallow depth, `down` = deep, `neither` = between bands.
     static func nextState(
         previous: SquatExtensionFrameState,
         hipDepth: Float,
@@ -462,7 +194,10 @@ enum SquatExtensionFrameClassifier {
     }
 }
 
-// MARK: - Viewpoint classifiers (2D overlay + optional 3D)
+// MARK: - Viewpoint classifiers (2D overlay)
+//
+// Still used for UI display (currentSquatProfileName) and extension-frame state,
+// even though rep detection thresholds are now angle-based and viewpoint-independent.
 
 struct SquatViewpointClassifier {
 
@@ -498,10 +233,8 @@ struct SquatViewpointClassifier {
         let kneeY = (lk.y + rk.y) / 2
         let ankleY = (la.y + ra.y) / 2
 
-        // Lower camera (floor): ankles and knees relatively high in frame (small Y), nose high — looking up subject
         if ankleY < 0.72 { s.floor += 0.25 }
         if kneeY < hipY + 0.02, ankleY < kneeY + 0.05 { s.floor += 0.2 }
-        // Torso vs leg span in Y (perspective cue)
         let torsoSpan = abs(shoulderY - hipY)
         let legSpan = abs(hipY - ankleY)
         if legSpan > 0.001 {
@@ -587,7 +320,6 @@ struct SquatViewpointSmoother {
         self.activeBucket = initial
     }
 
-    /// Returns `true` if `activeBucket` changed after this frame.
     @discardableResult
     mutating func push(candidate raw: SquatViewpointBucket) -> Bool {
         let candidate = raw == .unknown ? SquatViewpointBucket.chest_side : raw

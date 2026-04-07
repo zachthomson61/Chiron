@@ -47,6 +47,9 @@ struct TrackView: View {
     @State private var exerciseSelectorDetent: PresentationDetent = PresentationDetent.large
     /// Sheet detent selection so info sheet opens at full height (top of screen).
     @State private var infoSheetDetent: PresentationDetent = PresentationDetent.large
+    /// Share sheet for debug CSV export after a set ends.
+    @State private var showDebugCSVShare: Bool = false
+    @State private var debugCSVURL: URL?
 
     @ObservedObject private var cameraManager = SharedCameraSessionManager.shared
     /// Rep count is published here; `cameraManager` alone does not trigger redraws when reps change.
@@ -236,6 +239,11 @@ struct TrackView: View {
                 .onAppear { infoSheetDetent = PresentationDetent.large }
             }
         }
+        .sheet(isPresented: $showDebugCSVShare) {
+            if let url = debugCSVURL {
+                SquatRepShareSheet(url: url)
+            }
+        }
     }
 
     // MARK: - Computed
@@ -288,18 +296,37 @@ struct TrackView: View {
         }
         cameraManager.poseManager.resetRepCount()
         cameraManager.poseManager.startManualSet()
-        cameraManager.suppressRepCounting = false
+        // Start debug logging for this set (auto-exported as CSV when the set ends).
+        SquatRepDebugLogger.shared.reset()
+        poseManager.debugLoggerEnabled = true
+        // Suppress rep counting for 1 second so the user can step back from the camera
+        // after pressing the button. Without this delay, the pose detector may see a
+        // partial/close-up pose and erroneously count a rep during the transition.
+        cameraManager.suppressRepCounting = true
         cameraManager.trackExplicitSetActive = true
         trackViewState = .tracking
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak cameraManager] in
+            cameraManager?.suppressRepCounting = false
+        }
     }
 
     private func endSet() {
         // Do not call `stopPoseAnalysis()` here — it clears `isAnalyzingPose` and freezes the overlay until the next set.
         cameraManager.trackExplicitSetActive = false
         cameraManager.suppressRepCounting = true
+
+        // Retroactive phantom-rep filter: remove the last counted rep if it was
+        // validated within 3 seconds of pressing End Set (likely the user reaching
+        // toward the phone, not an actual squat).
+        poseManager.retroactiveEndSetFilter(window: 3.0)
+
         cameraManager.endTrackSetKeepingPoseActive()
         setsCompletedInSession += 1
         trackViewState = .armed
+
+        // Stop debug logging and export CSV for analysis.
+        poseManager.debugLoggerEnabled = false
+        exportDebugCSV()
 
         let formAnalysis = cameraManager.poseManager.currentFormAnalysis
             ?? cameraManager.poseManager.lastRepFormAnalysis
@@ -349,6 +376,23 @@ struct TrackView: View {
         if trackViewState == .tracking {
             cameraManager.stopPoseAnalysis()
             trackViewState = .armed
+        }
+    }
+
+    // MARK: - Debug CSV Export
+
+    private func exportDebugCSV() {
+        let logger = SquatRepDebugLogger.shared
+        guard !logger.allFrames.isEmpty else { return }
+        let csv = logger.exportCSV()
+        let fileName = "squat_debug_\(Int(Date().timeIntervalSince1970)).csv"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        do {
+            try csv.data(using: .utf8)?.write(to: url)
+            debugCSVURL = url
+            showDebugCSVShare = true
+        } catch {
+            // Silently fail — debug export is best-effort.
         }
     }
 
