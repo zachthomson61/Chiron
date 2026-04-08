@@ -38,7 +38,8 @@ struct TrackView: View {
 
     @State private var showExerciseSelector = false
     @State private var showExerciseInfo = false
-    @State private var showPoseOverlay = false
+    /// Pose detection overlay enabled by default; toggled via stick figure button in top-left.
+    @State private var showPoseOverlay = true
     /// When true, body re-renders so the preview representable receives the session (created in onAppear).
     @State private var cameraSessionReady = false
     /// Pulsing scale for the tracking form score circle (matches WorkoutActiveView formScoreIndicator).
@@ -81,10 +82,12 @@ struct TrackView: View {
                     ZStack(alignment: .center) {
                         // Leading: pose overlay toggle
                         HStack {
+                            /// Pose detection overlay toggle. Always shows stick figure icon;
+                            /// icon color indicates active state (green when on, gray when off).
                             Button {
                                 showPoseOverlay.toggle()
                             } label: {
-                                Image(systemName: showPoseOverlay ? "eye.fill" : "eye")
+                                Image(systemName: "figure.stand")
                                     .font(.system(size: 18, weight: .semibold))
                                     .foregroundColor(showPoseOverlay ? .green : .textPrimary)
                                     .frame(width: 40, height: 40)

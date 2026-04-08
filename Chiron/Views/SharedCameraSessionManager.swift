@@ -269,106 +269,16 @@ private let poseSkeletonEdges: [(String, String)] = [
     ("rightEye", "rightEar"),
 ]
 
+/// Displays the MediaPipe pose skeleton overlay when the user toggles it on via the stick figure button.
+/// Shows real-time pose landmarks and skeleton edges from the pose detector.
 struct PoseVisualizationOverlay: View {
     @ObservedObject private var poseManager = OnDevicePoseManager.shared
-    
+
     var body: some View {
         GeometryReader { _ in
             ZStack {
                 if let landmarks = poseManager.currentNormalizedLandmarks, !landmarks.isEmpty {
                     PoseLandmarkSkeletonView(landmarks: landmarks)
-                }
-                
-                // Pose detection status
-                VStack {
-                    HStack {
-                        Circle()
-                            .fill(poseManager.poseDetected ? Color.green : Color.red)
-                            .frame(width: 12, height: 12)
-                        Text(poseManager.poseDetected ? "Pose Detected" : "No Pose")
-                            .font(.caption)
-                            .foregroundColor(.white)
-                            .shadow(color: .black, radius: 1)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.black.opacity(0.6))
-                    .cornerRadius(8)
-                    
-                    Spacer()
-                }
-                .padding(.top, 100)
-                .padding(.leading, 20)
-                
-                // Form analysis info
-                VStack {
-                    Spacer()
-                    
-                    if let formAnalysis = poseManager.currentFormAnalysis {
-                        VStack(spacing: 8) {
-                            Text("Form Score: \(Int(formAnalysis.overallScore * 100))%")
-                                .font(.caption)
-                                .foregroundColor(.white)
-                                .shadow(color: .black, radius: 1)
-                            
-                            Text("Depth: \(Int(formAnalysis.depth * 100))%")
-                                .font(.caption)
-                                .foregroundColor(.white)
-                                .shadow(color: .black, radius: 1)
-                            
-                            Text("Back Angle: \(Int(formAnalysis.backAngle))°")
-                                .font(.caption)
-                                .foregroundColor(.white)
-                                .shadow(color: .black, radius: 1)
-                            
-                            Text("Reps: \(poseManager.repCount)")
-                                .font(.caption)
-                                .foregroundColor(.white)
-                                .shadow(color: .black, radius: 1)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.black.opacity(0.6))
-                        .cornerRadius(8)
-                    } else {
-                        // Show when no form analysis is available
-                        VStack(spacing: 8) {
-                            Text("No Form Data")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                                .shadow(color: .black, radius: 1)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.black.opacity(0.6))
-                        .cornerRadius(8)
-                    }
-                }
-                .padding(.bottom, 200)
-                .padding(.trailing, 20)
-                
-                // Center indicator for testing
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        VStack {
-                            Text("Pose Visualization Active")
-                                .font(.caption)
-                                .foregroundColor(.white)
-                                .shadow(color: .black, radius: 1)
-                            Text("Eye icon to toggle")
-                                .font(.caption2)
-                                .foregroundColor(.gray)
-                                .shadow(color: .black, radius: 1)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.blue.opacity(0.6))
-                        .cornerRadius(8)
-                        Spacer()
-                    }
-                    Spacer()
                 }
             }
         }
