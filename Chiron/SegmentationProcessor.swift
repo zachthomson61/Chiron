@@ -273,7 +273,7 @@ final class SegmentationProcessor: ObservableObject {
         case .closeGripBenchPress:
             // Use same quality scoring as regular bench press
             score = enhanceBenchPressQualityScore(baseScore: score, bboxW: bw, bboxH: bh, minX: minX, maxX: maxX, minY: minY, maxY: maxY, width: width, height: height)
-        case .bodyweight:
+        case .bodyweight, .deadlift, .barbellRow:
             break // Use base scoring
         }
         

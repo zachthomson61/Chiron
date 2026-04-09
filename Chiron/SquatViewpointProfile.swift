@@ -164,6 +164,150 @@ enum SquatRepProfileTable {
     )
 }
 
+// MARK: - Barbell Back Squat profile table
+
+enum BarbellBackSquatRepProfileTable {
+    /// Barbell back squat uses knee-angle hysteresis identical to bodyweight.
+    /// The bar sits on the upper back/traps, so hip/knee/ankle angles are
+    /// essentially the same — only hand position and load differ.
+    static let defaultProfile = SquatRepDetectionProfile(
+        downAngleThreshold: 100,       // same as bodyweight — parallel depth ≈ 80–100°
+        upAngleThreshold: 155,         // slightly lower than bodyweight (160) — lifters may not
+                                        // fully lock out under load before starting the next rep
+        kneeAngleEMAAlpha: 0.25,       // same smoothing factor
+        minRepInterval: 0.35,
+        minRepCycleDuration: 0.6,      // slightly longer than bodyweight (0.45) — bar slows the movement
+        maxRepCycleDuration: 8.0,      // longer max — heavy sets have slower reps and longer pauses
+        repCountDepthThreshold: 0.22,
+        repGoodDepthThreshold: 0.38,
+        hipKneeDepthQualityToleranceNormalized: 0.10,
+        repAccumulationStartDepth: 0.16,
+        extensionUpEnterMaxDepth: 0.14,
+        extensionUpExitDepth: 0.18,
+        extensionDownEnterDepth: 0.30,
+        extensionDownExitDepth: 0.26,
+        formWeightDepth: 1.0,
+        formWeightKneeTracking: 0.85,
+        formWeightForwardLean: 1.0,
+        formIssueEvidenceMultiplier: 1.0
+    )
+}
+
+// MARK: - Deadlift rep detection profile
+
+/// Hip-angle thresholds for deadlift rep counting.
+/// The deadlift is a hip-hinge movement — the defining angle is shoulder→hip→knee.
+///   - Standing tall (lockout): hip angle ≈ 170–180°
+///   - Bottom of deadlift (hinged): hip angle ≈ 70–110°
+struct DeadliftRepDetectionProfile: Sendable {
+    // Hip angle thresholds (degrees).
+    var downAngleThreshold: Float       // enter DOWN when smoothed angle ≤ this
+    var upAngleThreshold: Float         // return to UP when smoothed angle ≥ this
+    var hipAngleEMAAlpha: Float         // EMA smoothing factor (0…1). Lower = smoother.
+
+    // Rep timing
+    var minRepInterval: TimeInterval
+    var minRepCycleDuration: TimeInterval
+    var maxRepCycleDuration: TimeInterval
+
+    // Knee bend guard (hip→knee→ankle). Only used for RDL.
+    // In a proper RDL the knees stay soft but mostly straight.
+    // If knee angle drops below this, the form warning fires (sliding toward conventional DL form).
+    // nil = no knee guard (conventional deadlift doesn't restrict knee bend).
+    var kneeBendLimitAngle: Float?
+}
+
+enum DeadliftRepPhase: String, Sendable {
+    case up
+    case down
+}
+
+enum DeadliftRepProfileTable {
+    /// Conventional deadlift: deep hip hinge, bar starts on the floor.
+    ///
+    /// Thresholds from the reference deadlift_counter.py script:
+    ///   DOWN_ANGLE_THRESH = 110  (hip angle when hinged at the bottom)
+    ///   UP_ANGLE_THRESH   = 160  (hip angle at lockout)
+    ///   EMA_ALPHA          = 0.25
+    static let defaultProfile = DeadliftRepDetectionProfile(
+        downAngleThreshold: 110,       // enter DOWN when hip angle ≤ 110°
+        upAngleThreshold: 160,         // return to UP (rep counted) when hip angle ≥ 160°
+        hipAngleEMAAlpha: 0.25,        // same smoothing as squat
+        minRepInterval: 0.4,           // minimum time between counted reps
+        minRepCycleDuration: 0.8,      // deadlifts are slower than squats — floor start adds time
+        maxRepCycleDuration: 10.0,     // heavy singles can be very slow
+        kneeBendLimitAngle: nil        // conventional DL allows full knee bend
+    )
+
+    /// Romanian deadlift (RDL): pure hip hinge, bar doesn't touch the floor.
+    /// Straighter legs make the torso tip further forward → hip angle goes lower
+    /// than you'd expect despite shorter bar ROM.
+    ///
+    /// Thresholds from the reference rdl_counter.py script:
+    ///   DOWN_ANGLE_THRESH = 105  (hip angle at bottom of RDL)
+    ///   UP_ANGLE_THRESH   = 160  (hip angle at lockout)
+    ///   KNEE_BEND_LIMIT   = 145  (form guard — knees should stay mostly straight)
+    ///   EMA_ALPHA          = 0.25
+    static let romanianProfile = DeadliftRepDetectionProfile(
+        downAngleThreshold: 105,       // straighter legs → deeper hip angle than conventional
+        upAngleThreshold: 160,         // same lockout position
+        hipAngleEMAAlpha: 0.25,
+        minRepInterval: 0.35,
+        minRepCycleDuration: 0.6,      // RDLs are slightly faster (no floor pause)
+        maxRepCycleDuration: 8.0,
+        kneeBendLimitAngle: 145        // form guard: warn if knee angle < 145° (too much bend)
+    )
+}
+
+// MARK: - Barbell Row rep detection profile
+
+/// Elbow-angle thresholds for barbell row rep counting.
+/// The barbell row is an arm-pull movement with a fixed torso hinge:
+///   - Arms extended (bottom): elbow angle ≈ 155–175°
+///   - Arms pulled (top):      elbow angle ≈ 45–75°
+/// State machine is inverted vs squats/deadlifts: starts DOWN, pulls to UP, rep on return to DOWN.
+struct BarbellRowRepDetectionProfile: Sendable {
+    // Elbow angle thresholds (shoulder→elbow→wrist).
+    var downAngleThreshold: Float       // arms extended — enter DOWN when smoothed angle ≥ this
+    var upAngleThreshold: Float         // arms pulled   — enter UP when smoothed angle ≤ this
+    var elbowAngleEMAAlpha: Float       // EMA smoothing factor (0…1).
+
+    // Rep timing
+    var minRepInterval: TimeInterval
+    var minRepCycleDuration: TimeInterval
+    var maxRepCycleDuration: TimeInterval
+
+    // Torso hinge guard (shoulder→hip→knee).
+    // A proper barbell row requires a forward lean. Warn if the lifter stands up
+    // too much during the pull (cheat row / momentum).
+    var torsoHingeMaxAngle: Float       // warn if hip angle rises ABOVE this during pull
+}
+
+/// Barbell row phases: DOWN = arms extended (bar hanging), UP = arms pulled (bar at belly).
+enum BarbellRowRepPhase: String, Sendable {
+    case down
+    case up
+}
+
+enum BarbellRowRepProfileTable {
+    /// Standard barbell row (Pendlay / bent-over row).
+    ///
+    /// Thresholds from the reference barbell_row_counter.py script:
+    ///   DOWN_ANGLE_THRESH  = 145  (arms extended — bar hanging)
+    ///   UP_ANGLE_THRESH    = 80   (arms pulled — bar at belly)
+    ///   TORSO_HINGE_MAX    = 130  (torso too upright = cheat row)
+    ///   EMA_ALPHA           = 0.25
+    static let defaultProfile = BarbellRowRepDetectionProfile(
+        downAngleThreshold: 145,       // arms extended: elbow ≈ 155–175°, enter DOWN at ≥ 145°
+        upAngleThreshold: 80,          // arms pulled: elbow ≈ 45–75°, enter UP at ≤ 80°
+        elbowAngleEMAAlpha: 0.25,
+        minRepInterval: 0.3,           // rows can be fast
+        minRepCycleDuration: 0.4,      // quick pull-lower cycle
+        maxRepCycleDuration: 6.0,      // heavy rows with pauses at top
+        torsoHingeMaxAngle: 130        // warn if hip angle > 130° (standing too upright)
+    )
+}
+
 // MARK: - Extension frame state (hysteresis)
 
 enum SquatExtensionFrameClassifier {

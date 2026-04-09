@@ -43,6 +43,21 @@ struct Skeleton3D {
                 "leftHip", "rightHip", "leftKnee", "rightKnee",
                 "leftAnkle", "rightAnkle", "centerShoulder"
             ]
+        case .deadlift:
+            // Deadlift tracks hip angle (shoulder→hip→knee) — needs shoulders, hips, knees.
+            requiredJoints = [
+                "leftShoulder", "rightShoulder",
+                "leftHip", "rightHip",
+                "leftKnee", "rightKnee"
+            ]
+        case .barbellRow:
+            // Barbell row tracks elbow angle (shoulder→elbow→wrist) + torso guard (shoulder→hip→knee).
+            requiredJoints = [
+                "leftShoulder", "rightShoulder",
+                "leftElbow", "rightElbow",
+                "leftWrist", "rightWrist",
+                "leftHip", "rightHip"
+            ]
         case .benchPress, .closeGripBenchPress:
             requiredJoints = [
                 "leftShoulder", "rightShoulder", "leftElbow", "rightElbow",

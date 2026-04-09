@@ -260,6 +260,8 @@ class OpenAICoachingManager: ObservableObject {
         switch type {
         case .barbell: return "barbell back squat"
         case .bodyweight: return "bodyweight squat"
+        case .deadlift: return "deadlift"
+        case .barbellRow: return "barbell row"
         case .benchPress: return "bench press"
         case .closeGripBenchPress: return "close-grip bench press"
         }

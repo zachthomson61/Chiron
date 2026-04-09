@@ -282,6 +282,22 @@ enum CoachingLogic {
                 return "knees tracked well over your toes"
             }
 
+        case .deadlift:
+            if abs(analysis.backAngle) <= CoachingContract.PositiveThreshold.chestTall {
+                return "spine stayed neutral throughout"
+            }
+            if analysis.issues.isEmpty {
+                return "solid lockout at the top"
+            }
+
+        case .barbellRow:
+            if analysis.issues.isEmpty {
+                return "solid pulling position maintained"
+            }
+            if abs(analysis.backAngle) <= CoachingContract.PositiveThreshold.chestTall {
+                return "torso stayed stable throughout"
+            }
+
         case .closeGripBenchPress, .benchPress:
             if analysis.issues.isEmpty {
                 return "solid lockout at the top"

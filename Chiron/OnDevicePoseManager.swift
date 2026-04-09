@@ -81,7 +81,7 @@ enum RepPhase {
     case accumulating
 }
 
-/// Barbell/benchPress squat rep phases: hip-depth hysteresis. Bodyweight squats use `BodyweightVerticalRepPhase` (shoulder Y) instead.
+/// BenchPress squat rep phases: hip-depth hysteresis. Bodyweight/barbell squats use `BodyweightVerticalRepPhase` (knee angle) instead.
 enum SquatRepPhase {
     case idleAtTop
     case descending
@@ -119,6 +119,8 @@ enum WorkoutState {
 enum TrackedExerciseType {
     case bodyweight           // Bodyweight squat exercises
     case barbell              // Barbell back squat exercises
+    case deadlift             // Deadlift & Romanian deadlift (hip-hinge)
+    case barbellRow           // Barbell row (elbow-angle, arm pull)
     case benchPress           // Regular bench press
     case closeGripBenchPress  // Close-grip bench press exercises
 }
@@ -186,6 +188,14 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     @Published var currentSet: Int = 0
     @Published var trackedExerciseType: TrackedExerciseType = .bodyweight
 
+    /// Selects the deadlift variant profile (conventional vs. Romanian).
+    /// Call after setting `trackedExerciseType = .deadlift`.
+    func selectDeadliftVariant(isRomanian: Bool) {
+        activeDeadliftRepProfile = isRomanian
+            ? DeadliftRepProfileTable.romanianProfile
+            : DeadliftRepProfileTable.defaultProfile
+    }
+
     /// Enables per-frame debug logging for squat rep detection.
     /// Toggle from the debug overlay in TrackView. Zero overhead when false.
     @Published var debugLoggerEnabled: Bool = false {
@@ -222,6 +232,17 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var squatExtensionFrameStateInternal: SquatExtensionFrameState = .neither
     /// Active rep-detection profile for bodyweight (updated each frame from smoothed viewpoint).
     private var activeBodyweightRepProfile: SquatRepDetectionProfile = SquatRepProfileTable.profile(for: .chest_side)
+    /// Active rep-detection profile for barbell back squat.
+    private var activeBarbellRepProfile: SquatRepDetectionProfile = BarbellBackSquatRepProfileTable.defaultProfile
+
+    /// Returns the correct knee-angle rep profile for the current exercise type.
+    private var activeKneeAngleRepProfile: SquatRepDetectionProfile {
+        switch trackedExerciseType {
+        case .barbell:    return activeBarbellRepProfile
+        case .bodyweight: return activeBodyweightRepProfile
+        default:          return activeBodyweightRepProfile
+        }
+    }
 
     // MARK: - Bodyweight shoulder-vertical rep state
 
@@ -250,6 +271,47 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var bwLastRejectReason: String?   // transient, for debug CSV
     private var bwSelectedSide: String = ""   // "L" or "R"
     private var bwRawKneeAngle: Float?        // unsmoothed, for debug CSV
+
+    // MARK: - Deadlift rep detection state
+    //
+    // Hip-angle hysteresis: UP ↔ DOWN with EMA-smoothed hip angle (shoulder→hip→knee).
+    // See validateDeadliftRep() for the algorithm.
+
+    private var dlRepPhase: DeadliftRepPhase = .up
+    private var dlSmoothedHipAngle: Float?           // EMA-smoothed hip angle
+    private var dlSmoothedKneeAngle: Float?          // EMA-smoothed knee angle (form guard for RDL)
+    private var dlRepCycleStartTime: Date?
+    private var dlBadFrameStreak: Int = 0
+    private let dlBadFrameLimit: Int = 15
+    private var dlSelectedSide: String = ""          // "L" or "R"
+    private var dlRawHipAngle: Float?                // unsmoothed, for debug
+    /// Frames remaining for the knee-bend warning display (sustained after trigger).
+    private var dlKneeWarningFrames: Int = 0
+    private let dlKneeWarningDuration: Int = 20      // sustain warning for ~20 frames after trigger
+    /// Published so the UI can show a knee-bend warning during RDL.
+    @Published var deadliftKneeBendWarning: Bool = false
+    private var activeDeadliftRepProfile: DeadliftRepDetectionProfile = DeadliftRepProfileTable.defaultProfile
+
+    // MARK: - Barbell Row rep detection state
+    //
+    // Elbow-angle hysteresis: DOWN ↔ UP with EMA-smoothed elbow angle (shoulder→elbow→wrist).
+    // Inverted vs squats/deadlifts: starts DOWN (arms extended), rep counts on return to DOWN.
+    // See validateBarbellRowRep() for the algorithm.
+
+    private var brRepPhase: BarbellRowRepPhase = .down
+    private var brSmoothedElbowAngle: Float?         // EMA-smoothed elbow angle
+    private var brSmoothedHipAngle: Float?            // EMA-smoothed hip angle (torso guard)
+    private var brRepCycleStartTime: Date?
+    private var brBadFrameStreak: Int = 0
+    private let brBadFrameLimit: Int = 15
+    private var brSelectedSide: String = ""           // "L" or "R"
+    private var brRawElbowAngle: Float?               // unsmoothed, for debug
+    /// Frames remaining for the torso-upright warning display.
+    private var brTorsoWarningFrames: Int = 0
+    private let brTorsoWarningDuration: Int = 25
+    /// Published so the UI can show a torso-swing warning during barbell rows.
+    @Published var barbellRowTorsoWarning: Bool = false
+    private var activeBarbellRowRepProfile: BarbellRowRepDetectionProfile = BarbellRowRepProfileTable.defaultProfile
 
     // MARK: - Automatic Set Detection Properties
     private var inactivityDetector = InactivityDetector()
@@ -495,7 +557,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         
         let tempoDepth: Float = {
             switch trackedExerciseType {
-            case .bodyweight, .barbell, .benchPress:
+            case .bodyweight, .barbell, .benchPress, .deadlift, .barbellRow:
                 return calculateHipDepth3D(smoothed)
             case .closeGripBenchPress:
                 return formAnalysis.depth
@@ -525,7 +587,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             let now = Date()
             if validateRep(skeleton: smoothed, overlay: landmarks, formAnalysis: formAnalysis, now: now) {
                 debugRepCounted = true
-                if trackedExerciseType == .bodyweight {
+                if trackedExerciseType == .bodyweight || trackedExerciseType == .barbell {
                     let preValid = bodyweightRepHistory.count
                     commitBodyweightRepIfNeeded()
                     debugCommitValid = bodyweightRepHistory.count > preValid
@@ -544,8 +606,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
 
         // Log debug frame (zero overhead when disabled).
-        if SquatRepDebugLogger.shared.isEnabled, trackedExerciseType == .bodyweight {
-            let profile = activeBodyweightRepProfile
+        if SquatRepDebugLogger.shared.isEnabled, (trackedExerciseType == .bodyweight || trackedExerciseType == .barbell) {
+            let profile = activeKneeAngleRepProfile
             var frame = SquatRepDebugFrame(
                 timestamp: CACurrentMediaTime(),
                 frameIndex: SquatRepDebugLogger.shared.nextFrameIndex
@@ -589,6 +651,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return analyzeBodyweightSquatForm(points)
         case .barbell:
             return analyzeBarbellSquatForm(points)
+        case .deadlift, .barbellRow:
+            return analyzeBodyweightSquatForm(points)  // fallback; uses 3D angle-based detection
         case .benchPress:
             return analyzeBodyweightSquatForm(points)
         case .closeGripBenchPress:
@@ -978,7 +1042,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// Bodyweight: computes frame metrics, updates rep accumulation, then aggregates from rep history or fallback.
     private func formAnalysisFrom3D(skeleton: Skeleton3D) -> FormAnalysis {
         switch trackedExerciseType {
-        case .bodyweight:
+        case .bodyweight, .barbell:
             let depth = calculateHipDepth3D(skeleton)
             let backAngle = calculateBackAngle3D(skeleton)
             let kneeAlignment = calculateKneeAlignment3D(skeleton)
@@ -986,9 +1050,13 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return analyzeBodyweightSquatFromRepHistory(
                 repHistory: bodyweightRepHistory,
                 fallback: FrameMetrics(depth: depth, backAngle: backAngle, kneeAlignment: kneeAlignment),
-                viewpointProfile: activeBodyweightRepProfile
+                viewpointProfile: activeKneeAngleRepProfile
             )
-        case .barbell, .benchPress:
+        case .deadlift, .barbellRow:
+            // These use angle-based rep detection, but the general 3D form
+            // analysis (depth/back angle/knee alignment) is still useful feedback.
+            return analyzeSquatForm3D(skeleton)
+        case .benchPress:
             return analyzeSquatForm3D(skeleton)
         case .closeGripBenchPress:
             return analyzeCloseGripBenchPressForm3D(skeleton)
@@ -998,10 +1066,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     // MARK: - Bodyweight Rep Accumulation (phase-relevant)
 
     private func updateBodyweightRepAccumulation(depth: Float, backAngle: Float, kneeAlignment: Float) {
-        let startDepth = activeBodyweightRepProfile.repAccumulationStartDepth
+        let startDepth = activeKneeAngleRepProfile.repAccumulationStartDepth
         let kneeDepthLine = max(
             bodyweightKneeWindowDepthThreshold,
-            activeBodyweightRepProfile.repCountDepthThreshold * 0.92
+            activeKneeAngleRepProfile.repCountDepthThreshold * 0.92
         )
         switch bodyweightRepPhase {
         case .idle:
@@ -1374,7 +1442,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         depth: Float, backAngle: Float, kneeAlignment: Float,
         exerciseType: TrackedExerciseType
     ) -> Float {
-        let config: SquatScoringConfig = (exerciseType == .barbell) ? .barbell : .bodyweight
+        let config: SquatScoringConfig = (exerciseType == .barbell || exerciseType == .deadlift || exerciseType == .barbellRow) ? .barbell : .bodyweight
 
         let depthScore = computeDepthScore(depth, config: config)
         let angleScore = computeAngleScore(backAngle, config: config)
@@ -1753,6 +1821,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         lastCountedRepHipKneeDepthQualityMet = false
         bwSmoothedKneeAngle = nil
         bwRawKneeAngle = nil
+        // Deadlift state
+        resetDeadliftRepCycleState()
+        // Barbell row state
+        resetBarbellRowRepCycleState()
         consecutiveFramesAtBottomBenchPress = 0
         consecutiveFramesAtTopBenchPress = 0
         framesSinceGoodPose = 0
@@ -1815,6 +1887,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         lastCountedRepHipKneeDepthQualityMet = false
         bwSmoothedKneeAngle = nil
         bwRawKneeAngle = nil
+        // Deadlift state
+        resetDeadliftRepCycleState()
+        // Barbell row state
+        resetBarbellRowRepCycleState()
         consecutiveFramesAtBottomBenchPress = 0
         consecutiveFramesAtTopBenchPress = 0
         framesSinceGoodPose = 0
@@ -1963,7 +2039,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     //   5. Timing gates reject impossibly fast or slow cycles.
     //
     private func validateBodyweightSquatRep(overlay: [String: CGPoint], skeleton: Skeleton3D, now: Date) -> Bool {
-        let profile = activeBodyweightRepProfile
+        let profile = activeKneeAngleRepProfile
 
         // --- 1. Extract 3D hip, knee, ankle from the better-visible side ---
 
@@ -2040,6 +2116,299 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - Deadlift rep detection (hip angle hysteresis)
+    //
+    // Algorithm (matches the MediaPipe deadlift_counter.py reference script):
+    //   1. Extract 3D shoulder, hip, knee from the better-visible side.
+    //   2. Compute the hip angle (shoulder→hip→knee) via angleDegrees().
+    //      - Standing tall (lockout) ≈ 170–180°
+    //      - Bottom of deadlift (hinged) ≈ 70–110°
+    //   3. Apply EMA smoothing to reduce landmark jitter.
+    //   4. Two-state machine (UP / DOWN) with hysteresis:
+    //        UP  → DOWN when smoothed angle ≤ downAngleThreshold  (lifter hinges)
+    //        DOWN → UP  when smoothed angle ≥ upAngleThreshold    (lifter locks out — rep counted)
+    //   5. Timing gates reject impossibly fast or slow cycles.
+    //
+
+    private func validateDeadliftRep(skeleton: Skeleton3D, now: Date) -> Bool {
+        let profile = activeDeadliftRepProfile
+
+        // --- 1. Extract 3D shoulder, hip, knee, ankle from the better-visible side ---
+        // Ankle is optional — only needed for the RDL knee-bend guard.
+
+        let rs = skeleton.position("rightShoulder"), rh = skeleton.position("rightHip"),
+            rk = skeleton.position("rightKnee"),     ra = skeleton.position("rightAnkle")
+        let ls = skeleton.position("leftShoulder"),  lh = skeleton.position("leftHip"),
+            lk = skeleton.position("leftKnee"),      la = skeleton.position("leftAnkle")
+        let rightOk = rs != nil && rh != nil && rk != nil
+        let leftOk  = ls != nil && lh != nil && lk != nil
+
+        let shoulder: SIMD3<Float>, hip: SIMD3<Float>, knee: SIMD3<Float>
+        let ankle: SIMD3<Float>?  // optional — only for knee-bend guard
+        if rightOk, leftOk {
+            let rSpread = abs(rs!.x - rk!.x) + abs(rs!.y - rk!.y)
+            let lSpread = abs(ls!.x - lk!.x) + abs(ls!.y - lk!.y)
+            if rSpread >= lSpread {
+                shoulder = rs!; hip = rh!; knee = rk!; ankle = ra; dlSelectedSide = "R"
+            } else {
+                shoulder = ls!; hip = lh!; knee = lk!; ankle = la; dlSelectedSide = "L"
+            }
+        } else if rightOk {
+            shoulder = rs!; hip = rh!; knee = rk!; ankle = ra; dlSelectedSide = "R"
+        } else if leftOk {
+            shoulder = ls!; hip = lh!; knee = lk!; ankle = la; dlSelectedSide = "L"
+        } else {
+            dlBadFrameStreak += 1
+            if dlBadFrameStreak >= dlBadFrameLimit {
+                dlSmoothedHipAngle = nil
+                dlSmoothedKneeAngle = nil
+            }
+            return false
+        }
+        dlBadFrameStreak = 0
+
+        // --- 2. Hip angle + EMA ---
+
+        let rawHipAngle = angleDegrees(a: shoulder, b: hip, c: knee)  // lockout ≈ 170°, hinged ≈ 70–110°
+        dlRawHipAngle = rawHipAngle
+
+        let alpha = profile.hipAngleEMAAlpha
+        let smoothedHip: Float = if let prev = dlSmoothedHipAngle {
+            alpha * rawHipAngle + (1 - alpha) * prev
+        } else {
+            rawHipAngle
+        }
+        dlSmoothedHipAngle = smoothedHip
+
+        // --- 3. Knee angle + EMA (form guard for RDL) ---
+
+        if let anklePos = ankle {
+            let rawKneeAngle = angleDegrees(a: hip, b: knee, c: anklePos)  // straight ≈ 170°, bent ≈ 90°
+            let smoothedKnee: Float = if let prev = dlSmoothedKneeAngle {
+                alpha * rawKneeAngle + (1 - alpha) * prev
+            } else {
+                rawKneeAngle
+            }
+            dlSmoothedKneeAngle = smoothedKnee
+
+            // Knee-bend guard: only fire during the DOWN phase (hinging), not at lockout.
+            if let limit = profile.kneeBendLimitAngle,
+               smoothedKnee < limit,
+               dlRepPhase == .down {
+                dlKneeWarningFrames = dlKneeWarningDuration
+            }
+        }
+
+        // Decay knee warning counter each frame.
+        if dlKneeWarningFrames > 0 {
+            dlKneeWarningFrames -= 1
+        }
+        let warningActive = dlKneeWarningFrames > 0
+        DispatchQueue.main.async {
+            self.deadliftKneeBendWarning = warningActive
+        }
+
+        // --- 4. UP / DOWN state machine ---
+
+        switch dlRepPhase {
+        case .up:
+            if smoothedHip <= profile.downAngleThreshold {
+                dlRepPhase = .down
+                dlRepCycleStartTime = now
+                repLog("DL UP→DOWN  hipAngle=\(smoothedHip)")
+            }
+            return false
+
+        case .down:
+            guard smoothedHip >= profile.upAngleThreshold else { return false }
+
+            let dur = now.timeIntervalSince(dlRepCycleStartTime ?? now)
+            if let last = lastRepValidationTime, now.timeIntervalSince(last) < profile.minRepInterval {
+                resetDeadliftRepCycleState()
+                repLog("DL REJECT minRepInterval dt=\(now.timeIntervalSince(last))")
+                return false
+            }
+            if dur < profile.minRepCycleDuration {
+                resetDeadliftRepCycleState()
+                repLog("DL REJECT minCycleDuration dur=\(dur)")
+                return false
+            }
+            if dur > profile.maxRepCycleDuration {
+                resetDeadliftRepCycleState()
+                repLog("DL REJECT maxCycleDuration dur=\(dur)")
+                return false
+            }
+
+            // Rep counted.
+            lastRepValidationTime = now
+            dlRepPhase = .up
+            dlRepCycleStartTime = nil
+            repLog("DL DOWN→UP  REP COUNTED  hipAngle=\(smoothedHip) dur=\(dur)")
+            return true
+        }
+    }
+
+    private func resetDeadliftRepCycleState() {
+        dlRepPhase = .up
+        dlSmoothedHipAngle = nil
+        dlSmoothedKneeAngle = nil
+        dlRepCycleStartTime = nil
+        dlBadFrameStreak = 0
+        dlRawHipAngle = nil
+        dlKneeWarningFrames = 0
+        DispatchQueue.main.async {
+            self.deadliftKneeBendWarning = false
+        }
+    }
+
+    // MARK: - Barbell Row rep detection (elbow angle hysteresis)
+    //
+    // Algorithm (matches the MediaPipe barbell_row_counter.py reference script):
+    //   1. Extract 3D shoulder, elbow, wrist (primary) + hip, knee (torso guard).
+    //   2. Compute elbow angle (shoulder→elbow→wrist):
+    //        Arms extended (bottom) ≈ 155–175°
+    //        Arms pulled (top)      ≈ 45–75°
+    //   3. Compute hip angle (shoulder→hip→knee) for torso-hinge guard.
+    //   4. EMA smooth both angles.
+    //   5. Inverted state machine:
+    //        DOWN → UP  when smoothed elbow ≤ upAngleThreshold   (lifter pulls bar up)
+    //        UP   → DOWN when smoothed elbow ≥ downAngleThreshold (lifter lowers bar — rep counted)
+    //   6. Torso guard warns if hip angle exceeds max (standing too upright = cheat row).
+    //
+
+    private func validateBarbellRowRep(skeleton: Skeleton3D, now: Date) -> Bool {
+        let profile = activeBarbellRowRepProfile
+
+        // --- 1. Extract 3D shoulder, elbow, wrist + hip, knee from better-visible side ---
+
+        let rs = skeleton.position("rightShoulder"), re = skeleton.position("rightElbow"),
+            rw = skeleton.position("rightWrist"),    rh = skeleton.position("rightHip"),
+            rk = skeleton.position("rightKnee")
+        let ls = skeleton.position("leftShoulder"),  le = skeleton.position("leftElbow"),
+            lw = skeleton.position("leftWrist"),     lh = skeleton.position("leftHip"),
+            lk = skeleton.position("leftKnee")
+        let rightOk = rs != nil && re != nil && rw != nil
+        let leftOk  = ls != nil && le != nil && lw != nil
+
+        let shoulder: SIMD3<Float>, elbow: SIMD3<Float>, wrist: SIMD3<Float>
+        let hip: SIMD3<Float>?, knee: SIMD3<Float>?  // optional — only for torso guard
+        if rightOk, leftOk {
+            let rSpread = abs(rs!.x - rw!.x) + abs(rs!.y - rw!.y)
+            let lSpread = abs(ls!.x - lw!.x) + abs(ls!.y - lw!.y)
+            if rSpread >= lSpread {
+                shoulder = rs!; elbow = re!; wrist = rw!; hip = rh; knee = rk; brSelectedSide = "R"
+            } else {
+                shoulder = ls!; elbow = le!; wrist = lw!; hip = lh; knee = lk; brSelectedSide = "L"
+            }
+        } else if rightOk {
+            shoulder = rs!; elbow = re!; wrist = rw!; hip = rh; knee = rk; brSelectedSide = "R"
+        } else if leftOk {
+            shoulder = ls!; elbow = le!; wrist = lw!; hip = lh; knee = lk; brSelectedSide = "L"
+        } else {
+            brBadFrameStreak += 1
+            if brBadFrameStreak >= brBadFrameLimit {
+                brSmoothedElbowAngle = nil
+                brSmoothedHipAngle = nil
+            }
+            return false
+        }
+        brBadFrameStreak = 0
+
+        // --- 2. Elbow angle + EMA ---
+
+        let rawElbow = angleDegrees(a: shoulder, b: elbow, c: wrist)
+        brRawElbowAngle = rawElbow
+
+        let alpha = profile.elbowAngleEMAAlpha
+        let smoothedElbow: Float = if let prev = brSmoothedElbowAngle {
+            alpha * rawElbow + (1 - alpha) * prev
+        } else {
+            rawElbow
+        }
+        brSmoothedElbowAngle = smoothedElbow
+
+        // --- 3. Hip angle + EMA (torso guard) ---
+
+        if let hipPos = hip, let kneePos = knee {
+            let rawHip = angleDegrees(a: shoulder, b: hipPos, c: kneePos)
+            let smoothedHip: Float = if let prev = brSmoothedHipAngle {
+                alpha * rawHip + (1 - alpha) * prev
+            } else {
+                rawHip
+            }
+            brSmoothedHipAngle = smoothedHip
+
+            // Torso guard: warn if standing too upright during the pull phase.
+            if smoothedHip > profile.torsoHingeMaxAngle,
+               brRepPhase == .up {
+                brTorsoWarningFrames = brTorsoWarningDuration
+            }
+        }
+
+        // Decay torso warning counter each frame.
+        if brTorsoWarningFrames > 0 {
+            brTorsoWarningFrames -= 1
+        }
+        let warningActive = brTorsoWarningFrames > 0
+        DispatchQueue.main.async {
+            self.barbellRowTorsoWarning = warningActive
+        }
+
+        // --- 4. DOWN / UP state machine (inverted: rep counted on return to DOWN) ---
+
+        switch brRepPhase {
+        case .down:
+            // Arms pulled up enough → transition to UP
+            if smoothedElbow <= profile.upAngleThreshold {
+                brRepPhase = .up
+                brRepCycleStartTime = now
+                repLog("BR DOWN→UP  elbowAngle=\(smoothedElbow)")
+            }
+            return false
+
+        case .up:
+            // Arms extended back down → rep counted
+            guard smoothedElbow >= profile.downAngleThreshold else { return false }
+
+            let dur = now.timeIntervalSince(brRepCycleStartTime ?? now)
+            if let last = lastRepValidationTime, now.timeIntervalSince(last) < profile.minRepInterval {
+                resetBarbellRowRepCycleState()
+                repLog("BR REJECT minRepInterval dt=\(now.timeIntervalSince(last))")
+                return false
+            }
+            if dur < profile.minRepCycleDuration {
+                resetBarbellRowRepCycleState()
+                repLog("BR REJECT minCycleDuration dur=\(dur)")
+                return false
+            }
+            if dur > profile.maxRepCycleDuration {
+                resetBarbellRowRepCycleState()
+                repLog("BR REJECT maxCycleDuration dur=\(dur)")
+                return false
+            }
+
+            // Rep counted.
+            lastRepValidationTime = now
+            brRepPhase = .down
+            brRepCycleStartTime = nil
+            repLog("BR UP→DOWN  REP COUNTED  elbowAngle=\(smoothedElbow) dur=\(dur)")
+            return true
+        }
+    }
+
+    private func resetBarbellRowRepCycleState() {
+        brRepPhase = .down
+        brSmoothedElbowAngle = nil
+        brSmoothedHipAngle = nil
+        brRepCycleStartTime = nil
+        brBadFrameStreak = 0
+        brRawElbowAngle = nil
+        brTorsoWarningFrames = 0
+        DispatchQueue.main.async {
+            self.barbellRowTorsoWarning = false
+        }
+    }
+
     // MARK: - Squat rep detection (hip depth hysteresis)
 
     /// Hip-vs-knee vertical relationship for secondary quality tagging only (does not gate counting).
@@ -2070,9 +2439,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
     }
 
-    /// Clears barbell/benchPress hip-depth rep machine only (after a counted rep). Bodyweight uses shoulder-vertical cycle state instead.
+    /// Clears benchPress hip-depth rep machine only. Other exercises use their own cycle state.
     private func resetSquatRepDepthMachineOnly() {
-        guard trackedExerciseType != .bodyweight else { return }
+        guard trackedExerciseType != .bodyweight && trackedExerciseType != .barbell
+              && trackedExerciseType != .deadlift && trackedExerciseType != .barbellRow else { return }
         squatRepPhase = .idleAtTop
         squatRepTopHoldFrames = 0
         squatRepBottomHoldFrames = 0
@@ -2080,11 +2450,16 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         squatRepCycleHipKneeParallelMet = false
     }
 
-    /// Abandon in-flight rep: bodyweight resets shoulder rep cycle + accumulation; barbell/bench use hip-depth machine.
+    /// Abandon in-flight rep: bodyweight/barbell reset knee-angle rep cycle + accumulation;
+    /// deadlift resets hip-angle cycle; barbell row resets elbow-angle cycle; bench uses hip-depth machine.
     private func abandonSquatRepCycle() {
-        if trackedExerciseType == .bodyweight {
+        if trackedExerciseType == .bodyweight || trackedExerciseType == .barbell {
             abortInProgressBodyweightRepAccumulation()
             resetBodyweightSquatRepCycleState()
+        } else if trackedExerciseType == .deadlift {
+            resetDeadliftRepCycleState()
+        } else if trackedExerciseType == .barbellRow {
+            resetBarbellRowRepCycleState()
         } else {
             resetSquatRepDepthMachineOnly()
         }
@@ -2112,15 +2487,21 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 return false
             }
             return validateCloseGripBenchPressRep(formAnalysis: formAnalysis, now: now)
-        case .bodyweight:
+        case .bodyweight, .barbell:
             guard let sk = skeleton, let ov = overlay else { return false }
             return validateBodyweightSquatRep(overlay: ov, skeleton: sk, now: now)
-        case .barbell, .benchPress:
+        case .deadlift:
+            guard let sk = skeleton else { return false }
+            return validateDeadliftRep(skeleton: sk, now: now)
+        case .barbellRow:
+            guard let sk = skeleton else { return false }
+            return validateBarbellRowRep(skeleton: sk, now: now)
+        case .benchPress:
             return validateSquatRepHipDepthLegacy(skeleton: skeleton, now: now)
         }
     }
 
-    /// Hip-depth hysteresis (barbell / benchPress squat only): idleAtTop → descending → bottomReached → ascending → count at top.
+    /// Hip-depth hysteresis (benchPress only — barbell now uses knee-angle): idleAtTop → descending → bottomReached → ascending → count at top.
     private func validateSquatRepHipDepthLegacy(skeleton: Skeleton3D?, now: Date) -> Bool {
         guard let skeleton = skeleton else { return false }
         let depth = calculateHipDepth3D(skeleton)
@@ -2296,7 +2677,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         let backAngleMax = currentRepBackAngleMax ?? 0
         let kneeWorst = currentRepKneeAlignmentWorst ?? 0
         let hipKneeQ = lastCountedRepHipKneeDepthQualityMet
-        let p = activeBodyweightRepProfile
+        let p = activeKneeAngleRepProfile
         let goodDepth = p.repGoodDepthThreshold
         let primaryMinBottom = max(bodyweightMinDepthForViableBottom, p.repCountDepthThreshold * 0.82)
         // Secondary floor: 60% of primary. The shoulder state machine already validated a full
@@ -2471,7 +2852,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
               repCount > 0 else { return }
         DispatchQueue.main.async {
             self.repCount -= 1
-            if self.trackedExerciseType == .bodyweight && !self.bodyweightRepHistory.isEmpty {
+            if (self.trackedExerciseType == .bodyweight || self.trackedExerciseType == .barbell) && !self.bodyweightRepHistory.isEmpty {
                 self.bodyweightRepHistory.removeLast()
             }
         }
@@ -2487,7 +2868,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
            repCount > 0 {
             DispatchQueue.main.async {
                 self.repCount -= 1
-                if self.trackedExerciseType == .bodyweight && !self.bodyweightRepHistory.isEmpty {
+                if (self.trackedExerciseType == .bodyweight || self.trackedExerciseType == .barbell) && !self.bodyweightRepHistory.isEmpty {
                     self.bodyweightRepHistory.removeLast()
                 }
             }

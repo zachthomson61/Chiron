@@ -291,6 +291,10 @@ struct TrackView: View {
 
         let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
         cameraManager.poseManager.trackedExerciseType = exerciseType
+        if exerciseType == .deadlift {
+            let isRomanian = exercise.name.lowercased().contains("romanian") || exercise.name.lowercased().contains("rdl")
+            cameraManager.poseManager.selectDeadliftVariant(isRomanian: isRomanian)
+        }
         // Keep pose pipeline on (already from `startPoseTrackingOnly`) without `startPoseAnalysis()`, which
         // calls `resetRepCountingState()` and async-sets `workoutState = .waiting` — that can race after
         // `startManualSet()` and break rep/set state.
@@ -424,6 +428,10 @@ extension TrackedExerciseType {
         let lower = exerciseName.lowercased()
         if lower.contains("barbell back squat") || lower == "back squat" {
             return .barbell
+        } else if lower.contains("deadlift") || lower.contains("rdl") || lower.contains("romanian") {
+            return .deadlift
+        } else if lower.contains("barbell row") || lower.contains("bent over row") || lower.contains("pendlay") {
+            return .barbellRow
         } else if lower.contains("bench press") && lower.contains("close") {
             return .closeGripBenchPress
         } else if lower.contains("bench press") {

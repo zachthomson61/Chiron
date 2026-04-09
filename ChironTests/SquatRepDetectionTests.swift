@@ -311,6 +311,286 @@ final class SquatExtensionFrameClassifierTests: XCTestCase {
     }
 }
 
+// MARK: - Barbell Back Squat Rep Profile Tests
+
+final class BarbellBackSquatRepProfileTests: XCTestCase {
+
+    func testDefaultProfileHasValidKneeAngleThresholds() {
+        let profile = BarbellBackSquatRepProfileTable.defaultProfile
+        // DOWN threshold must be less than UP threshold (hysteresis gap)
+        XCTAssertLessThan(profile.downAngleThreshold, profile.upAngleThreshold,
+                          "DOWN angle must be below UP angle for hysteresis")
+        // Reasonable range: deep squat ≈ 60–100°, standing ≈ 155–170°
+        XCTAssertGreaterThanOrEqual(profile.downAngleThreshold, 60)
+        XCTAssertLessThanOrEqual(profile.downAngleThreshold, 120)
+        XCTAssertGreaterThanOrEqual(profile.upAngleThreshold, 140)
+        XCTAssertLessThanOrEqual(profile.upAngleThreshold, 175)
+    }
+
+    func testDefaultProfileHasValidTimingGates() {
+        let profile = BarbellBackSquatRepProfileTable.defaultProfile
+        XCTAssertGreaterThan(profile.minRepInterval, 0)
+        XCTAssertGreaterThan(profile.minRepCycleDuration, 0)
+        XCTAssertGreaterThan(profile.maxRepCycleDuration, profile.minRepCycleDuration,
+                             "Max cycle must exceed min cycle")
+    }
+
+    func testBarbellAllowsSlowerRepsThanBodyweight() {
+        let barbell = BarbellBackSquatRepProfileTable.defaultProfile
+        let bodyweight = SquatRepProfileTable.profile(for: .chest_side)
+        XCTAssertGreaterThanOrEqual(barbell.maxRepCycleDuration, bodyweight.maxRepCycleDuration,
+                                    "Barbell should allow at least as long a rep as bodyweight (heavier load = slower)")
+        XCTAssertGreaterThanOrEqual(barbell.minRepCycleDuration, bodyweight.minRepCycleDuration,
+                                    "Barbell min cycle should be >= bodyweight (bar slows movement)")
+    }
+
+    func testBarbellUpThresholdSlightlyLowerThanBodyweight() {
+        let barbell = BarbellBackSquatRepProfileTable.defaultProfile
+        let bodyweight = SquatRepProfileTable.profile(for: .chest_side)
+        // Barbell lifters may not fully lock out under load
+        XCTAssertLessThanOrEqual(barbell.upAngleThreshold, bodyweight.upAngleThreshold,
+                                  "Barbell UP threshold should be <= bodyweight (incomplete lockout under load)")
+    }
+
+    func testBarbellDownThresholdMatchesBodyweight() {
+        let barbell = BarbellBackSquatRepProfileTable.defaultProfile
+        let bodyweight = SquatRepProfileTable.profile(for: .chest_side)
+        // Both movements hit the same depth — parallel or below
+        XCTAssertEqual(barbell.downAngleThreshold, bodyweight.downAngleThreshold,
+                       "DOWN threshold should match — same squat depth target")
+    }
+
+    func testBarbellEMAAlphaMatchesBodyweight() {
+        let barbell = BarbellBackSquatRepProfileTable.defaultProfile
+        let bodyweight = SquatRepProfileTable.profile(for: .chest_side)
+        XCTAssertEqual(barbell.kneeAngleEMAAlpha, bodyweight.kneeAngleEMAAlpha,
+                       "EMA smoothing should match — same pose estimation noise")
+    }
+
+    func testHysteresisGapIsLargeEnough() {
+        let profile = BarbellBackSquatRepProfileTable.defaultProfile
+        let gap = profile.upAngleThreshold - profile.downAngleThreshold
+        // Need at least 40° gap to prevent double-counting from oscillations
+        XCTAssertGreaterThanOrEqual(gap, 40,
+                                    "Hysteresis gap must be wide enough to prevent phantom reps")
+    }
+}
+
+// MARK: - Viewpoint Bucket Helper Tests
+
+// MARK: - Deadlift Rep Profile Tests
+
+final class DeadliftRepProfileTests: XCTestCase {
+
+    // MARK: - Default (Conventional) Profile
+
+    func testDefaultProfileHasValidHipAngleThresholds() {
+        let profile = DeadliftRepProfileTable.defaultProfile
+        // DOWN threshold must be less than UP threshold (hysteresis gap)
+        XCTAssertLessThan(profile.downAngleThreshold, profile.upAngleThreshold,
+                          "DOWN angle must be below UP angle for hysteresis")
+        // Reasonable range: bottom of deadlift ≈ 70–110°, lockout ≈ 160–180°
+        XCTAssertGreaterThanOrEqual(profile.downAngleThreshold, 70)
+        XCTAssertLessThanOrEqual(profile.downAngleThreshold, 130)
+        XCTAssertGreaterThanOrEqual(profile.upAngleThreshold, 150)
+        XCTAssertLessThanOrEqual(profile.upAngleThreshold, 180)
+    }
+
+    func testDefaultProfileHasValidTimingGates() {
+        let profile = DeadliftRepProfileTable.defaultProfile
+        XCTAssertGreaterThan(profile.minRepInterval, 0)
+        XCTAssertGreaterThan(profile.minRepCycleDuration, 0)
+        XCTAssertGreaterThan(profile.maxRepCycleDuration, profile.minRepCycleDuration,
+                             "Max cycle must exceed min cycle")
+    }
+
+    func testDefaultProfileHasLargeEnoughHysteresisGap() {
+        let profile = DeadliftRepProfileTable.defaultProfile
+        let gap = profile.upAngleThreshold - profile.downAngleThreshold
+        // Need at least 40° gap to prevent double-counting
+        XCTAssertGreaterThanOrEqual(gap, 40,
+                                    "Hysteresis gap must be wide enough to prevent phantom reps")
+    }
+
+    func testDefaultProfileMatchesReferenceScript() {
+        // Verifies the profile matches the deadlift_counter.py reference values:
+        // DOWN_ANGLE_THRESH = 110, UP_ANGLE_THRESH = 160, EMA_ALPHA = 0.25
+        let profile = DeadliftRepProfileTable.defaultProfile
+        XCTAssertEqual(profile.downAngleThreshold, 110,
+                       "Should match reference script DOWN_ANGLE_THRESH")
+        XCTAssertEqual(profile.upAngleThreshold, 160,
+                       "Should match reference script UP_ANGLE_THRESH")
+        XCTAssertEqual(profile.hipAngleEMAAlpha, 0.25,
+                       "Should match reference script EMA_ALPHA")
+    }
+
+    func testConventionalHasNoKneeGuard() {
+        let profile = DeadliftRepProfileTable.defaultProfile
+        XCTAssertNil(profile.kneeBendLimitAngle,
+                     "Conventional deadlift allows full knee bend — no guard")
+    }
+
+    // MARK: - Romanian Profile
+
+    func testRomanianProfileMatchesReferenceScript() {
+        // Verifies the profile matches the rdl_counter.py reference values:
+        // DOWN_ANGLE_THRESH = 105, UP_ANGLE_THRESH = 160, KNEE_BEND_LIMIT = 145, EMA_ALPHA = 0.25
+        let profile = DeadliftRepProfileTable.romanianProfile
+        XCTAssertEqual(profile.downAngleThreshold, 105,
+                       "Should match reference script DOWN_ANGLE_THRESH")
+        XCTAssertEqual(profile.upAngleThreshold, 160,
+                       "Should match reference script UP_ANGLE_THRESH")
+        XCTAssertEqual(profile.hipAngleEMAAlpha, 0.25,
+                       "Should match reference script EMA_ALPHA")
+    }
+
+    func testRomanianProfileHasLowerDownThresholdThanConventional() {
+        let conventional = DeadliftRepProfileTable.defaultProfile
+        let romanian = DeadliftRepProfileTable.romanianProfile
+        // Straighter legs in RDL → torso tips further → hip angle goes lower
+        XCTAssertLessThan(romanian.downAngleThreshold, conventional.downAngleThreshold,
+                          "Romanian DOWN threshold should be lower (straighter legs = deeper hip hinge angle)")
+    }
+
+    func testRomanianProfileMatchesLockout() {
+        let conventional = DeadliftRepProfileTable.defaultProfile
+        let romanian = DeadliftRepProfileTable.romanianProfile
+        // Both end at the same lockout position
+        XCTAssertEqual(romanian.upAngleThreshold, conventional.upAngleThreshold,
+                       "Lockout position should be the same for both variants")
+    }
+
+    func testRomanianProfileHasValidHysteresisGap() {
+        let profile = DeadliftRepProfileTable.romanianProfile
+        let gap = profile.upAngleThreshold - profile.downAngleThreshold
+        XCTAssertGreaterThanOrEqual(gap, 40,
+                                    "RDL hysteresis gap must prevent phantom reps")
+    }
+
+    // MARK: - RDL Knee Bend Guard
+
+    func testRomanianHasKneeBendGuard() {
+        let profile = DeadliftRepProfileTable.romanianProfile
+        XCTAssertNotNil(profile.kneeBendLimitAngle,
+                        "RDL must have a knee-bend guard to enforce straight-leg form")
+    }
+
+    func testKneeBendLimitIsReasonable() {
+        let limit = DeadliftRepProfileTable.romanianProfile.kneeBendLimitAngle!
+        // In a proper RDL, knees stay mostly straight (≈150–170°).
+        // Limit should warn when knee angle drops too low (too much bend).
+        XCTAssertGreaterThanOrEqual(limit, 130,
+                                    "Knee guard too lenient — would allow full squat depth")
+        XCTAssertLessThanOrEqual(limit, 160,
+                                  "Knee guard too strict — would warn on normal soft-knee position")
+        // Reference script uses 145°
+        XCTAssertEqual(limit, 145, "Should match reference script KNEE_BEND_LIMIT")
+    }
+
+    // MARK: - Deadlift vs Squat: Different Movement Pattern
+
+    func testDeadliftUsesHipAngleNotKneeAngle() {
+        // Deadlift tracks hip angle (shoulder→hip→knee): 170° standing, 70-110° hinged
+        // Squat tracks knee angle (hip→knee→ankle): 170° standing, 60-100° at depth
+        // The DOWN thresholds should be different because they measure different joints
+        let deadlift = DeadliftRepProfileTable.defaultProfile
+        let squat = SquatRepProfileTable.profile(for: .chest_side)
+
+        // Deadlift DOWN threshold is typically higher than squat (hip doesn't close as much)
+        XCTAssertGreaterThanOrEqual(deadlift.downAngleThreshold, squat.downAngleThreshold,
+                                    "Deadlift hip angle at bottom should be >= squat knee angle at depth")
+    }
+
+    func testDeadliftAllowsSlowerRepsThanSquat() {
+        let deadlift = DeadliftRepProfileTable.defaultProfile
+        let squat = SquatRepProfileTable.profile(for: .chest_side)
+        // Deadlifts are generally slower than squats (floor start, heavier loads)
+        XCTAssertGreaterThanOrEqual(deadlift.minRepCycleDuration, squat.minRepCycleDuration)
+        XCTAssertGreaterThanOrEqual(deadlift.maxRepCycleDuration, squat.maxRepCycleDuration)
+    }
+}
+
+// MARK: - Barbell Row Rep Profile Tests
+
+final class BarbellRowRepProfileTests: XCTestCase {
+
+    func testDefaultProfileMatchesReferenceScript() {
+        // Verifies the profile matches the barbell_row_counter.py reference values:
+        // DOWN_ANGLE_THRESH = 145, UP_ANGLE_THRESH = 80, TORSO_HINGE_MAX = 130, EMA_ALPHA = 0.25
+        let profile = BarbellRowRepProfileTable.defaultProfile
+        XCTAssertEqual(profile.downAngleThreshold, 145,
+                       "Should match reference script DOWN_ANGLE_THRESH")
+        XCTAssertEqual(profile.upAngleThreshold, 80,
+                       "Should match reference script UP_ANGLE_THRESH")
+        XCTAssertEqual(profile.elbowAngleEMAAlpha, 0.25,
+                       "Should match reference script EMA_ALPHA")
+        XCTAssertEqual(profile.torsoHingeMaxAngle, 130,
+                       "Should match reference script TORSO_HINGE_MAX")
+    }
+
+    func testInvertedStateMachine() {
+        let profile = BarbellRowRepProfileTable.defaultProfile
+        // Barbell row is inverted vs squats/deadlifts:
+        // DOWN threshold (arms extended) > UP threshold (arms pulled)
+        XCTAssertGreaterThan(profile.downAngleThreshold, profile.upAngleThreshold,
+                             "DOWN (arms extended) must be above UP (arms pulled) — inverted hysteresis")
+    }
+
+    func testHysteresisGapIsLargeEnough() {
+        let profile = BarbellRowRepProfileTable.defaultProfile
+        let gap = profile.downAngleThreshold - profile.upAngleThreshold
+        // Need at least 50° gap — elbow angle covers a large range
+        XCTAssertGreaterThanOrEqual(gap, 50,
+                                    "Hysteresis gap must prevent phantom reps from arm jitter")
+    }
+
+    func testValidTimingGates() {
+        let profile = BarbellRowRepProfileTable.defaultProfile
+        XCTAssertGreaterThan(profile.minRepInterval, 0)
+        XCTAssertGreaterThan(profile.minRepCycleDuration, 0)
+        XCTAssertGreaterThan(profile.maxRepCycleDuration, profile.minRepCycleDuration)
+    }
+
+    func testElbowAngleRangesAreReasonable() {
+        let profile = BarbellRowRepProfileTable.defaultProfile
+        // Arms extended (bottom): elbow ≈ 155–175°
+        XCTAssertGreaterThanOrEqual(profile.downAngleThreshold, 130,
+                                    "DOWN threshold too low — would trigger before arms are extended")
+        XCTAssertLessThanOrEqual(profile.downAngleThreshold, 165,
+                                  "DOWN threshold too high — would never trigger")
+        // Arms pulled (top): elbow ≈ 45–75°
+        XCTAssertGreaterThanOrEqual(profile.upAngleThreshold, 50,
+                                    "UP threshold too low — would require impossible arm position")
+        XCTAssertLessThanOrEqual(profile.upAngleThreshold, 100,
+                                  "UP threshold too high — would trigger before bar reaches belly")
+    }
+
+    func testTorsoGuardIsReasonable() {
+        let profile = BarbellRowRepProfileTable.defaultProfile
+        // Proper barbell row torso angle (hip angle) ≈ 45–90°
+        // Standing upright ≈ 170°
+        // Guard should warn somewhere in between
+        XCTAssertGreaterThanOrEqual(profile.torsoHingeMaxAngle, 100,
+                                    "Guard too strict — would warn on acceptable row position")
+        XCTAssertLessThanOrEqual(profile.torsoHingeMaxAngle, 150,
+                                  "Guard too lenient — wouldn't catch cheating")
+    }
+
+    func testDifferentMovementPatternFromSquatAndDeadlift() {
+        let row = BarbellRowRepProfileTable.defaultProfile
+        let squat = SquatRepProfileTable.profile(for: .chest_side)
+        let deadlift = DeadliftRepProfileTable.defaultProfile
+
+        // Barbell row tracks elbow (45–175°), squat tracks knee (60–170°), deadlift tracks hip (70–170°)
+        // Row UP threshold should be lower than squat/deadlift DOWN thresholds
+        // (elbow closes more than knee/hip at max ROM)
+        XCTAssertLessThan(row.upAngleThreshold, squat.downAngleThreshold,
+                          "Row elbow-pull angle should be lower than squat bottom knee angle")
+        XCTAssertLessThan(row.upAngleThreshold, deadlift.downAngleThreshold,
+                          "Row elbow-pull angle should be lower than deadlift bottom hip angle")
+    }
+}
+
 // MARK: - Viewpoint Bucket Helper Tests
 
 final class SquatViewpointBucketTests: XCTestCase {
