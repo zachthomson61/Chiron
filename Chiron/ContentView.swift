@@ -2,12 +2,17 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
-    
+    @AppStorage("has_completed_onboarding") private var hasCompletedOnboarding = false
+
     var body: some View {
-        // Inject only the dependencies the tabs actually use to avoid unnecessary initialization.
-        RootTabView()
-            .environmentObject(appState.planStore)
-            .modelContainer(appState.modelContainer)
+        if hasCompletedOnboarding {
+            // Inject only the dependencies the tabs actually use to avoid unnecessary initialization.
+            RootTabView()
+                .environmentObject(appState.planStore)
+                .modelContainer(appState.modelContainer)
+        } else {
+            OnboardingFlowView()
+        }
     }
 }
 
