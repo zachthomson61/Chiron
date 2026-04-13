@@ -275,6 +275,12 @@ final class SegmentationProcessor: ObservableObject {
             score = enhanceBenchPressQualityScore(baseScore: score, bboxW: bw, bboxH: bh, minX: minX, maxX: maxX, minY: minY, maxY: maxY, width: width, height: height)
         case .bodyweight:
             break // Use base scoring
+        case .row:
+            break // Use base scoring for rows
+        case .deadlift:
+            break // Use base scoring for deadlifts
+        case .romanianDeadlift:
+            break // Use base scoring for RDLs
         }
         
         return Self.clamp01(score)

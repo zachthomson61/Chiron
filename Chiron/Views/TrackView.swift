@@ -428,6 +428,12 @@ extension TrackedExerciseType {
             return .closeGripBenchPress
         } else if lower.contains("bench press") {
             return .benchPress
+        } else if lower.contains("barbell row") || lower.contains("bent-over row") || lower.contains("bent over row") {
+            return .row
+        } else if lower.contains("romanian") || lower.contains("rdl") {
+            return .romanianDeadlift
+        } else if lower.contains("deadlift") {
+            return .deadlift
         } else {
             return .bodyweight
         }

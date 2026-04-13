@@ -34,7 +34,13 @@ enum ExerciseType: String, CaseIterable {
             return .bodyweight
         case .barbellBackSquat:
             return .barbell
-        case .barbellRow, .deadlift, .romanianDeadlift, .barbellBenchPress:
+        case .barbellRow:
+            return .row
+        case .deadlift:
+            return .deadlift
+        case .romanianDeadlift:
+            return .romanianDeadlift
+        case .barbellBenchPress:
             return .bodyweight
         }
     }

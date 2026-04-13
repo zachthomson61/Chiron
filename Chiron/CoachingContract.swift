@@ -26,6 +26,21 @@ enum IssueCode: String, Codable, CaseIterable, Hashable {
     case incompleteRom      = "incomplete_rom"
     case eccentricTooFast   = "eccentric_too_fast"
     case concentricTooSlow  = "concentric_too_slow"
+    // Barbell row specific issues
+    case rowMomentumDrive       = "row_momentum_drive"
+    case rowRoundedBack         = "row_rounded_back"
+    case rowKneeInternalRotation = "row_knee_internal_rotation"
+    case rowElbowFlare          = "row_elbow_flare"
+    // Deadlift specific issues
+    case deadliftRoundedBack    = "deadlift_rounded_back"
+    case deadliftHipShootUp     = "deadlift_hip_shoot_up"
+    case deadliftHyperextension = "deadlift_hyperextension"
+    case deadliftBarDrift       = "deadlift_bar_drift"
+    // Romanian deadlift specific issues
+    case rdlRoundedBack         = "rdl_rounded_back"
+    case rdlExcessiveKneeBend   = "rdl_excessive_knee_bend"
+    case rdlShallowHinge        = "rdl_shallow_hinge"
+    case rdlBarDrift            = "rdl_bar_drift"
 }
 
 // MARK: - Severity
@@ -138,18 +153,105 @@ enum CoachingContract {
             severity: .low,
             cue: "Press up a little faster"
         ),
+        // Barbell row
+        .rowMomentumDrive: IssueDefinition(
+            code: .rowMomentumDrive,
+            displayName: "Using Momentum",
+            severity: .high,
+            cue: "Stay locked in that hinge and let your back do the pulling"
+        ),
+        .rowRoundedBack: IssueDefinition(
+            code: .rowRoundedBack,
+            displayName: "Rounded Back",
+            severity: .high,
+            cue: "Lift your chest and keep your spine flat"
+        ),
+        .rowKneeInternalRotation: IssueDefinition(
+            code: .rowKneeInternalRotation,
+            displayName: "Knees Turning In",
+            severity: .low,
+            cue: "Point your toes and knees straight ahead"
+        ),
+        .rowElbowFlare: IssueDefinition(
+            code: .rowElbowFlare,
+            displayName: "Elbows Flaring Out",
+            severity: .medium,
+            cue: "Pull your elbows back toward your hips, not out to the sides"
+        ),
+        // Deadlift
+        .deadliftRoundedBack: IssueDefinition(
+            code: .deadliftRoundedBack,
+            displayName: "Rounded Back",
+            severity: .high,
+            cue: "Keep your chest up and lock in that flat back"
+        ),
+        .deadliftHipShootUp: IssueDefinition(
+            code: .deadliftHipShootUp,
+            displayName: "Hips Rising Too Fast",
+            severity: .high,
+            cue: "Push through your legs first so hips and shoulders rise together"
+        ),
+        .deadliftHyperextension: IssueDefinition(
+            code: .deadliftHyperextension,
+            displayName: "Leaning Back at Lockout",
+            severity: .medium,
+            cue: "Stand tall at the top without leaning back"
+        ),
+        .deadliftBarDrift: IssueDefinition(
+            code: .deadliftBarDrift,
+            displayName: "Bar Drifting Forward",
+            severity: .medium,
+            cue: "Keep the bar tight to your body the whole way up"
+        ),
+        // Romanian deadlift
+        .rdlRoundedBack: IssueDefinition(
+            code: .rdlRoundedBack,
+            displayName: "Rounded Back",
+            severity: .high,
+            cue: "Keep your chest proud and spine flat as you hinge"
+        ),
+        .rdlExcessiveKneeBend: IssueDefinition(
+            code: .rdlExcessiveKneeBend,
+            displayName: "Too Much Knee Bend",
+            severity: .high,
+            cue: "Keep your knees at a soft fixed bend — push your hips back instead"
+        ),
+        .rdlShallowHinge: IssueDefinition(
+            code: .rdlShallowHinge,
+            displayName: "Shallow Hinge",
+            severity: .medium,
+            cue: "Hinge deeper until you feel a stretch in your hamstrings"
+        ),
+        .rdlBarDrift: IssueDefinition(
+            code: .rdlBarDrift,
+            displayName: "Bar Drifting Away",
+            severity: .medium,
+            cue: "Keep the bar sliding along your thighs the whole way down"
+        ),
     ]
 
     /// Global priority ordering — first element is highest priority.
     static let priorityOrder: [IssueCode] = [
         .insufficientDepth,
         .forwardLean,
+        .deadliftRoundedBack,
+        .deadliftHipShootUp,
+        .rdlRoundedBack,
+        .rdlExcessiveKneeBend,
+        .rowRoundedBack,
+        .rowMomentumDrive,
         .elbowsFlaring,
         .kneeValgus,
+        .deadliftHyperextension,
+        .deadliftBarDrift,
+        .rdlShallowHinge,
+        .rdlBarDrift,
+        .rowElbowFlare,
         .gripTooWide,
         .incompleteRom,
         .eccentricTooFast,
         .kneeVarus,
+        .rowKneeInternalRotation,
         .concentricTooSlow,
     ]
 
@@ -168,6 +270,47 @@ enum CoachingContract {
         static let incompleteRom: Float  = 0.6
         static let eccentricTooFast: Float = 0.6
         static let concentricTooSlow: Float = 0.6
+        // Barbell row (score below this triggers the issue)
+        static let rowMomentum: Float       = 0.55
+        static let rowBackNeutral: Float    = 0.55
+        static let rowKneeRotation: Float   = 0.55
+        static let rowElbowFlare: Float     = 0.55
+        // Barbell row hinge angle (degrees from horizontal)
+        static let rowHingeTooUpright: Float = 55.0  // torso above this = momentum / standing up
+        static let rowHingeIdealMin: Float   = 25.0  // ideal range 25-45°
+        static let rowHingeIdealMax: Float   = 50.0
+        // Barbell row elbow angle relative to torso midline (degrees)
+        static let rowElbowFlareAngle: Float = 60.0
+        // Deadlift (score below this triggers the issue)
+        static let dlRoundedBack: Float       = 0.55
+        static let dlHipShoot: Float          = 0.55
+        static let dlHyperextension: Float    = 0.55
+        static let dlBarDrift: Float          = 0.55
+        // Deadlift spine angle: head-shoulder-hip (degrees) — below this = rounded
+        static let dlSpineNeutralMin: Float   = 155.0
+        static let dlSpineRoundedSevere: Float = 120.0
+        // Deadlift lockout angle from vertical (degrees) — past this = hyperextending
+        static let dlHyperextensionAngle: Float = 10.0
+        // Deadlift hip-shoulder rise ratio — below this = hips shooting up
+        static let dlHipShoulderRatioMin: Float = 0.6
+        // Deadlift bar drift: wrist-to-hip horizontal offset / shoulder width — above this = bar drifting
+        static let dlBarDriftRatio: Float      = 0.35
+        // Romanian deadlift (score below this triggers the issue)
+        static let rdlRoundedBack: Float       = 0.55
+        static let rdlKneeBend: Float          = 0.55
+        static let rdlShallowHinge: Float      = 0.55
+        static let rdlBarDrift: Float          = 0.55
+        // RDL spine angle: head-shoulder-hip (degrees) — same range as deadlift
+        static let rdlSpineNeutralMin: Float   = 155.0
+        static let rdlSpineRoundedSevere: Float = 120.0
+        // RDL knee angle: ideal is 160-175° (slight soft bend). Below 140° = too much knee bend.
+        static let rdlKneeAngleIdealMin: Float = 155.0
+        static let rdlKneeAngleTooMuch: Float  = 135.0
+        // RDL hinge depth: torso angle from vertical (degrees). Below this = not hinging deep enough.
+        static let rdlHingeDepthMin: Float     = 50.0   // torso should pass 50° from vertical
+        static let rdlHingeShallow: Float      = 35.0   // less than this = definitely shallow
+        // RDL bar drift: wrist-to-thigh offset / shoulder width — above this = bar drifting
+        static let rdlBarDriftRatio: Float     = 0.30
     }
 
     // MARK: Positive-note detection thresholds
@@ -288,6 +431,73 @@ enum CoachingLogic {
             }
             if let ecc = analysis.avgEccentricMs, ecc >= 800 {
                 return "tempo stayed controlled"
+            }
+
+        case .row:
+            // Back neutrality: back angle in the ideal hinge range (25-50°)
+            if analysis.backAngle >= CoachingContract.Threshold.rowHingeIdealMin
+                && analysis.backAngle <= CoachingContract.Threshold.rowHingeIdealMax
+                && !analysis.issues.contains(.rowRoundedBack) {
+                return "back stayed nice and flat"
+            }
+            // Stable hip position (no momentum issue)
+            if !analysis.issues.contains(.rowMomentumDrive)
+                && !analysis.issues.contains(.rowRoundedBack) {
+                return "solid hip position throughout"
+            }
+            // Tight elbows (no elbow flare)
+            if !analysis.issues.contains(.rowElbowFlare) {
+                return "elbows stayed tight to your sides"
+            }
+            // No issues at all
+            if analysis.issues.isEmpty {
+                return "really clean rows"
+            }
+
+        case .deadlift:
+            // Flat back throughout the pull
+            if !analysis.issues.contains(.deadliftRoundedBack)
+                && !analysis.issues.contains(.deadliftHipShootUp) {
+                return "back stayed flat the whole way up"
+            }
+            // Hips and shoulders moved together
+            if !analysis.issues.contains(.deadliftHipShootUp) {
+                return "hips and shoulders moved together nicely"
+            }
+            // Clean lockout
+            if !analysis.issues.contains(.deadliftHyperextension) {
+                return "strong lockout position"
+            }
+            // Bar path
+            if !analysis.issues.contains(.deadliftBarDrift) {
+                return "bar stayed tight to your body"
+            }
+            // No issues at all
+            if analysis.issues.isEmpty {
+                return "really clean pulls"
+            }
+
+        case .romanianDeadlift:
+            // Flat back with good hinge
+            if !analysis.issues.contains(.rdlRoundedBack)
+                && !analysis.issues.contains(.rdlExcessiveKneeBend) {
+                return "smooth hip hinge with a flat back"
+            }
+            // Knees stayed soft
+            if !analysis.issues.contains(.rdlExcessiveKneeBend) {
+                return "knees stayed nice and soft without bending"
+            }
+            // Good depth
+            if !analysis.issues.contains(.rdlShallowHinge) {
+                return "good depth on that hinge"
+            }
+            // Bar path
+            if !analysis.issues.contains(.rdlBarDrift) {
+                return "bar stayed right against your legs"
+            }
+            // No issues at all
+            if analysis.issues.isEmpty {
+                return "textbook Romanian deadlifts"
             }
         }
         return "controlled tempo"

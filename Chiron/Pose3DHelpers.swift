@@ -48,6 +48,21 @@ struct Skeleton3D {
                 "leftShoulder", "rightShoulder", "leftElbow", "rightElbow",
                 "leftWrist", "rightWrist", "leftHip", "rightHip"
             ]
+        case .row:
+            requiredJoints = [
+                "leftShoulder", "rightShoulder", "leftElbow", "rightElbow",
+                "leftHip", "rightHip", "leftKnee", "rightKnee"
+            ]
+        case .deadlift:
+            requiredJoints = [
+                "leftHip", "rightHip", "leftKnee", "rightKnee",
+                "leftShoulder", "rightShoulder", "leftWrist", "rightWrist"
+            ]
+        case .romanianDeadlift:
+            requiredJoints = [
+                "leftHip", "rightHip", "leftKnee", "rightKnee",
+                "leftAnkle", "rightAnkle", "leftShoulder", "rightShoulder"
+            ]
         }
         let present = requiredJoints.filter { joints[$0] != nil }.count
         return present >= requiredJoints.count - 1

@@ -121,6 +121,9 @@ enum TrackedExerciseType {
     case barbell              // Barbell back squat exercises
     case benchPress           // Regular bench press
     case closeGripBenchPress  // Close-grip bench press exercises
+    case row                  // Barbell row exercises
+    case deadlift             // Conventional deadlift exercises
+    case romanianDeadlift     // Romanian deadlift exercises
 }
 
 // MARK: - Inactivity Detection
@@ -495,7 +498,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         
         let tempoDepth: Float = {
             switch trackedExerciseType {
-            case .bodyweight, .barbell, .benchPress:
+            case .bodyweight, .barbell, .benchPress, .row, .deadlift, .romanianDeadlift:
                 return calculateHipDepth3D(smoothed)
             case .closeGripBenchPress:
                 return formAnalysis.depth
@@ -593,6 +596,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return analyzeBodyweightSquatForm(points)
         case .closeGripBenchPress:
             return analyzeCloseGripBenchPressForm(points)
+        case .row:
+            return analyzeBarbellRowForm(points)
+        case .deadlift:
+            return analyzeDeadliftForm(points)
+        case .romanianDeadlift:
+            return analyzeRomanianDeadliftForm(points)
         }
     }
     
@@ -992,6 +1001,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return analyzeSquatForm3D(skeleton)
         case .closeGripBenchPress:
             return analyzeCloseGripBenchPressForm3D(skeleton)
+        case .row:
+            return analyzeBarbellRowForm3D(skeleton)
+        case .deadlift:
+            return analyzeDeadliftForm3D(skeleton)
+        case .romanianDeadlift:
+            return analyzeRomanianDeadliftForm3D(skeleton)
         }
     }
 
@@ -1567,8 +1582,1033 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         return Float(hipY)
     }
     
+    // MARK: - Barbell Row Form Analysis (2D overlay)
+
+    /// Analyzes barbell row form from 2D overlay landmarks.
+    ///
+    /// Form Metrics (weighted scoring):
+    /// - **Momentum / hip drive (30%)**: Torso should stay at a stable hinge angle; rising indicates hip drive.
+    /// - **Back neutrality (30%)**: Spine should remain flat; head dropping below the shoulder line indicates rounding.
+    /// - **Elbow flare (25%)**: Elbows should pull back toward hips, not flare out past 60° from the torso.
+    /// - **Knee/foot rotation (15%)**: Knees should track straight ahead, not collapse inward.
+    private func analyzeBarbellRowForm(_ points: [String: CGPoint]) -> FormAnalysis {
+        let momentumScore = calculateRowMomentumScore(points)
+        let backScore = calculateRowBackNeutralityScore(points)
+        let elbowScore = calculateRowElbowFlareScore(points)
+        let kneeScore = calculateRowKneeRotationScore(points)
+
+        let overallScore = (momentumScore * 0.30) +
+                           (backScore * 0.30) +
+                           (elbowScore * 0.25) +
+                           (kneeScore * 0.15)
+
+        var issues: [IssueCode] = []
+        if momentumScore < CoachingContract.Threshold.rowMomentum { issues.append(.rowMomentumDrive) }
+        if backScore < CoachingContract.Threshold.rowBackNeutral { issues.append(.rowRoundedBack) }
+        if elbowScore < CoachingContract.Threshold.rowElbowFlare { issues.append(.rowElbowFlare) }
+        if kneeScore < CoachingContract.Threshold.rowKneeRotation { issues.append(.rowKneeInternalRotation) }
+        issues = Array(issues.prefix(CoachingContract.maxIssuesInPayload))
+
+        let backAngle = calculateRowHingeAngle(points)
+        let summary = generateRowFormSummary(overallScore: overallScore)
+
+        return FormAnalysis(
+            depth: 0.5,
+            backAngle: backAngle,
+            kneeAlignment: kneeScore - 0.5,
+            overallScore: overallScore,
+            issues: issues,
+            summary: summary,
+            repCount: repCount,
+            avgEccentricMs: nil, avgPauseMs: nil, avgConcentricMs: nil,
+            avgBottomDepth: nil, deepRepRatio: nil
+        )
+    }
+
+    /// 3D barbell row form analysis using world-coordinate skeleton.
+    private func analyzeBarbellRowForm3D(_ skeleton: Skeleton3D) -> FormAnalysis {
+        let momentumScore = calculateRowMomentumScore3D(skeleton)
+        let backScore = calculateRowBackNeutralityScore3D(skeleton)
+        let elbowScore = calculateRowElbowFlareScore3D(skeleton)
+        let kneeScore = calculateRowKneeRotationScore3D(skeleton)
+
+        let overallScore = (momentumScore * 0.30) +
+                           (backScore * 0.30) +
+                           (elbowScore * 0.25) +
+                           (kneeScore * 0.15)
+
+        var issues: [IssueCode] = []
+        if momentumScore < CoachingContract.Threshold.rowMomentum { issues.append(.rowMomentumDrive) }
+        if backScore < CoachingContract.Threshold.rowBackNeutral { issues.append(.rowRoundedBack) }
+        if elbowScore < CoachingContract.Threshold.rowElbowFlare { issues.append(.rowElbowFlare) }
+        if kneeScore < CoachingContract.Threshold.rowKneeRotation { issues.append(.rowKneeInternalRotation) }
+        issues = Array(issues.prefix(CoachingContract.maxIssuesInPayload))
+
+        let backAngle = calculateRowHingeAngle3D(skeleton)
+        let summary = generateRowFormSummary(overallScore: overallScore)
+
+        return FormAnalysis(
+            depth: 0.5,
+            backAngle: backAngle,
+            kneeAlignment: kneeScore - 0.5,
+            overallScore: overallScore,
+            issues: issues,
+            summary: summary,
+            repCount: repCount,
+            avgEccentricMs: nil, avgPauseMs: nil, avgConcentricMs: nil,
+            avgBottomDepth: nil, deepRepRatio: nil
+        )
+    }
+
+    // MARK: Barbell Row — Hinge Angle
+
+    /// Returns the torso angle from horizontal (degrees). Ideal row position is 25-50°.
+    /// Uses the midpoint of hips and the midpoint of shoulders to define the torso line.
+    private func calculateRowHingeAngle(_ points: [String: CGPoint]) -> Float {
+        guard let leftHip = points["leftHip"], let rightHip = points["rightHip"],
+              let leftShoulder = points["leftShoulder"], let rightShoulder = points["rightShoulder"] else {
+            return 35.0 // Default to middle of ideal range
+        }
+        let midHip = CGPoint(x: (leftHip.x + rightHip.x) / 2, y: (leftHip.y + rightHip.y) / 2)
+        let midShoulder = CGPoint(x: (leftShoulder.x + rightShoulder.x) / 2, y: (leftShoulder.y + rightShoulder.y) / 2)
+        let dx = Float(midShoulder.x - midHip.x)
+        let dy = Float(midShoulder.y - midHip.y)
+        // Angle from horizontal; in screen coords Y increases downward, so we use abs(dy)
+        let angleRad = atan2(abs(dy), abs(dx))
+        return angleRad * 180.0 / .pi
+    }
+
+    private func calculateRowHingeAngle3D(_ skeleton: Skeleton3D) -> Float {
+        guard let lh = skeleton.position("leftHip"), let rh = skeleton.position("rightHip"),
+              let ls = skeleton.position("leftShoulder"), let rs = skeleton.position("rightShoulder") else {
+            return 35.0
+        }
+        let midHip = (lh + rh) * 0.5
+        let midShoulder = (ls + rs) * 0.5
+        let torso = midShoulder - midHip
+        // Angle from horizontal: asin(|vertical component| / length)
+        let len = length(torso)
+        guard len > .ulpOfOne else { return 35.0 }
+        let angleRad = asin(abs(torso.y) / len)
+        return angleRad * 180.0 / .pi
+    }
+
+    // MARK: Barbell Row — Momentum / Hip Drive Detection
+
+    /// Scores how stable the torso hinge position is.
+    /// If the torso angle is too upright (> 55°), the user is likely using hip drive
+    /// or standing up between reps. Returns 1.0 for stable hinge, 0.0 for fully upright.
+    private func calculateRowMomentumScore(_ points: [String: CGPoint]) -> Float {
+        let angle = calculateRowHingeAngle(points)
+        if angle <= CoachingContract.Threshold.rowHingeIdealMax {
+            return 1.0 // In the hinge — no momentum
+        }
+        // Linear ramp-down from ideal-max to too-upright
+        let uprightLine = CoachingContract.Threshold.rowHingeTooUpright
+        if angle >= uprightLine { return 0.0 }
+        return 1.0 - (angle - CoachingContract.Threshold.rowHingeIdealMax) / (uprightLine - CoachingContract.Threshold.rowHingeIdealMax)
+    }
+
+    private func calculateRowMomentumScore3D(_ skeleton: Skeleton3D) -> Float {
+        let angle = calculateRowHingeAngle3D(skeleton)
+        if angle <= CoachingContract.Threshold.rowHingeIdealMax { return 1.0 }
+        let uprightLine = CoachingContract.Threshold.rowHingeTooUpright
+        if angle >= uprightLine { return 0.0 }
+        return 1.0 - (angle - CoachingContract.Threshold.rowHingeIdealMax) / (uprightLine - CoachingContract.Threshold.rowHingeIdealMax)
+    }
+
+    // MARK: Barbell Row — Rounded Back Detection
+
+    /// Checks spine neutrality by comparing the head-shoulder-hip angle.
+    /// A neutral spine produces ~170-180° at the shoulder. Rounding drops the head forward,
+    /// collapsing this angle. Returns 1.0 for flat back, 0.0 for severely rounded.
+    private func calculateRowBackNeutralityScore(_ points: [String: CGPoint]) -> Float {
+        guard let leftHip = points["leftHip"], let rightHip = points["rightHip"],
+              let leftShoulder = points["leftShoulder"], let rightShoulder = points["rightShoulder"] else {
+            return 0.7 // Default to slightly-good if we can't see
+        }
+        let midHip = CGPoint(x: (leftHip.x + rightHip.x) / 2, y: (leftHip.y + rightHip.y) / 2)
+        let midShoulder = CGPoint(x: (leftShoulder.x + rightShoulder.x) / 2, y: (leftShoulder.y + rightShoulder.y) / 2)
+
+        // Use nose or ear as head reference
+        let headPoint: CGPoint
+        if let nose = points["nose"] {
+            headPoint = nose
+        } else if let leftEar = points["leftEar"], let rightEar = points["rightEar"] {
+            headPoint = CGPoint(x: (leftEar.x + rightEar.x) / 2, y: (leftEar.y + rightEar.y) / 2)
+        } else {
+            return 0.7
+        }
+
+        // Compute angle at mid-shoulder formed by hip → shoulder → head
+        let toHip = SIMD2<Float>(Float(midHip.x - midShoulder.x), Float(midHip.y - midShoulder.y))
+        let toHead = SIMD2<Float>(Float(headPoint.x - midShoulder.x), Float(headPoint.y - midShoulder.y))
+        let lenA = simd_length(toHip)
+        let lenB = simd_length(toHead)
+        guard lenA > 0.001, lenB > 0.001 else { return 0.7 }
+        let cosAngle = simd_dot(toHip, toHead) / (lenA * lenB)
+        let angleDeg = acos(max(-1, min(1, cosAngle))) * 180.0 / .pi
+
+        // 170-180° = flat spine (score 1.0)
+        // 130° = moderately rounded (score ~0.5)
+        // <110° = severely rounded (score 0.0)
+        if angleDeg >= 165 { return 1.0 }
+        if angleDeg <= 110 { return 0.0 }
+        return (angleDeg - 110) / (165 - 110)
+    }
+
+    private func calculateRowBackNeutralityScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let lh = skeleton.position("leftHip"), let rh = skeleton.position("rightHip"),
+              let ls = skeleton.position("leftShoulder"), let rs = skeleton.position("rightShoulder") else {
+            return 0.7
+        }
+        let midHip = (lh + rh) * 0.5
+        let midShoulder = (ls + rs) * 0.5
+
+        let headPos: SIMD3<Float>
+        if let nose = skeleton.position("nose") {
+            headPos = nose
+        } else if let cs = skeleton.position("centerShoulder") {
+            // Fall back to center shoulder offset upward
+            headPos = cs + SIMD3<Float>(0, 0.15, 0)
+        } else {
+            return 0.7
+        }
+
+        let angleDeg = angleDegrees(a: midHip, b: midShoulder, c: headPos)
+        if angleDeg >= 165 { return 1.0 }
+        if angleDeg <= 110 { return 0.0 }
+        return (angleDeg - 110) / (165 - 110)
+    }
+
+    // MARK: Barbell Row — Elbow Flare Detection
+
+    /// Measures the angle between the upper arm (shoulder→elbow) and the torso (shoulder→hip).
+    /// Elbows should pull back toward the hips (~30-45°), not flare out (>60°).
+    /// Returns 1.0 for tucked elbows, 0.0 for fully flared.
+    private func calculateRowElbowFlareScore(_ points: [String: CGPoint]) -> Float {
+        guard let leftShoulder = points["leftShoulder"], let rightShoulder = points["rightShoulder"],
+              let leftElbow = points["leftElbow"], let rightElbow = points["rightElbow"],
+              let leftHip = points["leftHip"], let rightHip = points["rightHip"] else {
+            return 0.7
+        }
+
+        // Compute angle for each arm
+        let leftAngle = elbowTorsoAngle2D(shoulder: leftShoulder, elbow: leftElbow, hip: leftHip)
+        let rightAngle = elbowTorsoAngle2D(shoulder: rightShoulder, elbow: rightElbow, hip: rightHip)
+        let avgAngle = (leftAngle + rightAngle) / 2.0
+
+        let limit = CoachingContract.Threshold.rowElbowFlareAngle
+        if avgAngle <= limit * 0.75 { return 1.0 }  // Well tucked
+        if avgAngle >= 90 { return 0.0 }              // Severely flared
+        if avgAngle <= limit { return max(0.6, 1.0 - (avgAngle - limit * 0.75) / (limit * 0.25)) }
+        return max(0.0, 1.0 - (avgAngle - limit) / (90 - limit))
+    }
+
+    /// Helper: angle between upper arm (shoulder→elbow) and torso (shoulder→hip) in 2D, in degrees.
+    private func elbowTorsoAngle2D(shoulder: CGPoint, elbow: CGPoint, hip: CGPoint) -> Float {
+        let toElbow = SIMD2<Float>(Float(elbow.x - shoulder.x), Float(elbow.y - shoulder.y))
+        let toHip = SIMD2<Float>(Float(hip.x - shoulder.x), Float(hip.y - shoulder.y))
+        let lenA = simd_length(toElbow)
+        let lenB = simd_length(toHip)
+        guard lenA > 0.001, lenB > 0.001 else { return 45 }
+        let cosAngle = simd_dot(toElbow, toHip) / (lenA * lenB)
+        return acos(max(-1, min(1, cosAngle))) * 180.0 / .pi
+    }
+
+    private func calculateRowElbowFlareScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let ls = skeleton.position("leftShoulder"), let rs = skeleton.position("rightShoulder"),
+              let le = skeleton.position("leftElbow"), let re = skeleton.position("rightElbow"),
+              let lh = skeleton.position("leftHip"), let rh = skeleton.position("rightHip") else {
+            return 0.7
+        }
+
+        let leftAngle = angleDegrees(a: le, b: ls, c: lh)
+        let rightAngle = angleDegrees(a: re, b: rs, c: rh)
+        let avgAngle = (leftAngle + rightAngle) / 2.0
+
+        let limit = CoachingContract.Threshold.rowElbowFlareAngle
+        if avgAngle <= limit * 0.75 { return 1.0 }
+        if avgAngle >= 90 { return 0.0 }
+        if avgAngle <= limit { return max(0.6, 1.0 - (avgAngle - limit * 0.75) / (limit * 0.25)) }
+        return max(0.0, 1.0 - (avgAngle - limit) / (90 - limit))
+    }
+
+    // MARK: Barbell Row — Knee / Foot Internal Rotation Detection
+
+    /// Detects internal rotation of knees relative to ankles.
+    /// Compares the horizontal distance between knees vs ankles.
+    /// If knees are substantially inside the ankles, the user is internally rotated.
+    /// Returns 1.0 for knees tracking well, 0.0 for severe internal rotation.
+    private func calculateRowKneeRotationScore(_ points: [String: CGPoint]) -> Float {
+        guard let leftKnee = points["leftKnee"], let rightKnee = points["rightKnee"],
+              let leftAnkle = points["leftAnkle"], let rightAnkle = points["rightAnkle"] else {
+            return 0.8 // Default good if not visible
+        }
+        let kneeWidth = abs(Float(leftKnee.x - rightKnee.x))
+        let ankleWidth = abs(Float(leftAnkle.x - rightAnkle.x))
+        guard ankleWidth > 0.001 else { return 0.8 }
+
+        let ratio = kneeWidth / ankleWidth
+        // ratio ~1.0 = aligned. < 0.7 = knees caving inward.
+        if ratio >= 0.85 { return 1.0 }
+        if ratio <= 0.5 { return 0.0 }
+        return (ratio - 0.5) / (0.85 - 0.5)
+    }
+
+    private func calculateRowKneeRotationScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let lk = skeleton.position("leftKnee"), let rk = skeleton.position("rightKnee"),
+              let la = skeleton.position("leftAnkle"), let ra = skeleton.position("rightAnkle") else {
+            return 0.8
+        }
+        // Use the XZ plane (horizontal) distance
+        let kneeSpread = length(SIMD2<Float>(lk.x - rk.x, lk.z - rk.z))
+        let ankleSpread = length(SIMD2<Float>(la.x - ra.x, la.z - ra.z))
+        guard ankleSpread > 0.001 else { return 0.8 }
+
+        let ratio = kneeSpread / ankleSpread
+        if ratio >= 0.85 { return 1.0 }
+        if ratio <= 0.5 { return 0.0 }
+        return (ratio - 0.5) / (0.85 - 0.5)
+    }
+
+    // MARK: Barbell Row — Summary
+
+    private func generateRowFormSummary(overallScore: Float) -> String {
+        let pct = Int(overallScore * 100)
+        if overallScore > 0.85 { return "Excellent row form! Score: \(pct)%" }
+        if overallScore > 0.7  { return "Good row form. Score: \(pct)%" }
+        if overallScore > 0.5  { return "Row form needs some work. Score: \(pct)%" }
+        return "Focus on row basics. Score: \(pct)%"
+    }
+
+    // MARK: Barbell Row — Rep Validation
+
+    /// Row rep detection via elbow angle hysteresis.
+    /// Tracks the angle at the elbow (shoulder→elbow→wrist). At the top of the pull, the
+    /// elbow is most flexed (~70-90°); at the bottom (arms extended), it's ~160-180°.
+    private func validateRowRep(skeleton: Skeleton3D?, now: Date) -> Bool {
+        guard let skeleton = skeleton else { return false }
+        guard let ls = skeleton.position("leftShoulder"),
+              let le = skeleton.position("leftElbow"),
+              let lw = skeleton.position("leftWrist"),
+              let rs = skeleton.position("rightShoulder"),
+              let re = skeleton.position("rightElbow"),
+              let rw = skeleton.position("rightWrist") else { return false }
+
+        let leftElbowAngle = angleDegrees(a: ls, b: le, c: lw)
+        let rightElbowAngle = angleDegrees(a: rs, b: re, c: rw)
+        let avgElbowAngle = (leftElbowAngle + rightElbowAngle) / 2.0
+
+        // Use hip-depth style hysteresis on elbow angle:
+        // Arms extended = ~160° (idle/top), flexed at peak row = ~80-100° (bottom of pull).
+        // "descending" = pulling (angle decreasing), "ascending" = lowering (angle increasing).
+        let pullThreshold: Float = 120.0  // Below this = started pulling
+        let peakFlexion: Float = 100.0    // Below this = reached the top of the pull
+        let extendThreshold: Float = 140.0 // Above this = arms extended again = rep complete
+
+        switch squatRepPhase {
+        case .idleAtTop:
+            if avgElbowAngle <= pullThreshold {
+                squatRepPhase = .descending
+            }
+            return false
+        case .descending:
+            if avgElbowAngle <= peakFlexion {
+                squatRepPhase = .bottomReached
+            }
+            return false
+        case .bottomReached:
+            if avgElbowAngle >= extendThreshold {
+                squatRepPhase = .ascending
+            }
+            return false
+        case .ascending:
+            // Rep complete — reset to idle
+            squatRepPhase = .idleAtTop
+            if let last = lastRepValidationTime,
+               now.timeIntervalSince(last) < minTimeBetweenReps { return false }
+            return true
+        }
+    }
+
+    // MARK: - Deadlift Form Analysis (2D overlay)
+
+    /// Analyzes conventional deadlift form from 2D overlay landmarks.
+    ///
+    /// Form Metrics (weighted scoring):
+    /// - **Back neutrality (35%)**: Spine should stay flat from setup to lockout.
+    /// - **Hip-shoulder coordination (25%)**: Hips and shoulders should rise at the same rate.
+    /// - **Bar path / drift (20%)**: Bar should stay close to the shins and thighs.
+    /// - **Lockout position (20%)**: Stand tall at the top without hyperextending.
+    private func analyzeDeadliftForm(_ points: [String: CGPoint]) -> FormAnalysis {
+        let backScore = calculateDeadliftBackScore(points)
+        let hipShootScore = calculateDeadliftHipShootScore(points)
+        let barDriftScore = calculateDeadliftBarDriftScore(points)
+        let lockoutScore = calculateDeadliftLockoutScore(points)
+
+        let overallScore = (backScore * 0.35) +
+                           (hipShootScore * 0.25) +
+                           (barDriftScore * 0.20) +
+                           (lockoutScore * 0.20)
+
+        var issues: [IssueCode] = []
+        if backScore < CoachingContract.Threshold.dlRoundedBack { issues.append(.deadliftRoundedBack) }
+        if hipShootScore < CoachingContract.Threshold.dlHipShoot { issues.append(.deadliftHipShootUp) }
+        if barDriftScore < CoachingContract.Threshold.dlBarDrift { issues.append(.deadliftBarDrift) }
+        if lockoutScore < CoachingContract.Threshold.dlHyperextension { issues.append(.deadliftHyperextension) }
+        issues = Array(issues.prefix(CoachingContract.maxIssuesInPayload))
+
+        let backAngle = calculateDeadliftTorsoAngle(points)
+        let summary = generateDeadliftFormSummary(overallScore: overallScore)
+
+        return FormAnalysis(
+            depth: 0.5,
+            backAngle: backAngle,
+            kneeAlignment: 0.0,
+            overallScore: overallScore,
+            issues: issues,
+            summary: summary,
+            repCount: repCount,
+            avgEccentricMs: nil, avgPauseMs: nil, avgConcentricMs: nil,
+            avgBottomDepth: nil, deepRepRatio: nil
+        )
+    }
+
+    /// 3D deadlift form analysis using world-coordinate skeleton.
+    private func analyzeDeadliftForm3D(_ skeleton: Skeleton3D) -> FormAnalysis {
+        let backScore = calculateDeadliftBackScore3D(skeleton)
+        let hipShootScore = calculateDeadliftHipShootScore3D(skeleton)
+        let barDriftScore = calculateDeadliftBarDriftScore3D(skeleton)
+        let lockoutScore = calculateDeadliftLockoutScore3D(skeleton)
+
+        let overallScore = (backScore * 0.35) +
+                           (hipShootScore * 0.25) +
+                           (barDriftScore * 0.20) +
+                           (lockoutScore * 0.20)
+
+        var issues: [IssueCode] = []
+        if backScore < CoachingContract.Threshold.dlRoundedBack { issues.append(.deadliftRoundedBack) }
+        if hipShootScore < CoachingContract.Threshold.dlHipShoot { issues.append(.deadliftHipShootUp) }
+        if barDriftScore < CoachingContract.Threshold.dlBarDrift { issues.append(.deadliftBarDrift) }
+        if lockoutScore < CoachingContract.Threshold.dlHyperextension { issues.append(.deadliftHyperextension) }
+        issues = Array(issues.prefix(CoachingContract.maxIssuesInPayload))
+
+        let backAngle = calculateDeadliftTorsoAngle3D(skeleton)
+        let summary = generateDeadliftFormSummary(overallScore: overallScore)
+
+        return FormAnalysis(
+            depth: 0.5,
+            backAngle: backAngle,
+            kneeAlignment: 0.0,
+            overallScore: overallScore,
+            issues: issues,
+            summary: summary,
+            repCount: repCount,
+            avgEccentricMs: nil, avgPauseMs: nil, avgConcentricMs: nil,
+            avgBottomDepth: nil, deepRepRatio: nil
+        )
+    }
+
+    // MARK: Deadlift — Torso Angle
+
+    /// Returns the torso angle from vertical (degrees). 0° = standing upright, 90° = horizontal.
+    /// Used as the backAngle field in FormAnalysis.
+    private func calculateDeadliftTorsoAngle(_ points: [String: CGPoint]) -> Float {
+        guard let leftHip = points["leftHip"], let rightHip = points["rightHip"],
+              let leftShoulder = points["leftShoulder"], let rightShoulder = points["rightShoulder"] else {
+            return 0.0
+        }
+        let midHip = CGPoint(x: (leftHip.x + rightHip.x) / 2, y: (leftHip.y + rightHip.y) / 2)
+        let midShoulder = CGPoint(x: (leftShoulder.x + rightShoulder.x) / 2, y: (leftShoulder.y + rightShoulder.y) / 2)
+        let dx = Float(midShoulder.x - midHip.x)
+        let dy = Float(midShoulder.y - midHip.y)
+        // Angle from vertical (Y axis) — in screen coords Y increases downward
+        let angleRad = atan2(abs(dx), abs(dy))
+        return angleRad * 180.0 / .pi
+    }
+
+    private func calculateDeadliftTorsoAngle3D(_ skeleton: Skeleton3D) -> Float {
+        guard let lh = skeleton.position("leftHip"), let rh = skeleton.position("rightHip"),
+              let ls = skeleton.position("leftShoulder"), let rs = skeleton.position("rightShoulder") else {
+            return 0.0
+        }
+        let midHip = (lh + rh) * 0.5
+        let midShoulder = (ls + rs) * 0.5
+        let torso = midShoulder - midHip
+        let len = length(torso)
+        guard len > .ulpOfOne else { return 0.0 }
+        // Angle from vertical: acos(|Y component| / length)
+        let angleRad = acos(min(1.0, abs(torso.y) / len))
+        return angleRad * 180.0 / .pi
+    }
+
+    // MARK: Deadlift — Rounded Back Detection
+
+    /// Checks spine neutrality using the head-shoulder-hip angle, similar to the row detection
+    /// but with tighter thresholds since deadlift loading is axial and rounding is higher risk.
+    /// A neutral spine under load produces ~160-180° at the shoulder vertex.
+    /// Returns 1.0 for flat back, 0.0 for severely rounded.
+    private func calculateDeadliftBackScore(_ points: [String: CGPoint]) -> Float {
+        guard let leftHip = points["leftHip"], let rightHip = points["rightHip"],
+              let leftShoulder = points["leftShoulder"], let rightShoulder = points["rightShoulder"] else {
+            return 0.7
+        }
+        let midHip = CGPoint(x: (leftHip.x + rightHip.x) / 2, y: (leftHip.y + rightHip.y) / 2)
+        let midShoulder = CGPoint(x: (leftShoulder.x + rightShoulder.x) / 2, y: (leftShoulder.y + rightShoulder.y) / 2)
+
+        let headPoint: CGPoint
+        if let nose = points["nose"] {
+            headPoint = nose
+        } else if let leftEar = points["leftEar"], let rightEar = points["rightEar"] {
+            headPoint = CGPoint(x: (leftEar.x + rightEar.x) / 2, y: (leftEar.y + rightEar.y) / 2)
+        } else {
+            return 0.7
+        }
+
+        let toHip = SIMD2<Float>(Float(midHip.x - midShoulder.x), Float(midHip.y - midShoulder.y))
+        let toHead = SIMD2<Float>(Float(headPoint.x - midShoulder.x), Float(headPoint.y - midShoulder.y))
+        let lenA = simd_length(toHip)
+        let lenB = simd_length(toHead)
+        guard lenA > 0.001, lenB > 0.001 else { return 0.7 }
+        let cosAngle = simd_dot(toHip, toHead) / (lenA * lenB)
+        let angleDeg = acos(max(-1, min(1, cosAngle))) * 180.0 / .pi
+
+        let neutralMin = CoachingContract.Threshold.dlSpineNeutralMin
+        let severeMin = CoachingContract.Threshold.dlSpineRoundedSevere
+        if angleDeg >= neutralMin { return 1.0 }
+        if angleDeg <= severeMin { return 0.0 }
+        return (angleDeg - severeMin) / (neutralMin - severeMin)
+    }
+
+    private func calculateDeadliftBackScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let lh = skeleton.position("leftHip"), let rh = skeleton.position("rightHip"),
+              let ls = skeleton.position("leftShoulder"), let rs = skeleton.position("rightShoulder") else {
+            return 0.7
+        }
+        let midHip = (lh + rh) * 0.5
+        let midShoulder = (ls + rs) * 0.5
+
+        let headPos: SIMD3<Float>
+        if let nose = skeleton.position("nose") {
+            headPos = nose
+        } else if let cs = skeleton.position("centerShoulder") {
+            headPos = cs + SIMD3<Float>(0, 0.15, 0)
+        } else {
+            return 0.7
+        }
+
+        let angleDeg = angleDegrees(a: midHip, b: midShoulder, c: headPos)
+        let neutralMin = CoachingContract.Threshold.dlSpineNeutralMin
+        let severeMin = CoachingContract.Threshold.dlSpineRoundedSevere
+        if angleDeg >= neutralMin { return 1.0 }
+        if angleDeg <= severeMin { return 0.0 }
+        return (angleDeg - severeMin) / (neutralMin - severeMin)
+    }
+
+    // MARK: Deadlift — Hip Shoot-Up Detection
+
+    /// Detects when hips rise faster than shoulders (the "stripper deadlift").
+    /// Compares the relative vertical positions of hips and shoulders.
+    /// When hips are high relative to shoulders (torso nearly horizontal while hips are up),
+    /// the hip-to-shoulder Y ratio is skewed.
+    /// Returns 1.0 when hips and shoulders are coordinated, 0.0 when hips are shooting up.
+    private func calculateDeadliftHipShootScore(_ points: [String: CGPoint]) -> Float {
+        guard let leftHip = points["leftHip"], let rightHip = points["rightHip"],
+              let leftShoulder = points["leftShoulder"], let rightShoulder = points["rightShoulder"],
+              let leftKnee = points["leftKnee"], let rightKnee = points["rightKnee"] else {
+            return 0.7
+        }
+        let midHipY = Float((leftHip.y + rightHip.y) / 2)
+        let midShoulderY = Float((leftShoulder.y + rightShoulder.y) / 2)
+        let midKneeY = Float((leftKnee.y + rightKnee.y) / 2)
+
+        // In screen coords Y increases downward. During the pull:
+        // - Shoulders should be above hips (shoulder Y < hip Y)
+        // - The hip-shoulder vertical gap should be proportional
+        // - If hips rise close to shoulder level while knees are still bent, hips are shooting up
+
+        let hipShoulderGap = midHipY - midShoulderY  // positive = hips below shoulders (normal)
+        let hipKneeGap = midKneeY - midHipY          // positive = knees below hips (normal)
+
+        // If hips are at or above shoulder level, that's a problem
+        guard hipShoulderGap > 0 else { return 0.2 }
+
+        // Ratio: how much of the total pull height is hip-to-shoulder vs hip-to-knee
+        // When hips shoot up, hipShoulderGap shrinks relative to hipKneeGap
+        let totalSpan = hipShoulderGap + max(0, hipKneeGap)
+        guard totalSpan > 0.001 else { return 0.7 }
+
+        let shoulderRatio = hipShoulderGap / totalSpan
+        let threshold = CoachingContract.Threshold.dlHipShoulderRatioMin
+
+        if shoulderRatio >= threshold { return 1.0 }
+        if shoulderRatio <= threshold * 0.3 { return 0.0 }
+        return (shoulderRatio - threshold * 0.3) / (threshold - threshold * 0.3)
+    }
+
+    private func calculateDeadliftHipShootScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let lh = skeleton.position("leftHip"), let rh = skeleton.position("rightHip"),
+              let ls = skeleton.position("leftShoulder"), let rs = skeleton.position("rightShoulder"),
+              let lk = skeleton.position("leftKnee"), let rk = skeleton.position("rightKnee") else {
+            return 0.7
+        }
+        let midHipY = (lh.y + rh.y) * 0.5
+        let midShoulderY = (ls.y + rs.y) * 0.5
+        let midKneeY = (lk.y + rk.y) * 0.5
+
+        // In 3D space, Y typically increases upward (opposite of screen coords)
+        let hipShoulderGap = midShoulderY - midHipY  // positive = shoulders above hips (normal)
+        let hipKneeGap = midHipY - midKneeY          // positive = hips above knees (normal)
+
+        guard hipShoulderGap > 0 else { return 0.2 }
+
+        let totalSpan = hipShoulderGap + max(0, hipKneeGap)
+        guard totalSpan > 0.001 else { return 0.7 }
+
+        let shoulderRatio = hipShoulderGap / totalSpan
+        let threshold = CoachingContract.Threshold.dlHipShoulderRatioMin
+        if shoulderRatio >= threshold { return 1.0 }
+        if shoulderRatio <= threshold * 0.3 { return 0.0 }
+        return (shoulderRatio - threshold * 0.3) / (threshold - threshold * 0.3)
+    }
+
+    // MARK: Deadlift — Bar Drift Detection
+
+    /// Detects when the bar drifts away from the body (forward of the midfoot line).
+    /// Approximated by measuring horizontal offset of wrists from the hip-to-ankle midline.
+    /// Returns 1.0 for bar tight to the body, 0.0 for severe drift.
+    private func calculateDeadliftBarDriftScore(_ points: [String: CGPoint]) -> Float {
+        guard let leftWrist = points["leftWrist"], let rightWrist = points["rightWrist"],
+              let leftHip = points["leftHip"], let rightHip = points["rightHip"],
+              let leftShoulder = points["leftShoulder"], let rightShoulder = points["rightShoulder"] else {
+            return 0.8
+        }
+        let midWristX = Float((leftWrist.x + rightWrist.x) / 2)
+        let midHipX = Float((leftHip.x + rightHip.x) / 2)
+        let shoulderWidth = abs(Float(leftShoulder.x - rightShoulder.x))
+        guard shoulderWidth > 0.001 else { return 0.8 }
+
+        // Horizontal offset of wrists from hip center, normalized by shoulder width
+        let drift = abs(midWristX - midHipX) / shoulderWidth
+        let driftLimit = CoachingContract.Threshold.dlBarDriftRatio
+
+        if drift <= driftLimit * 0.5 { return 1.0 }   // Bar is very close to body
+        if drift >= driftLimit * 2.0 { return 0.0 }    // Severe drift
+        if drift <= driftLimit { return max(0.6, 1.0 - (drift - driftLimit * 0.5) / (driftLimit * 0.5)) }
+        return max(0.0, 1.0 - (drift - driftLimit) / driftLimit)
+    }
+
+    private func calculateDeadliftBarDriftScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let lw = skeleton.position("leftWrist"), let rw = skeleton.position("rightWrist"),
+              let lh = skeleton.position("leftHip"), let rh = skeleton.position("rightHip"),
+              let ls = skeleton.position("leftShoulder"), let rs = skeleton.position("rightShoulder") else {
+            return 0.8
+        }
+        let midWrist = (lw + rw) * 0.5
+        let midHip = (lh + rh) * 0.5
+        let shoulderWidth = length(ls - rs)
+        guard shoulderWidth > 0.001 else { return 0.8 }
+
+        // Use XZ horizontal plane for drift measurement (ignore Y)
+        let driftVec = SIMD2<Float>(midWrist.x - midHip.x, midWrist.z - midHip.z)
+        let drift = simd_length(driftVec) / shoulderWidth
+        let driftLimit = CoachingContract.Threshold.dlBarDriftRatio
+
+        if drift <= driftLimit * 0.5 { return 1.0 }
+        if drift >= driftLimit * 2.0 { return 0.0 }
+        if drift <= driftLimit { return max(0.6, 1.0 - (drift - driftLimit * 0.5) / (driftLimit * 0.5)) }
+        return max(0.0, 1.0 - (drift - driftLimit) / driftLimit)
+    }
+
+    // MARK: Deadlift — Hyperextension at Lockout Detection
+
+    /// Detects leaning back past vertical at the top of the deadlift.
+    /// The torso angle from vertical should be near 0° at lockout.
+    /// If the shoulders are behind the hips (negative angle = past vertical), it's hyperextension.
+    /// Returns 1.0 for a clean lockout, 0.0 for excessive lean-back.
+    private func calculateDeadliftLockoutScore(_ points: [String: CGPoint]) -> Float {
+        guard let leftHip = points["leftHip"], let rightHip = points["rightHip"],
+              let leftShoulder = points["leftShoulder"], let rightShoulder = points["rightShoulder"] else {
+            return 0.8
+        }
+        let midHipX = Float((leftHip.x + rightHip.x) / 2)
+        let midHipY = Float((leftHip.y + rightHip.y) / 2)
+        let midShoulderX = Float((leftShoulder.x + rightShoulder.x) / 2)
+        let midShoulderY = Float((leftShoulder.y + rightShoulder.y) / 2)
+
+        // Torso angle from vertical
+        let dx = midShoulderX - midHipX
+        let dy = midShoulderY - midHipY  // screen coords: Y increases down
+        let torsoAngle = atan2(abs(dx), abs(dy)) * 180.0 / .pi
+
+        // Only flag hyperextension when the user is near-vertical (lockout position)
+        // If they're still in the pull (angle > 25° from vertical), skip this check
+        guard torsoAngle < 20.0 else { return 1.0 }
+
+        // Check if shoulders are behind hips (leaning back)
+        // In a side view, if the shoulder X is behind (depending on facing direction)
+        // we detect this via the torso being past vertical
+        let hyperLimit = CoachingContract.Threshold.dlHyperextensionAngle
+        if torsoAngle <= hyperLimit * 0.5 { return 1.0 }  // Clean upright lockout
+        if torsoAngle <= hyperLimit { return 0.8 }         // Slight lean, acceptable
+        // Past vertical — the shoulder-hip line goes beyond straight up
+        return max(0.2, 1.0 - (torsoAngle - hyperLimit) / 15.0)
+    }
+
+    private func calculateDeadliftLockoutScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let lh = skeleton.position("leftHip"), let rh = skeleton.position("rightHip"),
+              let ls = skeleton.position("leftShoulder"), let rs = skeleton.position("rightShoulder") else {
+            return 0.8
+        }
+        let midHip = (lh + rh) * 0.5
+        let midShoulder = (ls + rs) * 0.5
+        let torso = midShoulder - midHip
+        let len = length(torso)
+        guard len > .ulpOfOne else { return 0.8 }
+
+        // Angle from vertical (Y-axis)
+        let torsoAngle = acos(min(1.0, abs(torso.y) / len)) * 180.0 / .pi
+
+        // Only check lockout when near-vertical
+        guard torsoAngle < 20.0 else { return 1.0 }
+
+        // Check if shoulder is behind the hip in the sagittal plane (Z axis)
+        // A positive Z offset means leaning back (depends on facing direction)
+        let sagittalOffset = abs(torso.z) / len
+        let sagittalAngle = asin(min(1.0, sagittalOffset)) * 180.0 / .pi
+
+        let hyperLimit = CoachingContract.Threshold.dlHyperextensionAngle
+        if sagittalAngle <= hyperLimit * 0.5 { return 1.0 }
+        if sagittalAngle <= hyperLimit { return 0.8 }
+        return max(0.2, 1.0 - (sagittalAngle - hyperLimit) / 15.0)
+    }
+
+    // MARK: Deadlift — Summary
+
+    private func generateDeadliftFormSummary(overallScore: Float) -> String {
+        let pct = Int(overallScore * 100)
+        if overallScore > 0.85 { return "Excellent deadlift form! Score: \(pct)%" }
+        if overallScore > 0.7  { return "Good deadlift form. Score: \(pct)%" }
+        if overallScore > 0.5  { return "Deadlift form needs some work. Score: \(pct)%" }
+        return "Focus on deadlift basics. Score: \(pct)%"
+    }
+
+    // MARK: Deadlift — Rep Validation
+
+    /// Deadlift rep detection via hip vertical position hysteresis.
+    /// At the bottom (setup), hips are low; at lockout, hips are high.
+    /// Tracks hip height relative to the standing calibration to detect rep cycles.
+    private func validateDeadliftRep(skeleton: Skeleton3D?, now: Date) -> Bool {
+        guard let skeleton = skeleton else { return false }
+        let depth = calculateHipDepth3D(skeleton)
+
+        // Hip-depth hysteresis: same pattern as barbell squat but with deadlift-appropriate thresholds.
+        // "depth" is normalized 0-1 where higher = deeper/lower hips.
+        // Deadlift: start at top (low depth), descend to pick up bar (high depth), pull back up.
+        let startThreshold: Float = 0.25   // Hips descend past this to start a rep
+        let bottomThreshold: Float = 0.40  // Hips below this = reached the bar
+        let lockoutThreshold: Float = 0.15 // Hips above this = lockout complete
+
+        switch squatRepPhase {
+        case .idleAtTop:
+            if depth >= startThreshold {
+                squatRepPhase = .descending
+            }
+            return false
+        case .descending:
+            if depth >= bottomThreshold {
+                squatRepPhase = .bottomReached
+            }
+            return false
+        case .bottomReached:
+            if depth <= lockoutThreshold {
+                squatRepPhase = .ascending
+            }
+            return false
+        case .ascending:
+            squatRepPhase = .idleAtTop
+            if let last = lastRepValidationTime,
+               now.timeIntervalSince(last) < minTimeBetweenReps { return false }
+            return true
+        }
+    }
+
+    // MARK: - Romanian Deadlift Form Analysis (2D overlay)
+
+    /// Analyzes Romanian deadlift form from 2D overlay landmarks.
+    ///
+    /// The RDL is a pure hip-hinge with a fixed, slight knee bend. Key differences from
+    /// the conventional deadlift: knees must NOT bend further during the descent, and
+    /// the emphasis is on hamstring stretch / hinge depth rather than floor-to-lockout power.
+    ///
+    /// Form Metrics (weighted scoring):
+    /// - **Back neutrality (30%)**: Spine should stay flat throughout the hinge.
+    /// - **Knee discipline (30%)**: Knees should hold a soft fixed bend (~160-175°), not squat down.
+    /// - **Hinge depth (20%)**: Torso should reach at least 50° from vertical for full hamstring stretch.
+    /// - **Bar path (20%)**: Bar should slide along the thighs, not drift forward.
+    private func analyzeRomanianDeadliftForm(_ points: [String: CGPoint]) -> FormAnalysis {
+        let backScore = calculateRdlBackScore(points)
+        let kneeScore = calculateRdlKneeBendScore(points)
+        let hingeScore = calculateRdlHingeDepthScore(points)
+        let barDriftScore = calculateRdlBarDriftScore(points)
+
+        let overallScore = (backScore * 0.30) +
+                           (kneeScore * 0.30) +
+                           (hingeScore * 0.20) +
+                           (barDriftScore * 0.20)
+
+        var issues: [IssueCode] = []
+        if backScore < CoachingContract.Threshold.rdlRoundedBack { issues.append(.rdlRoundedBack) }
+        if kneeScore < CoachingContract.Threshold.rdlKneeBend { issues.append(.rdlExcessiveKneeBend) }
+        if hingeScore < CoachingContract.Threshold.rdlShallowHinge { issues.append(.rdlShallowHinge) }
+        if barDriftScore < CoachingContract.Threshold.rdlBarDrift { issues.append(.rdlBarDrift) }
+        issues = Array(issues.prefix(CoachingContract.maxIssuesInPayload))
+
+        let backAngle = calculateDeadliftTorsoAngle(points) // reuse deadlift torso angle calc
+        let summary = generateRdlFormSummary(overallScore: overallScore)
+
+        return FormAnalysis(
+            depth: 0.5,
+            backAngle: backAngle,
+            kneeAlignment: 0.0,
+            overallScore: overallScore,
+            issues: issues,
+            summary: summary,
+            repCount: repCount,
+            avgEccentricMs: nil, avgPauseMs: nil, avgConcentricMs: nil,
+            avgBottomDepth: nil, deepRepRatio: nil
+        )
+    }
+
+    /// 3D Romanian deadlift form analysis using world-coordinate skeleton.
+    private func analyzeRomanianDeadliftForm3D(_ skeleton: Skeleton3D) -> FormAnalysis {
+        let backScore = calculateRdlBackScore3D(skeleton)
+        let kneeScore = calculateRdlKneeBendScore3D(skeleton)
+        let hingeScore = calculateRdlHingeDepthScore3D(skeleton)
+        let barDriftScore = calculateRdlBarDriftScore3D(skeleton)
+
+        let overallScore = (backScore * 0.30) +
+                           (kneeScore * 0.30) +
+                           (hingeScore * 0.20) +
+                           (barDriftScore * 0.20)
+
+        var issues: [IssueCode] = []
+        if backScore < CoachingContract.Threshold.rdlRoundedBack { issues.append(.rdlRoundedBack) }
+        if kneeScore < CoachingContract.Threshold.rdlKneeBend { issues.append(.rdlExcessiveKneeBend) }
+        if hingeScore < CoachingContract.Threshold.rdlShallowHinge { issues.append(.rdlShallowHinge) }
+        if barDriftScore < CoachingContract.Threshold.rdlBarDrift { issues.append(.rdlBarDrift) }
+        issues = Array(issues.prefix(CoachingContract.maxIssuesInPayload))
+
+        let backAngle = calculateDeadliftTorsoAngle3D(skeleton) // reuse deadlift torso angle calc
+        let summary = generateRdlFormSummary(overallScore: overallScore)
+
+        return FormAnalysis(
+            depth: 0.5,
+            backAngle: backAngle,
+            kneeAlignment: 0.0,
+            overallScore: overallScore,
+            issues: issues,
+            summary: summary,
+            repCount: repCount,
+            avgEccentricMs: nil, avgPauseMs: nil, avgConcentricMs: nil,
+            avgBottomDepth: nil, deepRepRatio: nil
+        )
+    }
+
+    // MARK: RDL — Rounded Back Detection
+
+    /// Checks spine neutrality using the same head-shoulder-hip angle approach as the
+    /// conventional deadlift. RDL loading is lighter but the hinge is deeper, so
+    /// rounding risk persists throughout the eccentric (lowering) phase.
+    private func calculateRdlBackScore(_ points: [String: CGPoint]) -> Float {
+        // Reuse the deadlift back score — same biomechanic, same thresholds
+        return calculateDeadliftBackScore(points)
+    }
+
+    private func calculateRdlBackScore3D(_ skeleton: Skeleton3D) -> Float {
+        return calculateDeadliftBackScore3D(skeleton)
+    }
+
+    // MARK: RDL — Excessive Knee Bend Detection
+
+    /// The hallmark of the RDL: knees should hold a fixed soft bend (~160-175°).
+    /// If the knee angle drops below ~140°, the user is squatting into the movement
+    /// rather than hinging. Measures the average knee angle (shoulder→hip→ankle bisection
+    /// at the knee vertex).
+    /// Returns 1.0 for soft fixed bend, 0.0 for deep knee bend.
+    private func calculateRdlKneeBendScore(_ points: [String: CGPoint]) -> Float {
+        guard let leftHip = points["leftHip"], let rightHip = points["rightHip"],
+              let leftKnee = points["leftKnee"], let rightKnee = points["rightKnee"],
+              let leftAnkle = points["leftAnkle"], let rightAnkle = points["rightAnkle"] else {
+            return 0.7
+        }
+
+        // Compute knee angle for each side: hip→knee→ankle
+        let leftAngleDeg = angle2D(a: leftHip, b: leftKnee, c: leftAnkle)
+        let rightAngleDeg = angle2D(a: rightHip, b: rightKnee, c: rightAnkle)
+        let avgKneeAngle = (leftAngleDeg + rightAngleDeg) / 2.0
+
+        let idealMin = CoachingContract.Threshold.rdlKneeAngleIdealMin
+        let tooMuch = CoachingContract.Threshold.rdlKneeAngleTooMuch
+
+        // 175° = nearly straight (perfect RDL). 155° = acceptable soft bend. 135° = too much.
+        if avgKneeAngle >= idealMin { return 1.0 }
+        if avgKneeAngle <= tooMuch { return 0.0 }
+        return (avgKneeAngle - tooMuch) / (idealMin - tooMuch)
+    }
+
+    /// Helper: angle at vertex b formed by rays b→a and b→c, in 2D screen coords (degrees).
+    private func angle2D(a: CGPoint, b: CGPoint, c: CGPoint) -> Float {
+        let ba = SIMD2<Float>(Float(a.x - b.x), Float(a.y - b.y))
+        let bc = SIMD2<Float>(Float(c.x - b.x), Float(c.y - b.y))
+        let lenBA = simd_length(ba)
+        let lenBC = simd_length(bc)
+        guard lenBA > 0.001, lenBC > 0.001 else { return 170 }
+        let cosAngle = simd_dot(ba, bc) / (lenBA * lenBC)
+        return acos(max(-1, min(1, cosAngle))) * 180.0 / .pi
+    }
+
+    private func calculateRdlKneeBendScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let lh = skeleton.position("leftHip"), let rh = skeleton.position("rightHip"),
+              let lk = skeleton.position("leftKnee"), let rk = skeleton.position("rightKnee"),
+              let la = skeleton.position("leftAnkle"), let ra = skeleton.position("rightAnkle") else {
+            return 0.7
+        }
+
+        let leftAngleDeg = angleDegrees(a: lh, b: lk, c: la)
+        let rightAngleDeg = angleDegrees(a: rh, b: rk, c: ra)
+        let avgKneeAngle = (leftAngleDeg + rightAngleDeg) / 2.0
+
+        let idealMin = CoachingContract.Threshold.rdlKneeAngleIdealMin
+        let tooMuch = CoachingContract.Threshold.rdlKneeAngleTooMuch
+        if avgKneeAngle >= idealMin { return 1.0 }
+        if avgKneeAngle <= tooMuch { return 0.0 }
+        return (avgKneeAngle - tooMuch) / (idealMin - tooMuch)
+    }
+
+    // MARK: RDL — Hinge Depth Detection
+
+    /// Checks whether the user hinges deeply enough for a full hamstring stretch.
+    /// The torso should reach at least 50° from vertical (ideally 60-80°).
+    /// Returns 1.0 for deep hinge, 0.0 for barely bending forward.
+    private func calculateRdlHingeDepthScore(_ points: [String: CGPoint]) -> Float {
+        let torsoAngle = calculateDeadliftTorsoAngle(points) // degrees from vertical
+        let deepEnough = CoachingContract.Threshold.rdlHingeDepthMin
+        let shallow = CoachingContract.Threshold.rdlHingeShallow
+
+        if torsoAngle >= deepEnough { return 1.0 }
+        if torsoAngle <= shallow { return 0.0 }
+        return (torsoAngle - shallow) / (deepEnough - shallow)
+    }
+
+    private func calculateRdlHingeDepthScore3D(_ skeleton: Skeleton3D) -> Float {
+        let torsoAngle = calculateDeadliftTorsoAngle3D(skeleton)
+        let deepEnough = CoachingContract.Threshold.rdlHingeDepthMin
+        let shallow = CoachingContract.Threshold.rdlHingeShallow
+
+        if torsoAngle >= deepEnough { return 1.0 }
+        if torsoAngle <= shallow { return 0.0 }
+        return (torsoAngle - shallow) / (deepEnough - shallow)
+    }
+
+    // MARK: RDL — Bar Drift Detection
+
+    /// Detects when the bar drifts away from the thighs during the RDL.
+    /// Uses the same wrist-to-hip offset approach as the conventional deadlift
+    /// but with a tighter threshold since the RDL emphasizes the bar
+    /// tracing the quads/thighs throughout.
+    private func calculateRdlBarDriftScore(_ points: [String: CGPoint]) -> Float {
+        guard let leftWrist = points["leftWrist"], let rightWrist = points["rightWrist"],
+              let leftHip = points["leftHip"], let rightHip = points["rightHip"],
+              let leftShoulder = points["leftShoulder"], let rightShoulder = points["rightShoulder"] else {
+            return 0.8
+        }
+        let midWristX = Float((leftWrist.x + rightWrist.x) / 2)
+        let midHipX = Float((leftHip.x + rightHip.x) / 2)
+        let shoulderWidth = abs(Float(leftShoulder.x - rightShoulder.x))
+        guard shoulderWidth > 0.001 else { return 0.8 }
+
+        let drift = abs(midWristX - midHipX) / shoulderWidth
+        let driftLimit = CoachingContract.Threshold.rdlBarDriftRatio
+
+        if drift <= driftLimit * 0.5 { return 1.0 }
+        if drift >= driftLimit * 2.0 { return 0.0 }
+        if drift <= driftLimit { return max(0.6, 1.0 - (drift - driftLimit * 0.5) / (driftLimit * 0.5)) }
+        return max(0.0, 1.0 - (drift - driftLimit) / driftLimit)
+    }
+
+    private func calculateRdlBarDriftScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let lw = skeleton.position("leftWrist"), let rw = skeleton.position("rightWrist"),
+              let lh = skeleton.position("leftHip"), let rh = skeleton.position("rightHip"),
+              let ls = skeleton.position("leftShoulder"), let rs = skeleton.position("rightShoulder") else {
+            return 0.8
+        }
+        let midWrist = (lw + rw) * 0.5
+        let midHip = (lh + rh) * 0.5
+        let shoulderWidth = length(ls - rs)
+        guard shoulderWidth > 0.001 else { return 0.8 }
+
+        let driftVec = SIMD2<Float>(midWrist.x - midHip.x, midWrist.z - midHip.z)
+        let drift = simd_length(driftVec) / shoulderWidth
+        let driftLimit = CoachingContract.Threshold.rdlBarDriftRatio
+
+        if drift <= driftLimit * 0.5 { return 1.0 }
+        if drift >= driftLimit * 2.0 { return 0.0 }
+        if drift <= driftLimit { return max(0.6, 1.0 - (drift - driftLimit * 0.5) / (driftLimit * 0.5)) }
+        return max(0.0, 1.0 - (drift - driftLimit) / driftLimit)
+    }
+
+    // MARK: RDL — Summary
+
+    private func generateRdlFormSummary(overallScore: Float) -> String {
+        let pct = Int(overallScore * 100)
+        if overallScore > 0.85 { return "Excellent RDL form! Score: \(pct)%" }
+        if overallScore > 0.7  { return "Good RDL form. Score: \(pct)%" }
+        if overallScore > 0.5  { return "RDL form needs some work. Score: \(pct)%" }
+        return "Focus on RDL basics. Score: \(pct)%"
+    }
+
+    // MARK: RDL — Rep Validation
+
+    /// RDL rep detection via hip-depth hysteresis, similar to conventional deadlift
+    /// but starting from standing (bar at hip level) rather than from the floor.
+    /// The user hinges down (hips push back, torso lowers) then returns to standing.
+    private func validateRomanianDeadliftRep(skeleton: Skeleton3D?, now: Date) -> Bool {
+        guard let skeleton = skeleton else { return false }
+        let depth = calculateHipDepth3D(skeleton)
+
+        // RDL starts at the top. The hip descent is shallower than conventional deadlift.
+        let startThreshold: Float = 0.18   // Hips begin hinging
+        let bottomThreshold: Float = 0.30  // Reached the stretch position
+        let returnThreshold: Float = 0.12  // Returned to standing = rep complete
+
+        switch squatRepPhase {
+        case .idleAtTop:
+            if depth >= startThreshold {
+                squatRepPhase = .descending
+            }
+            return false
+        case .descending:
+            if depth >= bottomThreshold {
+                squatRepPhase = .bottomReached
+            }
+            return false
+        case .bottomReached:
+            if depth <= returnThreshold {
+                squatRepPhase = .ascending
+            }
+            return false
+        case .ascending:
+            squatRepPhase = .idleAtTop
+            if let last = lastRepValidationTime,
+               now.timeIntervalSince(last) < minTimeBetweenReps { return false }
+            return true
+        }
+    }
+
     // MARK: - Bodyweight-Specific Calculations
-    
+
     private func calculateBodyweightDepth(_ points: [String: CGPoint]) -> Float {
         // Use nose position for depth calculation - always visible and reliable
         guard let nose = points["nose"] else {
@@ -2117,6 +3157,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return validateBodyweightSquatRep(overlay: ov, skeleton: sk, now: now)
         case .barbell, .benchPress:
             return validateSquatRepHipDepthLegacy(skeleton: skeleton, now: now)
+        case .row:
+            return validateRowRep(skeleton: skeleton, now: now)
+        case .deadlift:
+            return validateDeadliftRep(skeleton: skeleton, now: now)
+        case .romanianDeadlift:
+            return validateRomanianDeadliftRep(skeleton: skeleton, now: now)
         }
     }
 
