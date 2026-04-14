@@ -109,19 +109,19 @@ struct TrackView: View {
                                 Button {
                                     showExerciseSelector = true
                                 } label: {
-                                    HStack(spacing: 6) {
+                                    HStack(alignment: .center, spacing: 6) {
                                         Text(selectedExercise?.name ?? "Select Exercise")
                                             .font(.title3.weight(.semibold))
                                             .foregroundColor(.textPrimary)
+                                            .lineLimit(2)
                                             .multilineTextAlignment(.center)
-                                            .lineLimit(3)
+                                            .fixedSize(horizontal: false, vertical: true)
                                         Image(systemName: "chevron.down")
                                             .font(.headline.weight(.semibold))
                                             .foregroundColor(.textSecondary)
                                     }
-                                    .padding(.horizontal, 4)
+                                    .padding(.horizontal, 24)
                                     .padding(.vertical, 12)
-                                    .fixedSize(horizontal: true, vertical: false)
                                     .frame(maxWidth: pillMaxWidth)
                                     .background(Color.black.opacity(0.3))
                                     .clipShape(Capsule())
