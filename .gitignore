@@ -1,15 +1,32 @@
-.cursor/debug.log
-xcuserdata/
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+Build/
+.build/
 
-# Claude / agent worktrees (never commit)
+# CocoaPods
+Pods/
+Podfile.lock
+
+# Node
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Local environment
+.env
+.env.local
+
+# Claude Code
 .claude/
 
-# Dependencies
-node_modules/
-Pods/
-
-# macOS / Xcode
-.DS_Store
-*.xcuserstate
-DerivedData/
-build/
