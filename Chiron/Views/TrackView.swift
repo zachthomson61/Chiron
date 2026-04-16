@@ -376,12 +376,17 @@ struct TrackView: View {
         poseManager.retroactiveEndSetFilter(window: 3.0)
 
         cameraManager.endTrackSetKeepingPoseActive()
-        setsCompletedInSession += 1
         trackViewState = .armed
 
         // Stop debug logging and export CSV for analysis.
         poseManager.debugLoggerEnabled = false
         exportDebugCSV()
+
+        // If no reps were completed, treat the set as if it never happened:
+        // skip analysis, audio feedback, and session bookkeeping.
+        guard poseManager.repCount > 0 else { return }
+
+        setsCompletedInSession += 1
 
         let formAnalysis = cameraManager.poseManager.currentFormAnalysis
             ?? cameraManager.poseManager.lastRepFormAnalysis
