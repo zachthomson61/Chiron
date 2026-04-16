@@ -56,6 +56,8 @@ struct IssueDefinition {
     let displayName: String
     let severity: IssueSeverity
     let cue: String
+    /// Truncated 2-4 word cue for on-screen display between sets.
+    let shortCue: String
 }
 
 // MARK: - Feedback State
@@ -103,130 +105,151 @@ enum CoachingContract {
             code: .insufficientDepth,
             displayName: "Insufficient Depth",
             severity: .high,
-            cue: "Sit deeper until hips reach knee level"
+            cue: "Sit deeper until hips reach knee level",
+            shortCue: "Sit deeper"
         ),
         .forwardLean: IssueDefinition(
             code: .forwardLean,
             displayName: "Forward Lean",
             severity: .high,
-            cue: "Keep your chest tall and proud"
+            cue: "Keep your chest tall and proud",
+            shortCue: "Chest up"
         ),
         .kneeValgus: IssueDefinition(
             code: .kneeValgus,
             displayName: "Knees Caving In",
             severity: .medium,
-            cue: "Push your knees out over your toes"
+            cue: "Push your knees out over your toes",
+            shortCue: "Knees out"
         ),
         .kneeVarus: IssueDefinition(
             code: .kneeVarus,
             displayName: "Knees Bowing Out",
             severity: .low,
-            cue: "Keep your knees tracking straight ahead"
+            cue: "Keep your knees tracking straight ahead",
+            shortCue: "Knees straight"
         ),
         .gripTooWide: IssueDefinition(
             code: .gripTooWide,
             displayName: "Grip Too Wide",
             severity: .medium,
-            cue: "Bring your grip in closer to your ribs"
+            cue: "Bring your grip in closer to your ribs",
+            shortCue: "Narrow your grip"
         ),
         .elbowsFlaring: IssueDefinition(
             code: .elbowsFlaring,
             displayName: "Elbows Flaring",
             severity: .high,
-            cue: "Tuck those elbows to your sides"
+            cue: "Tuck those elbows to your sides",
+            shortCue: "Tuck elbows in"
         ),
         .incompleteRom: IssueDefinition(
             code: .incompleteRom,
             displayName: "Incomplete ROM",
             severity: .medium,
-            cue: "Lock out fully at the top and touch your chest at the bottom"
+            cue: "Lock out fully at the top and touch your chest at the bottom",
+            shortCue: "Full range of motion"
         ),
         .eccentricTooFast: IssueDefinition(
             code: .eccentricTooFast,
             displayName: "Eccentric Too Fast",
             severity: .medium,
-            cue: "Take more time lowering the bar"
+            cue: "Take more time lowering the bar",
+            shortCue: "Slower on the way down"
         ),
         .concentricTooSlow: IssueDefinition(
             code: .concentricTooSlow,
             displayName: "Concentric Too Slow",
             severity: .low,
-            cue: "Press up a little faster"
+            cue: "Press up a little faster",
+            shortCue: "Press up faster"
         ),
         // Barbell row
         .rowMomentumDrive: IssueDefinition(
             code: .rowMomentumDrive,
             displayName: "Using Momentum",
             severity: .high,
-            cue: "Stay locked in that hinge and let your back do the pulling"
+            cue: "Stay locked in that hinge and let your back do the pulling",
+            shortCue: "Control the pull"
         ),
         .rowRoundedBack: IssueDefinition(
             code: .rowRoundedBack,
             displayName: "Rounded Back",
             severity: .high,
-            cue: "Lift your chest and keep your spine flat"
+            cue: "Lift your chest and keep your spine flat",
+            shortCue: "Flatten your back"
         ),
         .rowKneeInternalRotation: IssueDefinition(
             code: .rowKneeInternalRotation,
             displayName: "Knees Turning In",
             severity: .low,
-            cue: "Point your toes and knees straight ahead"
+            cue: "Point your toes and knees straight ahead",
+            shortCue: "Knees straight"
         ),
         .rowElbowFlare: IssueDefinition(
             code: .rowElbowFlare,
             displayName: "Elbows Flaring Out",
             severity: .medium,
-            cue: "Pull your elbows back toward your hips, not out to the sides"
+            cue: "Pull your elbows back toward your hips, not out to the sides",
+            shortCue: "Elbows to hips"
         ),
         // Deadlift
         .deadliftRoundedBack: IssueDefinition(
             code: .deadliftRoundedBack,
             displayName: "Rounded Back",
             severity: .high,
-            cue: "Keep your chest up and lock in that flat back"
+            cue: "Keep your chest up and lock in that flat back",
+            shortCue: "Flatten your back"
         ),
         .deadliftHipShootUp: IssueDefinition(
             code: .deadliftHipShootUp,
             displayName: "Hips Rising Too Fast",
             severity: .high,
-            cue: "Push through your legs first so hips and shoulders rise together"
+            cue: "Push through your legs first so hips and shoulders rise together",
+            shortCue: "Hips and shoulders together"
         ),
         .deadliftHyperextension: IssueDefinition(
             code: .deadliftHyperextension,
             displayName: "Leaning Back at Lockout",
             severity: .medium,
-            cue: "Stand tall at the top without leaning back"
+            cue: "Stand tall at the top without leaning back",
+            shortCue: "Stand tall at lockout"
         ),
         .deadliftBarDrift: IssueDefinition(
             code: .deadliftBarDrift,
             displayName: "Bar Drifting Forward",
             severity: .medium,
-            cue: "Keep the bar tight to your body the whole way up"
+            cue: "Keep the bar tight to your body the whole way up",
+            shortCue: "Bar tight to body"
         ),
         // Romanian deadlift
         .rdlRoundedBack: IssueDefinition(
             code: .rdlRoundedBack,
             displayName: "Rounded Back",
             severity: .high,
-            cue: "Keep your chest proud and spine flat as you hinge"
+            cue: "Keep your chest proud and spine flat as you hinge",
+            shortCue: "Flatten your back"
         ),
         .rdlExcessiveKneeBend: IssueDefinition(
             code: .rdlExcessiveKneeBend,
             displayName: "Too Much Knee Bend",
             severity: .high,
-            cue: "Keep your knees at a soft fixed bend — push your hips back instead"
+            cue: "Keep your knees at a soft fixed bend — push your hips back instead",
+            shortCue: "Softer knees"
         ),
         .rdlShallowHinge: IssueDefinition(
             code: .rdlShallowHinge,
             displayName: "Shallow Hinge",
             severity: .medium,
-            cue: "Hinge deeper until you feel a stretch in your hamstrings"
+            cue: "Hinge deeper until you feel a stretch in your hamstrings",
+            shortCue: "Hinge deeper"
         ),
         .rdlBarDrift: IssueDefinition(
             code: .rdlBarDrift,
             displayName: "Bar Drifting Away",
             severity: .medium,
-            cue: "Keep the bar sliding along your thighs the whole way down"
+            cue: "Keep the bar sliding along your thighs the whole way down",
+            shortCue: "Bar against legs"
         ),
     ]
 
@@ -339,6 +362,10 @@ enum CoachingContract {
 
     static func severity(for code: IssueCode) -> IssueSeverity {
         definitions[code]?.severity ?? .low
+    }
+
+    static func shortCue(for code: IssueCode) -> String {
+        definitions[code]?.shortCue ?? ""
     }
 }
 
