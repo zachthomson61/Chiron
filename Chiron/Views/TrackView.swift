@@ -73,11 +73,11 @@ struct TrackView: View {
                 .ignoresSafeArea()
 
             TrackCameraPreviewRepresentable(
-                session: showExerciseInfo ? nil : cameraManager.getCaptureSession()
+                session: (showExerciseInfo || showExerciseSelector) ? nil : cameraManager.getCaptureSession()
             )
             .ignoresSafeArea()
 
-            if showPoseOverlay && !showExerciseInfo {
+            if showPoseOverlay && !showExerciseInfo && !showExerciseSelector {
                 PoseVisualizationOverlay()
                     .allowsHitTesting(false)
             }
@@ -255,18 +255,36 @@ struct TrackView: View {
                 .onAppear { infoSheetDetent = PresentationDetent.large }
             }
         }
-        // When the info sheet is open, pause the capture session so the camera hardware
-        // stops drawing power behind it (the feed is occluded anyway). Resume and restore
-        // pose tracking to the pre-sheet state on dismiss. This applies to any selected
-        // exercise, so it covers all current and future exercises uniformly.
+        // When either sheet (info or exercise selector) is open, pause the capture session
+        // so the camera hardware stops drawing power behind it (the feed is occluded anyway).
+        // Resume and restore pose tracking to the pre-sheet state on dismiss.
         .onChange(of: showExerciseInfo) { _, isShowing in
             if isShowing {
                 trackViewStateBeforeInfoSheet = trackViewState
                 cameraManager.pauseCaptureSession()
             } else {
+                // Only resume if the other sheet isn't still open.
+                guard !showExerciseSelector else { return }
                 cameraManager.resumeCaptureSession()
-                // `pauseCaptureSession` flipped `isAnalyzingPose` off; re-enable so the overlay
-                // comes back live. Rep count is preserved — we intentionally do not reset here.
+                switch trackViewStateBeforeInfoSheet {
+                case .tracking, .armed:
+                    cameraManager.startPoseTrackingOnly()
+                case .idle, nil:
+                    break
+                }
+                trackViewStateBeforeInfoSheet = nil
+            }
+        }
+        .onChange(of: showExerciseSelector) { _, isShowing in
+            if isShowing {
+                if trackViewStateBeforeInfoSheet == nil {
+                    trackViewStateBeforeInfoSheet = trackViewState
+                }
+                cameraManager.pauseCaptureSession()
+            } else {
+                // Only resume if the other sheet isn't still open.
+                guard !showExerciseInfo else { return }
+                cameraManager.resumeCaptureSession()
                 switch trackViewStateBeforeInfoSheet {
                 case .tracking, .armed:
                     cameraManager.startPoseTrackingOnly()
