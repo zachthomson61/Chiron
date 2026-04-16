@@ -51,6 +51,9 @@ struct TrackView: View {
     /// Share sheet for debug CSV export after a set ends.
     @State private var showDebugCSVShare: Bool = false
     @State private var debugCSVURL: URL?
+    /// Snapshot of the view state captured when the info sheet opens so we can restore pose
+    /// tracking / rep counting to the exact mode that was running before the sheet paused the camera.
+    @State private var trackViewStateBeforeInfoSheet: TrackViewState?
 
     @ObservedObject private var cameraManager = SharedCameraSessionManager.shared
     /// Rep count is published here; `cameraManager` alone does not trigger redraws when reps change.
@@ -61,10 +64,20 @@ struct TrackView: View {
 
     var body: some View {
         ZStack {
-            TrackCameraPreviewRepresentable(session: cameraManager.getCaptureSession())
+            // Black backdrop — visible whenever the camera preview is detached.
+            // AVCaptureVideoPreviewLayer keeps its last captured frame on screen after
+            // `stopRunning()`, so pausing the session alone isn't enough to stop displaying
+            // the user behind the info sheet. Passing `nil` to the representable routes to
+            // `clearSession()`, which detaches the layer's session and hides it.
+            Color.black
                 .ignoresSafeArea()
 
-            if showPoseOverlay {
+            TrackCameraPreviewRepresentable(
+                session: showExerciseInfo ? nil : cameraManager.getCaptureSession()
+            )
+            .ignoresSafeArea()
+
+            if showPoseOverlay && !showExerciseInfo {
                 PoseVisualizationOverlay()
                     .allowsHitTesting(false)
             }
@@ -240,6 +253,27 @@ struct TrackView: View {
                 .presentationDetents(trackLibrarySheetDetents, selection: $infoSheetDetent)
                 .presentationDragIndicator(Visibility.visible)
                 .onAppear { infoSheetDetent = PresentationDetent.large }
+            }
+        }
+        // When the info sheet is open, pause the capture session so the camera hardware
+        // stops drawing power behind it (the feed is occluded anyway). Resume and restore
+        // pose tracking to the pre-sheet state on dismiss. This applies to any selected
+        // exercise, so it covers all current and future exercises uniformly.
+        .onChange(of: showExerciseInfo) { _, isShowing in
+            if isShowing {
+                trackViewStateBeforeInfoSheet = trackViewState
+                cameraManager.pauseCaptureSession()
+            } else {
+                cameraManager.resumeCaptureSession()
+                // `pauseCaptureSession` flipped `isAnalyzingPose` off; re-enable so the overlay
+                // comes back live. Rep count is preserved — we intentionally do not reset here.
+                switch trackViewStateBeforeInfoSheet {
+                case .tracking, .armed:
+                    cameraManager.startPoseTrackingOnly()
+                case .idle, nil:
+                    break
+                }
+                trackViewStateBeforeInfoSheet = nil
             }
         }
         .sheet(isPresented: $showDebugCSVShare) {
@@ -449,6 +483,8 @@ struct TrackCameraPreviewRepresentable: UIViewRepresentable {
         let view = TrackCameraPreviewUIView()
         if let session = session {
             view.setSession(session)
+        } else {
+            view.clearSession()
         }
         return view
     }
@@ -456,6 +492,10 @@ struct TrackCameraPreviewRepresentable: UIViewRepresentable {
     func updateUIView(_ uiView: TrackCameraPreviewUIView, context: Context) {
         if let session = session {
             uiView.setSession(session)
+        } else {
+            // Passing nil detaches the session so the preview layer stops rendering frames
+            // (and the last-frame freeze is blanked) — used to go dark behind the Track info sheet.
+            uiView.clearSession()
         }
     }
 }
@@ -475,12 +515,20 @@ class TrackCameraPreviewUIView: UIView {
     func setSession(_ session: AVCaptureSession) {
         if previewLayer != nil {
             previewLayer?.session = session
+            previewLayer?.isHidden = false
             return
         }
         let layer = AVCaptureVideoPreviewLayer(session: session)
         layer.videoGravity = .resizeAspectFill
         self.layer.addSublayer(layer)
         previewLayer = layer
+    }
+
+    /// Detaches the capture session and hides the preview layer so the view renders nothing.
+    /// Used when we want the preview to go dark without tearing the view down (e.g. info sheet open).
+    func clearSession() {
+        previewLayer?.session = nil
+        previewLayer?.isHidden = true
     }
 
     override func layoutSubviews() {

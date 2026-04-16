@@ -175,6 +175,30 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
         captureSession = nil
         videoDataOutput = nil
     }
+
+    /// Pauses the capture session without tearing it down, so the preview layer goes dark
+    /// and the camera hardware stops drawing power while an overlay (e.g. the Track info sheet)
+    /// is covering the preview. Pair with `resumeCaptureSession()` when the overlay is dismissed.
+    ///
+    /// Also flips `isAnalyzingPose` off so `captureOutput` short-circuits on any already-queued frames.
+    /// Callers that had pose analysis running should track that and call `startPoseTrackingOnly()` /
+    /// `startPoseAnalysis()` on resume.
+    func pauseCaptureSession() {
+        isAnalyzingPose = false
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let session = self?.captureSession, session.isRunning else { return }
+            session.stopRunning()
+        }
+    }
+
+    /// Resumes a previously paused capture session. Safe no-op if the session is already running
+    /// or was never set up.
+    func resumeCaptureSession() {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let session = self?.captureSession, !session.isRunning else { return }
+            session.startRunning()
+        }
+    }
 }
 
 // MARK: - Video Data Output Delegate
