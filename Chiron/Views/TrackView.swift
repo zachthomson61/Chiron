@@ -219,12 +219,13 @@ struct TrackView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 28))
                     }
                     .padding(.horizontal, 24)
-                    .padding(.bottom, 30)
+                    .padding(.bottom, trackViewState == .tracking ? 8 : 30)
                     .transition(.opacity)
                 }
             }
         }
         .animation(.easeInOut(duration: 0.25), value: trackViewState)
+        .toolbar(trackViewState == .tracking ? .hidden : .visible, for: .tabBar)
         .navigationBarHidden(true)
         .onAppear(perform: onAppear)
         .onDisappear(perform: onDisappear)
