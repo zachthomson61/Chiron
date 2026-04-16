@@ -165,7 +165,7 @@ struct TrackView: View {
                         .padding(.horizontal, 20)
                     }
                 }
-                .frame(height: 72)
+                .frame(height: trackViewState == .tracking ? 112 : 72)
                 .padding(.top, 8)
 
                 Spacer()
@@ -695,10 +695,10 @@ struct TrackFormScoreTrackingView: View {
                 .fill(Color.black.opacity(0.4))
 
             Circle()
-                .stroke(Color.gray.opacity(0.3), lineWidth: 5)
+                .stroke(Color.gray.opacity(0.3), lineWidth: 6)
 
             Circle()
-                .stroke(Color.blue.opacity(0.6), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                .stroke(Color.primaryPurple.opacity(0.75), style: StrokeStyle(lineWidth: 6, lineCap: .round))
                 .scaleEffect(trackingPulseScale)
                 .opacity(trackingPulseScale == 1.0 ? 0.8 : 1.0)
                 .onAppear {
@@ -712,17 +712,17 @@ struct TrackFormScoreTrackingView: View {
 
             VStack(spacing: 0) {
                 Text("\(repCount)")
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
                     .minimumScaleFactor(0.5)
                     .lineLimit(1)
                 Text("REPS")
-                    .font(.neueMontrealBold(size: 7))
-                    .foregroundColor(.blue.opacity(0.85))
+                    .font(.neueMontrealBold(size: 11))
+                    .foregroundColor(.white)
             }
         }
-        .frame(width: 64, height: 64)
-        .shadow(color: Color.blue.opacity(0.3), radius: 4)
+        .frame(width: 104, height: 104)
+        .shadow(color: Color.primaryPurple.opacity(0.35), radius: 6)
     }
 }
 
