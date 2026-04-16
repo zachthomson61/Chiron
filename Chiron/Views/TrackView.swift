@@ -35,6 +35,8 @@ struct TrackView: View {
     @State private var trackViewState: TrackViewState = .idle
     @State private var selectedExercise: Exercise?
     @State private var setsCompletedInSession: Int = 0
+    /// Short coaching cue from the last completed set's primary form deviation.
+    @State private var primaryCueText: String?
 
     @State private var showExerciseSelector = false
     @State private var showExerciseInfo = false
@@ -171,16 +173,34 @@ struct TrackView: View {
 
             // Framing overlay + message bar + action button
             VStack {
+                // Primary coaching cue — appears when OpenAI feedback arrives, fades on Begin Next.
+                // Left-aligned, bold, with shadow for readability against bright gym backgrounds.
+                if trackViewState == .armed, let cueText = primaryCueText {
+                    HStack {
+                        Text("- \(cueText)")
+                            .font(.title2.weight(.bold))
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.leading)
+                            .shadow(color: .black.opacity(0.85), radius: 4, x: 0, y: 2)
+                            .shadow(color: .black.opacity(0.6), radius: 8, x: 0, y: 0)
+                            .padding(.leading, 20)
+                            .padding(.trailing, 16)
+                            .padding(.top, 100)
+                        Spacer(minLength: 0)
+                    }
+                    .transition(.opacity.animation(.easeInOut(duration: 0.35)))
+                }
+
                 Spacer()
 
-                if trackViewState == .armed {
+                if trackViewState == .armed && setsCompletedInSession == 0 {
                     FramingOverlayView()
                         .transition(.opacity)
                 }
 
                 Spacer()
 
-                if trackViewState == .armed {
+                if trackViewState == .armed && setsCompletedInSession == 0 {
                     // Message bar (compact)
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.circle.fill")
@@ -326,6 +346,7 @@ struct TrackView: View {
         trackViewState = .idle
         selectedExercise = nil
         setsCompletedInSession = 0
+        primaryCueText = nil
     }
 
     private func handlePrimaryAction() {
@@ -341,6 +362,13 @@ struct TrackView: View {
 
     private func beginSet() {
         guard let exercise = selectedExercise else { return }
+
+        // Fade the previous set's cue out as the user starts the next set.
+        if primaryCueText != nil {
+            withAnimation(.easeInOut(duration: 0.35)) {
+                primaryCueText = nil
+            }
+        }
 
         let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
         cameraManager.poseManager.trackedExerciseType = exerciseType
@@ -381,7 +409,7 @@ struct TrackView: View {
 
         // Stop debug logging and export CSV for analysis.
         poseManager.debugLoggerEnabled = false
-        exportDebugCSV()
+        // exportDebugCSV()  // Disabled to prevent debug CSV share sheet after set completion
 
         // If no reps were completed, treat the set as if it never happened:
         // skip analysis, audio feedback, and session bookkeeping.
@@ -394,11 +422,23 @@ struct TrackView: View {
 
         if let analysis = formAnalysis, let exercise = selectedExercise {
             let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
+
+            // Resolve the short on-screen cue synchronously, but defer display until
+            // the OpenAI feedback returns so the text fades in alongside the spoken cue.
+            let payload = CoachingLogic.buildPayload(from: analysis, exerciseType: exerciseType)
+            let resolvedShortCue: String? = payload.primaryIssue.map { CoachingContract.shortCue(for: $0) }
+
             coachingManager.analyzeAndGetNaturalFeedback(
                 formAnalysis: analysis,
                 exerciseType: exerciseType
             ) { feedback in
                 SpeechManager.shared.speak(feedback)
+                // Fade the cue text in at the same moment the spoken feedback arrives.
+                if let cue = resolvedShortCue {
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        primaryCueText = cue
+                    }
+                }
             }
         }
 
@@ -406,8 +446,15 @@ struct TrackView: View {
     }
 
     private func didSelectExercise(_ exercise: Exercise) {
+        let exerciseChanged = exercise.name != selectedExercise?.name
         selectedExercise = exercise
         persistLastTrackedExercise()
+        if exerciseChanged {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                setsCompletedInSession = 0
+                primaryCueText = nil
+            }
+        }
         if trackViewState == .idle {
             trackViewState = .armed
         }
