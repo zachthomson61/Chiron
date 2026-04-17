@@ -111,30 +111,10 @@ struct RomanianDeadliftOverview: View {
                 }
                 .coordinateSpace(name: "scroll")
 
-                // Floating back button in the top-left corner
-                GeometryReader { geo in
-                    VStack {
-                        HStack {
-                            Button(action: { dismiss() }) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "chevron.left")
-                                    Text("Back")
-                                }
-                                .foregroundColor(.white)
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 12)
-                                .background(.ultraThinMaterial)
-                                .clipShape(Capsule())
-                            }
-                            Spacer()
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, geo.safeAreaInsets.top + 60) // Move below Dynamic Island
-                        Spacer()
-                    }
-                }
-                .ignoresSafeArea(.container, edges: .top)
-                .allowsHitTesting(true)
+                // Floating back button removed — the sheet is now dismissed
+                // exclusively via the swipe-down / drag indicator at the top
+                // of the presenting sheet, so no in-content back affordance
+                // is needed.
             }
         }
         .toolbar(.hidden, for: .navigationBar)

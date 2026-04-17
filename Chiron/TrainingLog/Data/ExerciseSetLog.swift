@@ -42,10 +42,15 @@ struct ExerciseSetLog: Codable, Identifiable {
     
     /// Whether the user felt not in control during this set
     var flaggedNotInControl: Bool
-    
+
     /// When this set was logged
     var timestamp: Date
-    
+
+    /// Coaching cue / note recorded for this set (e.g. "Keep chest up").
+    /// Captured from the form-analysis pipeline at End Set; optional so
+    /// bodyweight or un-analyzed sets can still be logged.
+    var cues: String?
+
     init(
         id: String = UUID().uuidString,
         workoutLogId: String,
@@ -56,7 +61,8 @@ struct ExerciseSetLog: Codable, Identifiable {
         reps: Int? = nil,
         flaggedPain: Bool = false,
         flaggedNotInControl: Bool = false,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        cues: String? = nil
     ) {
         self.id = id
         self.workoutLogId = workoutLogId
@@ -68,6 +74,7 @@ struct ExerciseSetLog: Codable, Identifiable {
         self.flaggedPain = flaggedPain
         self.flaggedNotInControl = flaggedNotInControl
         self.timestamp = timestamp
+        self.cues = cues
     }
     
     // MARK: - Firestore Serialization
@@ -89,11 +96,15 @@ struct ExerciseSetLog: Codable, Identifiable {
         if let weight = weight {
             data["weight"] = weight
         }
-        
+
         if let reps = reps {
             data["reps"] = reps
         }
-        
+
+        if let cues = cues, !cues.isEmpty {
+            data["cues"] = cues
+        }
+
         return data
     }
     
@@ -128,11 +139,15 @@ struct ExerciseSetLog: Codable, Identifiable {
         if let weight = data["weight"] as? Double {
             log.weight = weight
         }
-        
+
         if let reps = data["reps"] as? Int {
             log.reps = reps
         }
-        
+
+        if let cues = data["cues"] as? String {
+            log.cues = cues
+        }
+
         return log
     }
 }

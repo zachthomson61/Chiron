@@ -115,6 +115,7 @@ class WorkoutLogService {
     ///   - reps: Number of reps completed (optional, can save weight-only sets)
     ///   - flaggedPain: Whether the set was flagged for pain
     ///   - flaggedNotInControl: Whether the set was flagged as not in control
+    ///   - cues: Optional coaching cue / note to record with this set
     ///   - completion: Callback with Result containing set log ID on success, or Error on failure
     func saveSetLog(
         workoutLogId: String,
@@ -125,6 +126,7 @@ class WorkoutLogService {
         reps: Int?,
         flaggedPain: Bool,
         flaggedNotInControl: Bool,
+        cues: String? = nil,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
         let setLog = ExerciseSetLog(
@@ -136,7 +138,8 @@ class WorkoutLogService {
             reps: reps,
             flaggedPain: flaggedPain,
             flaggedNotInControl: flaggedNotInControl,
-            timestamp: Date()
+            timestamp: Date(),
+            cues: cues
         )
         
         let data = setLog.toFirestoreData()

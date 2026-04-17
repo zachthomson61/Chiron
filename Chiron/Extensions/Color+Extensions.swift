@@ -56,5 +56,15 @@ extension Color {
     static var expertRed: Color {
         Color(red: 220/255, green: 38/255, blue: 38/255)
     }
+
+    /// Bright secondary accent used for the Volume series in progression
+    /// charts — bar overlay, trailing y-axis numbers, and legend dot all use
+    /// this color so the two series (purple = strength, cyan = volume) are
+    /// instantly distinguishable.
+    /// Color: #22D3EE (cyan-400) — saturated enough to read on dark bg
+    /// without competing visually with the primary purple.
+    static var volumeAccent: Color {
+        Color(red: 34/255, green: 211/255, blue: 238/255)
+    }
 }
 #endif 

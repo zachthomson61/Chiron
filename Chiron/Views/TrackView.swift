@@ -57,6 +57,21 @@ struct TrackView: View {
     /// tracking / rep counting to the exact mode that was running before the sheet paused the camera.
     @State private var trackViewStateBeforeInfoSheet: TrackViewState?
 
+    // MARK: - Weight / History Logging State
+
+    /// Weight the user has dialed in for the current set (persists across sets
+    /// of the same exercise so they don't re-enter it every time).
+    @State private var currentWeight: Double?
+    /// Presentation toggle for the scroller-based weight picker.
+    @State private var showWeightScroller: Bool = false
+    /// Presentation toggle for the Firestore-backed exercise history sheet.
+    @State private var showHistorySheet: Bool = false
+    /// Firestore workout-log document id for this Track session. Created lazily
+    /// on the first saved set and reused for subsequent sets in this session.
+    @State private var trackWorkoutLogId: String?
+    /// Per-exercise set counter so saved logs get sequential setNumbers.
+    @State private var setNumbersByExercise: [String: Int] = [:]
+
     @ObservedObject private var cameraManager = SharedCameraSessionManager.shared
     /// Rep count is published here; `cameraManager` alone does not trigger redraws when reps change.
     @ObservedObject private var poseManager = OnDevicePoseManager.shared
@@ -75,11 +90,11 @@ struct TrackView: View {
                 .ignoresSafeArea()
 
             TrackCameraPreviewRepresentable(
-                session: (showExerciseInfo || showExerciseSelector) ? nil : cameraManager.getCaptureSession()
+                session: (showExerciseInfo || showExerciseSelector || showHistorySheet) ? nil : cameraManager.getCaptureSession()
             )
             .ignoresSafeArea()
 
-            if showPoseOverlay && !showExerciseInfo && !showExerciseSelector {
+            if showPoseOverlay && !showExerciseInfo && !showExerciseSelector && !showHistorySheet {
                 PoseVisualizationOverlay()
                     .allowsHitTesting(false)
             }
@@ -217,6 +232,64 @@ struct TrackView: View {
                     .transition(.opacity)
                 }
 
+                // Weight + History row. Always rendered above the primary
+                // action so the user can set weight or check history before a
+                // set (armed), between sets, or while tracking.
+                if (trackViewState == .armed || trackViewState == .tracking) && selectedExercise != nil {
+                    HStack(spacing: 12) {
+                        // Weight input is hidden for bodyweight exercises — there's
+                        // nothing to log, and showing the button would be confusing.
+                        // When hidden, the History button keeps its right-aligned
+                        // position (same size/placement as on other exercises)
+                        // instead of stretching across the row.
+                        if !isCurrentExerciseBodyweight {
+                            Button {
+                                showWeightScroller = true
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "dumbbell.fill")
+                                        .font(.system(size: 15, weight: .semibold))
+                                    Text(weightButtonLabel)
+                                        .font(.subheadline.weight(.semibold))
+                                        .lineLimit(1)
+                                }
+                                .foregroundColor(.textPrimary)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 44)
+                                .background(Color.black.opacity(0.55))
+                                .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            // Keep the right-hand button anchored to the right
+                            // by filling the left half with an invisible spacer.
+                            Spacer()
+                                .frame(maxWidth: .infinity)
+                        }
+
+                        Button {
+                            showHistorySheet = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("History")
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.system(size: 15, weight: .semibold))
+                            }
+                            .foregroundColor(.textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Color.black.opacity(0.55))
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 10)
+                    .transition(.opacity)
+                }
+
                 // Primary action button (matches app primary button proportions)
                 if trackViewState == .armed || trackViewState == .tracking {
                     Button {
@@ -284,8 +357,8 @@ struct TrackView: View {
                 trackViewStateBeforeInfoSheet = trackViewState
                 cameraManager.pauseCaptureSession()
             } else {
-                // Only resume if the other sheet isn't still open.
-                guard !showExerciseSelector else { return }
+                // Only resume if no other sheet is still occluding the feed.
+                guard !showExerciseSelector, !showHistorySheet else { return }
                 cameraManager.resumeCaptureSession()
                 switch trackViewStateBeforeInfoSheet {
                 case .tracking, .armed:
@@ -303,8 +376,29 @@ struct TrackView: View {
                 }
                 cameraManager.pauseCaptureSession()
             } else {
-                // Only resume if the other sheet isn't still open.
-                guard !showExerciseInfo else { return }
+                // Only resume if no other sheet is still occluding the feed.
+                guard !showExerciseInfo, !showHistorySheet else { return }
+                cameraManager.resumeCaptureSession()
+                switch trackViewStateBeforeInfoSheet {
+                case .tracking, .armed:
+                    cameraManager.startPoseTrackingOnly()
+                case .idle, nil:
+                    break
+                }
+                trackViewStateBeforeInfoSheet = nil
+            }
+        }
+        // History sheet fully covers the feed — pause the capture session
+        // while it's open so the camera hardware stops drawing power. Mirrors
+        // the behavior of the info / exercise-selector sheets above.
+        .onChange(of: showHistorySheet) { _, isShowing in
+            if isShowing {
+                if trackViewStateBeforeInfoSheet == nil {
+                    trackViewStateBeforeInfoSheet = trackViewState
+                }
+                cameraManager.pauseCaptureSession()
+            } else {
+                guard !showExerciseInfo, !showExerciseSelector else { return }
                 cameraManager.resumeCaptureSession()
                 switch trackViewStateBeforeInfoSheet {
                 case .tracking, .armed:
@@ -320,9 +414,55 @@ struct TrackView: View {
                 SquatRepShareSheet(url: url)
             }
         }
+        .sheet(isPresented: $showWeightScroller) {
+            WeightScrollerSheet(
+                isPresented: $showWeightScroller,
+                initialWeight: currentWeight,
+                onSave: { weight in
+                    // Local-only update. Firestore is not written here —
+                    // the set log (weight + reps + date/time + cues) is
+                    // persisted exclusively from `endSet` when the user
+                    // presses End Set, so the history sheet only ever sees
+                    // completed sets.
+                    currentWeight = weight
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showHistorySheet) {
+            if let exercise = selectedExercise {
+                ExerciseHistorySheet(
+                    isPresented: $showHistorySheet,
+                    exerciseName: exercise.name
+                )
+                .presentationDragIndicator(.visible)
+            }
+        }
     }
 
     // MARK: - Computed
+
+    /// True when the currently selected exercise is a bodyweight movement (no
+    /// external load to record). Matches the `.bodyweight` branch of
+    /// `TrackedExerciseType.from(exerciseName:)` below.
+    private var isCurrentExerciseBodyweight: Bool {
+        guard let name = selectedExercise?.name else { return false }
+        return TrackedExerciseType.from(exerciseName: name) == .bodyweight
+    }
+
+    /// Label for the weight pill: "Weight" when unset, or the formatted value
+    /// with unit (e.g. "185 lbs") once the user has dialed in a weight.
+    private var weightButtonLabel: String {
+        guard let weight = currentWeight else { return "Weight" }
+        let formatted: String
+        if weight.truncatingRemainder(dividingBy: 1) == 0 {
+            formatted = String(format: "%.0f", weight)
+        } else {
+            formatted = String(format: "%.1f", weight)
+        }
+        return "\(formatted) lbs"
+    }
 
     private var primaryButtonLabel: String {
         switch trackViewState {
@@ -334,6 +474,7 @@ struct TrackView: View {
             return "Begin Set"
         }
     }
+
 
     // MARK: - Actions
 
@@ -420,14 +561,31 @@ struct TrackView: View {
         let formAnalysis = cameraManager.poseManager.currentFormAnalysis
             ?? cameraManager.poseManager.lastRepFormAnalysis
 
+        // Compute the short coaching cue synchronously so it can be written
+        // alongside the set log. The OpenAI callback below still governs when
+        // the cue text fades in on screen / is spoken.
+        var resolvedShortCue: String? = nil
         if let analysis = formAnalysis, let exercise = selectedExercise {
             let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
-
-            // Resolve the short on-screen cue synchronously, but defer display until
-            // the OpenAI feedback returns so the text fades in alongside the spoken cue.
             let payload = CoachingLogic.buildPayload(from: analysis, exerciseType: exerciseType)
-            let resolvedShortCue: String? = payload.primaryIssue.map { CoachingContract.shortCue(for: $0) }
+            resolvedShortCue = payload.primaryIssue.map { CoachingContract.shortCue(for: $0) }
+        }
 
+        // Single Firestore write for this set — weight, reps, timestamp
+        // (date/time), and cues/notes. This is the only path that pushes
+        // data to Firebase from the Track tab; the History sheet reads back
+        // from the same collection.
+        if let exercise = selectedExercise {
+            saveCompletedSetToFirestore(
+                exerciseName: exercise.name,
+                weight: currentWeight,
+                reps: poseManager.repCount,
+                cues: resolvedShortCue
+            )
+        }
+
+        if let analysis = formAnalysis, let exercise = selectedExercise {
+            let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
             coachingManager.analyzeAndGetNaturalFeedback(
                 formAnalysis: analysis,
                 exerciseType: exerciseType
@@ -454,6 +612,9 @@ struct TrackView: View {
                 setsCompletedInSession = 0
                 primaryCueText = nil
             }
+            // New exercise = new weight context. Keep setNumbersByExercise so
+            // re-selecting an exercise resumes the same set numbering.
+            currentWeight = nil
         }
         if trackViewState == .idle {
             trackViewState = .armed
@@ -518,6 +679,59 @@ struct TrackView: View {
            let match = exercises.first(where: { $0.name == savedName }) {
             selectedExercise = match
             trackViewState = .armed
+        }
+    }
+
+    // MARK: - Firestore Logging
+
+    /// Persists a completed set (weight + rep count + timestamp + cues) to
+    /// Firestore. This is the single write path from the Track tab — called
+    /// only from `endSet` after rep count is confirmed. The History sheet
+    /// pulls from the same collection, so nothing shows up there until an
+    /// End Set completes.
+    private func saveCompletedSetToFirestore(exerciseName: String, weight: Double?, reps: Int, cues: String?) {
+        ensureWorkoutLogId { workoutLogId in
+            let userId = UserManager.shared.getUserId()
+            let setNumber = setNumbersByExercise[exerciseName] ?? 1
+
+            WorkoutLogService.shared.saveSetLog(
+                workoutLogId: workoutLogId,
+                userId: userId,
+                exerciseName: exerciseName,
+                setNumber: setNumber,
+                weight: weight,
+                reps: reps,
+                flaggedPain: false,
+                flaggedNotInControl: false,
+                cues: cues
+            ) { result in
+                DispatchQueue.main.async {
+                    if case .success = result {
+                        setNumbersByExercise[exerciseName] = setNumber + 1
+                    }
+                }
+            }
+        }
+    }
+
+    /// Creates the Track-session workoutLog the first time a set is saved,
+    /// then reuses the returned document id for the rest of the session.
+    private func ensureWorkoutLogId(_ onReady: @escaping (String) -> Void) {
+        if let existing = trackWorkoutLogId {
+            onReady(existing)
+            return
+        }
+        let userId = UserManager.shared.getUserId()
+        WorkoutLogService.shared.createWorkoutLog(
+            workoutName: "Track Session",
+            userId: userId
+        ) { result in
+            DispatchQueue.main.async {
+                if case .success(let logId) = result {
+                    trackWorkoutLogId = logId
+                    onReady(logId)
+                }
+            }
         }
     }
 }

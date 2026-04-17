@@ -2174,32 +2174,31 @@ struct WorkoutActiveView: View {
         }
     }
     
-    /// Saves the current set log to Firestore when weight or reps are entered.
-    ///
-    /// Supports saving weight-only sets (when no reps are entered) or reps-only sets (for bodyweight exercises).
-    /// Uses `currentSetWeight` as the primary source, falling back to `exerciseData` weight if needed.
+    /// Saves the current set log to Firestore once the set is actually
+    /// complete — i.e. the user has entered a rep count. A rep count is
+    /// required because a set without reps isn't a performed set; it's just
+    /// a pre-filled weight waiting for the user to finish. Weight is still
+    /// optional so bodyweight exercises (reps-only) can be logged.
     ///
     /// When a set is saved:
     /// - Creates ExerciseSetLog document in Firestore
     /// - Increments set number for next set
-    /// - Resets current set data (weight, reps, flags) only if both weight and reps were saved
+    /// - Resets current set data (weight, reps, flags)
     private func saveSetLogIfComplete() {
         guard let workoutLogId = currentWorkoutLogId,
               let exercise = currentExercise else {
             return
         }
-        
-        // Save if we have either weight OR reps (or both)
-        // Allow saving weight-only sets per user requirement
-        guard currentSetWeight != nil || currentSetReps != nil else {
+
+        // Reps are required. A weight-only input just means the user has
+        // dialed in what they plan to lift — we wait for them to report how
+        // many reps they completed before writing anything to Firestore.
+        guard let reps = currentSetReps else {
             return
         }
-        
-        // Use currentSetReps if available, otherwise nil (for weight-only saves)
-        let reps = currentSetReps
-        
+
         let userId = UserManager.shared.getUserId()
-        
+
         // Use currentSetWeight if available, otherwise fall back to exerciseData weight
         // This ensures weight is preserved even if currentSetWeight gets reset
         let currentData = exerciseData[currentExerciseIndex] ?? (weight: nil, reps: nil)
@@ -2221,19 +2220,10 @@ struct WorkoutActiveView: View {
                         currentSetNumber += 1
                         // Also update per-exercise tracking
                         setNumbersPerExercise[currentExerciseIndex] = currentSetNumber
-                        // Reset current set data
-                        // Only reset weight/reps if both were saved (if only one was saved, keep the other for next save)
-                        if currentSetWeight != nil && currentSetReps != nil {
-                            // Both were saved, reset both
-                            currentSetWeight = nil
-                            currentSetReps = nil
-                        } else if currentSetWeight != nil {
-                            // Only weight was saved, keep it for when reps are added
-                            // Don't reset weight yet
-                        } else if currentSetReps != nil {
-                            // Only reps were saved, keep it for when weight is added
-                            // Don't reset reps yet
-                        }
+                        // Both weight and reps were part of this save, so
+                        // reset both for the next set.
+                        currentSetWeight = nil
+                        currentSetReps = nil
                         currentSetPainFlag = false
                         currentSetNotInControlFlag = false
                     case .failure:
