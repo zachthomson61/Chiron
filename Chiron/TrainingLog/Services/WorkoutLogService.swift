@@ -192,9 +192,43 @@ class WorkoutLogService {
                 let setLogs = documents.compactMap { doc -> ExerciseSetLog? in
                     ExerciseSetLog.fromFirestore(id: doc.documentID, data: doc.data())
                 }
-                
+
                 completion(.success(setLogs))
             }
     }
-    
+
+    /// Retrieves every exercise set log for a user across all exercises.
+    /// Used by the Home tab's "Recent Progress" section to rank exercises by
+    /// their recent slope change without firing one query per exercise.
+    ///
+    /// - Parameters:
+    ///   - userId: User ID (device-based)
+    ///   - limit: Maximum number of set logs to return (default: 500 — enough
+    ///     to cover several months of heavy lifting without paginating)
+    ///   - completion: Callback with Result containing array of ExerciseSetLog
+    ///     ordered newest-first on success, or Error on failure
+    func getAllHistoryForUser(userId: String, limit: Int = 500, completion: @escaping (Result<[ExerciseSetLog], Error>) -> Void) {
+        db.collection(exerciseSetLogsCollection)
+            .whereField("userId", isEqualTo: userId)
+            .order(by: "timestamp", descending: true)
+            .limit(to: limit)
+            .getDocuments { snapshot, error in
+                if let error = error {
+                    completion(.failure(error))
+                    return
+                }
+
+                guard let documents = snapshot?.documents else {
+                    completion(.success([]))
+                    return
+                }
+
+                let setLogs = documents.compactMap { doc -> ExerciseSetLog? in
+                    ExerciseSetLog.fromFirestore(id: doc.documentID, data: doc.data())
+                }
+
+                completion(.success(setLogs))
+            }
+    }
+
 }

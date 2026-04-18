@@ -17,7 +17,13 @@ class UserManager {
     static let shared = UserManager()
     
     private let userIdKey = "chiron_user_id"
-    
+    private let bodyweightKey = "chiron_current_bodyweight_lbs"
+    /// Default bodyweight (lbs) used when the user hasn't completed the
+    /// onboarding step yet. Temporary placeholder for testing; once the
+    /// onboarding flow writes the real value via `setCurrentBodyweight`,
+    /// this default is no longer consulted.
+    private let defaultBodyweightLbs: Double = 180.0
+
     private init() {}
     
     /// Gets the user ID for this device.
@@ -48,5 +54,22 @@ class UserManager {
     /// This will generate a new ID on the next call to getUserId().
     func resetUserId() {
         UserDefaults.standard.removeObject(forKey: userIdKey)
+    }
+
+    // MARK: - Bodyweight
+
+    /// The user's current bodyweight in lbs. Used by bodyweight-exercise
+    /// progression charts to compute daily volume (total reps × bodyweight).
+    /// Falls back to `defaultBodyweightLbs` (180) when unset — this is the
+    /// temporary testing default until onboarding writes the real value.
+    func getCurrentBodyweight() -> Double {
+        let stored = UserDefaults.standard.double(forKey: bodyweightKey)
+        return stored > 0 ? stored : defaultBodyweightLbs
+    }
+
+    /// Stores the user's bodyweight (lbs). Called from the onboarding flow.
+    func setCurrentBodyweight(_ weight: Double) {
+        guard weight > 0 else { return }
+        UserDefaults.standard.set(weight, forKey: bodyweightKey)
     }
 }

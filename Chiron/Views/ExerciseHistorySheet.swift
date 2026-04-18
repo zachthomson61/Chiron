@@ -21,7 +21,13 @@ import Charts
 struct ExerciseHistorySheet: View {
     @Binding var isPresented: Bool
     let exerciseName: String
-    
+    /// When true, the chart switches to bodyweight mode: left y-axis is
+    /// Top Set Reps (not e1RM), volume is computed as total reps ×
+    /// user bodyweight, and the legend / latest-point callout change
+    /// labels accordingly. Default false so existing call sites (weighted
+    /// exercises) work unchanged.
+    var isBodyweight: Bool = false
+
     @State private var setLogs: [ExerciseSetLog] = []
     @State private var isLoading: Bool = true
     @State private var errorMessage: String?
@@ -99,9 +105,13 @@ struct ExerciseHistorySheet: View {
                             .padding(.bottom, 8)
 
                         // Progression chart.
-                        ProgressChartSection(setLogs: setLogs, showVolume: $showVolume)
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 16)
+                        ProgressChartSection(
+                            setLogs: setLogs,
+                            showVolume: $showVolume,
+                            isBodyweight: isBodyweight
+                        )
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 16)
 
                         // Only show sets that actually have a rep count.
                         let performedSets = setLogs.filter { ($0.reps ?? 0) > 0 }
@@ -191,29 +201,51 @@ struct ExerciseHistorySheet: View {
 private struct DailyProgressPoint: Identifiable {
     let id = UUID()
     let day: Date
-    /// Estimated 1RM of the top set that day (Epley).
-    let e1rm: Double
-    /// Sum of weight × reps across every set that day.
+    /// The primary metric plotted on the left y-axis.
+    /// - Weighted exercises: estimated 1RM of the top set that day (Epley).
+    /// - Bodyweight exercises: the top set's rep count (max reps in a
+    ///   single set that day).
+    let topMetric: Double
+    /// Daily volume, always expressed in lbs so the right-axis unit
+    /// stays consistent across modes.
+    /// - Weighted: sum(weight × reps) across every set that day.
+    /// - Bodyweight: total reps across all sets × user's bodyweight.
     let volume: Double
-    /// True when this day set a new e1RM high compared with every earlier day.
+    /// True when this day set a new top-metric high compared with every
+    /// earlier day.
     let isPR: Bool
 }
 
-/// Progression chart card. Always draws the Top Set e1RM line over time; when
-/// the Volume pill is toggled on, daily total tonnage is overlaid as
+/// Progression chart card. Always draws the Top-Set metric line over time;
+/// when the Volume pill is toggled on, daily total tonnage is overlaid as
 /// semi-transparent bars on a secondary right-side y-axis.
-private struct ProgressChartSection: View {
+///
+/// For weighted exercises the top-set metric is estimated 1RM (Epley);
+/// for bodyweight exercises it's the top set's rep count. The right-side
+/// Volume axis is always in lbs — bodyweight volume is (total reps ×
+/// user bodyweight), and the stored user bodyweight defaults to 180 lbs
+/// until onboarding writes a real value.
+struct ProgressChartSection: View {
     let setLogs: [ExerciseSetLog]
     @Binding var showVolume: Bool
+    /// When true, all chart labels / aggregations switch to bodyweight
+    /// mode (reps axis, reps-based PRs, volume = reps × bodyweight).
+    let isBodyweight: Bool
+    /// When false, the embedder is providing its own title + card
+    /// background (e.g. the Home-page "Recent Strength Progress" card),
+    /// so we skip the "Strength" header and the outer padding/fill.
+    var showsOuterChrome: Bool = true
 
     /// Drives the left-to-right draw-in animation on first appearance.
     @State private var lineProgress: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Strength")
-                .font(.neueMontrealBold(size: 24))
-                .foregroundColor(.textPrimary)
+            if showsOuterChrome {
+                Text("Strength")
+                    .font(.neueMontrealBold(size: 24))
+                    .foregroundColor(.textPrimary)
+            }
 
             let points = dailyPoints()
 
@@ -232,7 +264,12 @@ private struct ProgressChartSection: View {
                 // Minimal legend keeps the chart clean while still making the
                 // two series legible when Volume is enabled.
                 HStack(spacing: 14) {
-                    legendDot(color: .primaryPurple, label: "Top Set Estimated 1 Rep Max")
+                    // Top-set metric label changes to reflect what the
+                    // purple line actually represents in each mode.
+                    legendDot(
+                        color: .primaryPurple,
+                        label: isBodyweight ? "Top Set Reps" : "Top Set Estimated 1 Rep Max"
+                    )
                     if showVolume {
                         legendBar(color: .volumeAccent, label: "Volume")
                     }
@@ -241,11 +278,11 @@ private struct ProgressChartSection: View {
                 .padding(.top, 2)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, 14)
-        .background(Color.white.opacity(0.05))
-        .cornerRadius(16)
+        .padding(.horizontal, showsOuterChrome ? 16 : 0)
+        .padding(.top, showsOuterChrome ? 10 : 0)
+        .padding(.bottom, showsOuterChrome ? 14 : 0)
+        .background(showsOuterChrome ? Color.white.opacity(0.05) : Color.clear)
+        .cornerRadius(showsOuterChrome ? 16 : 0)
     }
 
     // MARK: - Volume Pill
@@ -309,18 +346,19 @@ private struct ProgressChartSection: View {
     @ViewBuilder
     private func chart(for points: [DailyProgressPoint]) -> some View {
         // Shared y-domain padding — gives the line room to breathe and keeps
-        // PR markers from clipping against the top edge.
-        let maxE1RM = points.map { $0.e1rm }.max() ?? 1
-        let minE1RM = points.map { $0.e1rm }.min() ?? 0
-        let e1rmPad = max((maxE1RM - minE1RM) * 0.15, 5)
-        let yLower = max(0, minE1RM - e1rmPad)
-        let yUpper = maxE1RM + e1rmPad
+        // PR markers from clipping against the top edge. `topMetric` is lbs
+        // for weighted exercises and reps for bodyweight.
+        let maxMetric = points.map { $0.topMetric }.max() ?? 1
+        let minMetric = points.map { $0.topMetric }.min() ?? 0
+        // Bodyweight's scale is tiny (often 1–15 reps), so the minimum pad
+        // has to be smaller than the 5-lb pad used for weighted.
+        let minPad = isBodyweight ? 1.0 : 5.0
+        let metricPad = max((maxMetric - minMetric) * 0.15, minPad)
+        let yLower = max(0, minMetric - metricPad)
+        let yUpper = maxMetric + metricPad
 
-        // Scale volume into the VISIBLE e1RM range so the bar's top sits
-        // inside the plot body. Without this, when the e1RM axis floor is
-        // far above 0 (e.g. 113 for a 118 lb set), a naive `y: volume * s`
-        // would anchor the bar to 0 and the whole thing would render below
-        // the clipped area — invisible to the user.
+        // Scale volume into the VISIBLE top-metric range so the bar's top
+        // sits inside the plot body.
         let maxVolume = points.map { $0.volume }.max() ?? 0
         let visibleRange = max(yUpper - yLower, 1)
 
@@ -363,13 +401,14 @@ private struct ProgressChartSection: View {
                 }
             }
 
-            // Primary e1RM line. Smooth monotone interpolation avoids the
+            // Primary top-metric line (e1RM for weighted, top reps for
+            // bodyweight). Smooth monotone interpolation avoids the
             // overshoot Catmull-Rom can introduce on abrupt PR jumps.
             ForEach(points) { p in
                 LineMark(
                     x: .value("Day", p.day),
-                    y: .value("e1RM", p.e1rm),
-                    series: .value("Series", "e1RM")
+                    y: .value("Top", p.topMetric),
+                    series: .value("Series", "Top")
                 )
                 .interpolationMethod(.monotone)
                 .foregroundStyle(Color.primaryPurple)
@@ -381,7 +420,7 @@ private struct ProgressChartSection: View {
             ForEach(points.filter { $0.isPR }) { p in
                 PointMark(
                     x: .value("Day", p.day),
-                    y: .value("e1RM", p.e1rm)
+                    y: .value("Top", p.topMetric)
                 )
                 .symbol(.circle)
                 .symbolSize(180)
@@ -389,7 +428,7 @@ private struct ProgressChartSection: View {
 
                 PointMark(
                     x: .value("Day", p.day),
-                    y: .value("e1RM", p.e1rm)
+                    y: .value("Top", p.topMetric)
                 )
                 .symbol(.circle)
                 .symbolSize(70)
@@ -401,13 +440,15 @@ private struct ProgressChartSection: View {
             if let last = points.last {
                 PointMark(
                     x: .value("Day", last.day),
-                    y: .value("e1RM", last.e1rm)
+                    y: .value("Top", last.topMetric)
                 )
                 .symbol(.circle)
                 .symbolSize(120)
                 .foregroundStyle(Color.primaryPurple)
                 .annotation(position: .top, alignment: .center, spacing: 4) {
-                    Text("\(Int(last.e1rm)) lbs")
+                    // Unit switches with mode — "123 lbs" for weighted,
+                    // "8 reps" for bodyweight.
+                    Text("\(Int(last.topMetric)) \(isBodyweight ? "reps" : "lbs")")
                         .font(.neueMontrealBold(size: 11))
                         .foregroundColor(.textPrimary)
                         .padding(.horizontal, 6)
@@ -474,21 +515,33 @@ private struct ProgressChartSection: View {
         .chartYAxisLabel(position: .leading, alignment: .center) {
             // Rotated −90° (counter-clockwise) so the unit reads bottom-to-top
             // beside the axis, the way scientific charts conventionally label
-            // a vertical axis.
-            Text("lbs")
+            // a vertical axis. Unit switches with mode.
+            //
+            // The explicit `.frame(width:height:)` AFTER the rotation is
+            // critical — rotationEffect doesn't change layout bounds, so
+            // Swift Charts would otherwise reserve a slot sized for the
+            // un-rotated text (~22pt wide). The rotated rendering then
+            // spills outside that slot and gets clipped by the parent's
+            // cornerRadius on narrow layouts (the Home cards). The frame
+            // swaps width/height so the rotated letters have a proper
+            // bounding box.
+            Text(isBodyweight ? "reps" : "lbs")
                 .font(.neueMontrealSemiBold(size: 11))
                 .foregroundColor(.textPrimary)
-                .rotationEffect(.degrees(-90))
                 .fixedSize()
+                .rotationEffect(.degrees(-90))
+                .frame(width: 14, height: 32)
         }
         .chartYAxisLabel(position: .trailing, alignment: .center) {
             // Matching "lbs" on the right axis so the Volume numbers are
-            // unambiguous when the overlay is toggled on.
+            // unambiguous when the overlay is toggled on. Same rotation-
+            // bounds treatment as the leading label.
             Text("lbs")
                 .font(.neueMontrealSemiBold(size: 11))
                 .foregroundColor(.textPrimary)
-                .rotationEffect(.degrees(-90))
                 .fixedSize()
+                .rotationEffect(.degrees(-90))
+                .frame(width: 14, height: 28)
                 .opacity(showVolume ? 1 : 0)
         }
         // Simple opacity fade-in on appear. The previous mask-based line
@@ -498,40 +551,42 @@ private struct ProgressChartSection: View {
         .chartOverlay { proxy in
             GeometryReader { geo in
                 let plotRect = geo[proxy.plotAreaFrame]
-                ZStack {
-                    // Custom x-axis date labels — rendered with SwiftUI
-                    // Text/VStack so the stacked "Thu / 16" layout is
-                    // guaranteed. Each label is positioned at the chart's
-                    // actual plot-space x for its day, then offset below
-                    // the plot area into the 34pt padding we reserved.
-                    ForEach(thinnedAxisDays(points: points), id: \.self) { day in
-                        if let xInPlot = proxy.position(forX: day) {
-                            VStack(spacing: 1) {
-                                Text(Self.weekdayFormatter.string(from: day))
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(Color.textSecondary)
-                                Text(Self.dayFormatter.string(from: day))
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundStyle(Color.textPrimary)
-                            }
-                            .fixedSize()
-                            .position(
-                                x: plotRect.minX + xInPlot,
-                                y: plotRect.maxY + 18
-                            )
+                // Custom x-axis date labels — rendered with SwiftUI
+                // Text/VStack so the stacked "Thu / 16" layout is
+                // guaranteed. Each label is positioned at the chart's
+                // actual plot-space x for its day, then offset below
+                // the plot area into the 34pt padding we reserved.
+                ForEach(thinnedAxisDays(points: points), id: \.self) { day in
+                    if let xInPlot = proxy.position(forX: day) {
+                        VStack(spacing: 1) {
+                            Text(Self.weekdayFormatter.string(from: day))
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(Color.textSecondary)
+                            Text(Self.dayFormatter.string(from: day))
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(Color.textPrimary)
                         }
-                    }
-
-                    // Volume button pinned to the top gridline of the plot
-                    // area (unchanged behavior — just consolidated into
-                    // the same overlay closure as the date labels).
-                    volumeButton
+                        .fixedSize()
                         .position(
-                            x: plotRect.maxX - 44,
-                            y: plotRect.minY
+                            x: plotRect.minX + xInPlot,
+                            y: plotRect.maxY + 18
                         )
+                    }
                 }
             }
+        }
+        // Volume button uses SwiftUI's native top-trailing alignment
+        // instead of `.position` inside chartOverlay. With `.position`,
+        // a ~94pt-wide pill centered at `plotRect.maxX − 60` would extend
+        // 13pt past the plot-area edge — which ran past the Home card's
+        // `cornerRadius(16)` clip on narrower layouts. Top-trailing
+        // alignment + 8pt trailing padding guarantees the pill's right
+        // edge sits inside the chart frame regardless of chart width, so
+        // it renders fully on the history sheet AND every Home card.
+        .overlay(alignment: .topTrailing) {
+            volumeButton
+                .padding(.trailing, 8)
+                .padding(.top, 2)
         }
         .onAppear {
             lineProgress = 0
@@ -604,37 +659,66 @@ private struct ProgressChartSection: View {
     // MARK: - Aggregation
 
     /// Collapses the raw set logs into one `DailyProgressPoint` per calendar
-    /// day. Days with no weight+rep data are skipped. PR flag is computed in
-    /// a single forward pass so the chart can highlight new-high days.
+    /// day. Days with no qualifying data are skipped. PR flag is computed
+    /// in a single forward pass so the chart can highlight new-high days.
+    ///
+    /// - Weighted mode: a set must have both weight > 0 and reps > 0 to count.
+    ///   Top metric = Epley e1RM of the max-tonnage set.
+    ///   Volume = Σ(weight × reps).
+    /// - Bodyweight mode: a set just needs reps > 0 (weight is irrelevant).
+    ///   Top metric = max reps in a single set.
+    ///   Volume = (Σ reps across all sets) × user bodyweight.
     private func dailyPoints() -> [DailyProgressPoint] {
         let calendar = Calendar.current
         let grouped = Dictionary(grouping: setLogs) { log in
             calendar.startOfDay(for: log.timestamp)
         }
 
+        // Fetched once per render — the user's bodyweight only matters in
+        // bodyweight mode, but reading it is cheap so we always cache it.
+        let bodyweight = UserManager.shared.getCurrentBodyweight()
+
         // Raw per-day aggregates (pre-PR flagging).
-        struct Raw { let day: Date; let e1rm: Double; let volume: Double }
+        struct Raw { let day: Date; let topMetric: Double; let volume: Double }
 
         let raw: [Raw] = grouped.compactMap { (day, logs) -> Raw? in
-            let candidates = logs.compactMap { log -> (w: Double, r: Int)? in
-                guard let w = log.weight, w > 0, let r = log.reps, r > 0 else { return nil }
-                return (w, r)
+            if isBodyweight {
+                // Bodyweight: we only care about rep counts.
+                let reps = logs.compactMap { log -> Int? in
+                    guard let r = log.reps, r > 0 else { return nil }
+                    return r
+                }
+                guard let topReps = reps.max() else { return nil }
+                let totalReps = reps.reduce(0, +)
+                let volume = Double(totalReps) * bodyweight
+                return Raw(day: day, topMetric: Double(topReps), volume: volume)
+            } else {
+                // Weighted: need both weight and reps for each counted set.
+                let candidates = logs.compactMap { log -> (w: Double, r: Int)? in
+                    guard let w = log.weight, w > 0, let r = log.reps, r > 0 else { return nil }
+                    return (w, r)
+                }
+                guard !candidates.isEmpty else { return nil }
+                // Top set = max tonnage; Epley e1RM on that set.
+                let top = candidates.max(by: { ($0.w * Double($0.r)) < ($1.w * Double($1.r)) })!
+                let e1rm = top.w * (1.0 + Double(top.r) / 30.0)
+                let volume = candidates.reduce(0.0) { $0 + ($1.w * Double($1.r)) }
+                return Raw(day: day, topMetric: e1rm, volume: volume)
             }
-            guard !candidates.isEmpty else { return nil }
-            // Top set = max tonnage; Epley e1RM on that set.
-            let top = candidates.max(by: { ($0.w * Double($0.r)) < ($1.w * Double($1.r)) })!
-            let e1rm = top.w * (1.0 + Double(top.r) / 30.0)
-            let volume = candidates.reduce(0.0) { $0 + ($1.w * Double($1.r)) }
-            return Raw(day: day, e1rm: e1rm, volume: volume)
         }.sorted { $0.day < $1.day }
 
         var runningMax: Double = 0
         return raw.map { row in
             // A PR is strictly higher than every earlier day (use >, not >=,
-            // so repeated same-weight days don't all light up).
-            let isPR = row.e1rm > runningMax
-            if isPR { runningMax = row.e1rm }
-            return DailyProgressPoint(day: row.day, e1rm: row.e1rm, volume: row.volume, isPR: isPR)
+            // so repeated same-value days don't all light up).
+            let isPR = row.topMetric > runningMax
+            if isPR { runningMax = row.topMetric }
+            return DailyProgressPoint(
+                day: row.day,
+                topMetric: row.topMetric,
+                volume: row.volume,
+                isPR: isPR
+            )
         }
     }
 }

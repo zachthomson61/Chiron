@@ -21,16 +21,34 @@ struct WeightScrollerSheet: View {
     /// Common plate/dumbbell increments — 0 to 500 lbs in 5 lb steps.
     private static let weightValues: [Double] = stride(from: 0.0, through: 500.0, by: 5.0).map { $0 }
 
-    @State private var selectedWeight: Double = 45.0
-    @State private var manualInput: String = ""
+    @State private var selectedWeight: Double
+    @State private var manualInput: String
     /// Last value we provided haptic feedback for; prevents double-firing when
     /// the scroller briefly settles between two values.
-    @State private var lastHapticValue: Double = -1
+    @State private var lastHapticValue: Double
     /// Whether the manual text field currently owns the input focus. Used to
     /// avoid a feedback loop when the scroller updates `manualInput`.
     @FocusState private var manualFieldFocused: Bool
     /// Drives the blinking caret on the manual input card.
     @State private var caretVisible: Bool = true
+
+    /// Seed the wheel + text field from `initialWeight` at init time so the
+    /// Picker mounts at the user's last saved value on the very first render
+    /// (rather than briefly showing the default 45 lb and then snapping in
+    /// `onAppear`). The manual input shows the raw seed so off-grid typed
+    /// values like 137.5 are preserved between opens; the wheel snaps to
+    /// the nearest 5 lb increment.
+    init(isPresented: Binding<Bool>, initialWeight: Double?, onSave: @escaping (Double) -> Void) {
+        self._isPresented = isPresented
+        self.initialWeight = initialWeight
+        self.onSave = onSave
+
+        let seed = initialWeight ?? 45.0
+        let snapped = Self.closestSnapValue(seed)
+        _selectedWeight = State(initialValue: snapped)
+        _manualInput = State(initialValue: Self.formatted(seed))
+        _lastHapticValue = State(initialValue: snapped)
+    }
 
     var body: some View {
         ZStack {
@@ -100,11 +118,10 @@ struct WeightScrollerSheet: View {
             }
         }
         .onAppear {
-            let initial = initialWeight ?? 45.0
-            selectedWeight = Self.closestSnapValue(initial)
-            manualInput = Self.formatted(initial)
-            lastHapticValue = selectedWeight
-            // Blink the caret at ~1.7Hz so it reads as a text insertion marker.
+            // Seeding of selectedWeight / manualInput / lastHapticValue
+            // happens in `init(...)` so the wheel mounts at the correct
+            // value immediately. Only the caret animation needs to start
+            // on appear.
             withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
                 caretVisible = false
             }

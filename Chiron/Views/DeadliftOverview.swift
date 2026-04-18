@@ -108,10 +108,33 @@ struct DeadliftOverview: View {
                 }
                 .coordinateSpace(name: "scroll")
 
-                // Floating back button removed — the sheet is now dismissed
-                // exclusively via the swipe-down / drag indicator at the top
-                // of the presenting sheet, so no in-content back affordance
-                // is needed.
+                // Top-left dismiss chevron. Matches the ExerciseHistorySheet's
+                // close affordance (40×40 circle, semitransparent black,
+                // `chevron.down` glyph) so sheet-dismiss iconography is
+                // consistent across the app. GeometryReader keeps it clear
+                // of the Dynamic Island while the video header still bleeds
+                // into the top safe area.
+                GeometryReader { geo in
+                    VStack {
+                        HStack {
+                            Button(action: { dismiss() }) {
+                                Image(systemName: "chevron.down")
+                                    .font(.headline.weight(.semibold))
+                                    .foregroundColor(.textPrimary)
+                                    .frame(width: 40, height: 40)
+                                    .background(Color.black.opacity(0.35))
+                                    .clipShape(Circle())
+                            }
+                            .accessibilityLabel("Dismiss")
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, geo.safeAreaInsets.top + 12)
+                        Spacer()
+                    }
+                }
+                .ignoresSafeArea(.container, edges: .top)
+                .allowsHitTesting(true)
             }
         }
         .toolbar(.hidden, for: .navigationBar)

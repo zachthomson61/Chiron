@@ -104,6 +104,12 @@ struct HomeView: View {
 
                         myWorkoutPlanSection
 
+                        // Top three exercises ranked by the biggest recent
+                        // improvement (slope change at the latest point).
+                        // Self-loading — fetches all set logs once on appear
+                        // and computes rankings client-side.
+                        RecentProgressSection()
+
                         // FLEX SPACER (shrinks/grows to balance)
                         Spacer()
                             .frame(height: max(0, min(40, h - contentHeight)))

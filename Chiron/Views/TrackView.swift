@@ -434,7 +434,8 @@ struct TrackView: View {
             if let exercise = selectedExercise {
                 ExerciseHistorySheet(
                     isPresented: $showHistorySheet,
-                    exerciseName: exercise.name
+                    exerciseName: exercise.name,
+                    isBodyweight: isCurrentExerciseBodyweight
                 )
                 .presentationDragIndicator(.visible)
             }
@@ -478,6 +479,22 @@ struct TrackView: View {
 
     // MARK: - Actions
 
+    private static let beginSetAffirmations: [String] = [
+        "Let's get it!",
+        "Let's go!",
+        "You've got this!",
+        "Time to work!",
+        "Let's crush it!",
+        "Make it count!"
+    ]
+    private static var beginSetAffirmationIndex: Int = 0
+
+    private static func nextBeginSetAffirmation() -> String {
+        let phrase = beginSetAffirmations[beginSetAffirmationIndex % beginSetAffirmations.count]
+        beginSetAffirmationIndex += 1
+        return phrase
+    }
+
     private func exitTrackView() {
         if trackViewState == .tracking {
             cameraManager.stopPoseAnalysis()
@@ -509,6 +526,16 @@ struct TrackView: View {
             withAnimation(.easeInOut(duration: 0.35)) {
                 primaryCueText = nil
             }
+        }
+
+        // Speak a framing reminder only on the first set of each exercise.
+        // Subsequent sets of the same exercise skip this prompt to avoid repetition.
+        if setsCompletedInSession == 0 {
+            SpeechManager.shared.speak(
+                "Ensure your full body is in frame. \(Self.nextBeginSetAffirmation())",
+                priority: .high,
+                context: .instruction
+            )
         }
 
         let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
