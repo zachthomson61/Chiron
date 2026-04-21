@@ -2,36 +2,38 @@ import Foundation
 
 /// Represents the user's primary fitness goal
 enum PrimaryGoal: String, CaseIterable, Identifiable, Codable {
+    // Declaration order = display order (ForEach iterates allCases).
+    // Raw values are kept intact so existing saved profiles still decode.
     case loseFat = "lose_fat"
-    case getToned = "get_toned"
     case buildMuscle = "build_muscle"
     case getStronger = "get_stronger"
-    case improveEndurance = "improve_endurance"
-    case enhanceAthleticPerformance = "enhance_athletic_performance"
-    case improveHealthLongevity = "improve_health_longevity"
     case rehabPreventInjury = "rehab_prevent_injury"
-    
+    case improveHealthLongevity = "improve_health_longevity"
+    case enhanceAthleticPerformance = "enhance_athletic_performance"
+    case improveEndurance = "improve_endurance"
+    case getToned = "get_toned"
+
     var id: String { rawValue }
-    
+
     /// Display name for the UI
     var displayName: String {
         switch self {
         case .loseFat:
             return "Lose fat"
-        case .getToned:
-            return "Get toned"
         case .buildMuscle:
             return "Build muscle"
         case .getStronger:
             return "Get stronger"
-        case .improveEndurance:
-            return "Improve endurance"
+        case .rehabPreventInjury:
+            return "Rehab or prevent injury"
+        case .improveHealthLongevity:
+            return "Support health & longevity"
         case .enhanceAthleticPerformance:
             return "Enhance athletic performance"
-        case .improveHealthLongevity:
-            return "Improve health & longevity"
-        case .rehabPreventInjury:
-            return "Rehabilitate or prevent injury"
+        case .improveEndurance:
+            return "Boost endurance"
+        case .getToned:
+            return "Get toned"
         }
     }
     
@@ -40,20 +42,20 @@ enum PrimaryGoal: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .loseFat:
             return "Focus on fat loss while maintaining muscle mass"
-        case .getToned:
-            return "Build lean muscle and improve definition"
         case .buildMuscle:
             return "Maximize muscle growth and hypertrophy"
         case .getStronger:
             return "Increase strength and power output"
-        case .improveEndurance:
-            return "Build stamina and cardiovascular fitness"
-        case .enhanceAthleticPerformance:
-            return "Optimize sport-specific performance"
-        case .improveHealthLongevity:
-            return "Focus on overall health and wellness"
         case .rehabPreventInjury:
             return "Recover from injury or prevent future issues"
+        case .improveHealthLongevity:
+            return "Focus on overall health and wellness"
+        case .enhanceAthleticPerformance:
+            return "Optimize sport-specific performance"
+        case .improveEndurance:
+            return "Build stamina and cardiovascular fitness"
+        case .getToned:
+            return "Build lean muscle and improve definition"
         }
     }
 }

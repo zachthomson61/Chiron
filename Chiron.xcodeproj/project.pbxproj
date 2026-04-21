@@ -45,6 +45,7 @@
 			membershipExceptions = (
 				Features/PlanBuilder/OneQuestionFlow/README.md,
 				Info.plist,
+				Onboarding/README.md,
 				TestVideos/README.md,
 			);
 			target = 0446A7F02E31DA8200A13506 /* Chiron */;
