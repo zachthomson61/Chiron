@@ -35,7 +35,29 @@ class OpenAICoachingManager: ObservableObject {
     /// Enables the coach to reference the previous set's cue when the user does another set.
     private var lastCuedTextByExercise: [TrackedExerciseType: String] = [:]
 
-    private init() {}
+    /// 1-based set counter per exercise in the current app session. Drives the
+    /// movement-limitation-based safety-cue cadence; reset whenever the
+    /// onboarding profile changes (e.g. the user just finished onboarding).
+    private var setIndexByExercise: [TrackedExerciseType: Int] = [:]
+
+    /// Cached user profile for profile-aware phrasing. Lazily loaded from the
+    /// store and refreshed whenever `refreshProfile()` is called — typically
+    /// right after onboarding completes.
+    private var cachedProfile: ChironUserProfile?
+    private let profileStore: UserProfileStore
+
+    private init(profileStore: UserProfileStore = UserDefaultsUserProfileStore()) {
+        self.profileStore = profileStore
+        self.cachedProfile = profileStore.load()
+    }
+
+    /// Call after onboarding finishes (or whenever the persisted profile
+    /// changes) so subsequent feedback uses the new values without requiring
+    /// a relaunch.
+    func refreshProfile() {
+        cachedProfile = profileStore.load()
+        setIndexByExercise.removeAll()
+    }
 
     // MARK: - Previous-Set Cue API
 
@@ -69,7 +91,24 @@ class OpenAICoachingManager: ObservableObject {
             return
         }
 
-        getPhrasing(payload: payload, exerciseType: exerciseType, completion: completion)
+        // Advance the per-exercise set index so safety-frequency cadence can
+        // fire on the correct sets. Context is resolved once per call against
+        // the current profile + this set's index.
+        setIndexByExercise[exerciseType, default: 0] += 1
+        let profileContext = cachedProfile.map {
+            CoachingProfileContext(
+                profile: $0,
+                exerciseType: exerciseType,
+                setIndex: setIndexByExercise[exerciseType] ?? 1
+            )
+        }
+
+        getPhrasing(
+            payload: payload,
+            exerciseType: exerciseType,
+            profileContext: profileContext,
+            completion: completion
+        )
     }
 
     // MARK: - LLM Phrasing (phrasing only — no assessment)
@@ -79,6 +118,7 @@ class OpenAICoachingManager: ObservableObject {
     private func getPhrasing(
         payload: PhrasingPayload,
         exerciseType: TrackedExerciseType,
+        profileContext: CoachingProfileContext?,
         completion: @escaping (String) -> Void
     ) {
         let exerciseLabel = Self.exerciseLabel(for: exerciseType)
@@ -101,6 +141,33 @@ class OpenAICoachingManager: ObservableObject {
             previousCueBlock = ""
         }
 
+        let profileBlock: String
+        if let profileContext, let block = profileContext.promptBlock {
+            profileBlock = """
+
+
+            COACHING PROFILE (persist across the whole response):
+            \(block)
+            """
+        } else {
+            profileBlock = ""
+        }
+
+        // Safety directives override the default "praise only when no issues"
+        // behavior: when the context requires a safety callout this set, we
+        // must surface it regardless of whether the form layer detected issues.
+        let safetyOverride: String
+        if let profileContext, profileContext.injectSafetyThisSet {
+            safetyOverride = """
+
+
+            SAFETY OVERRIDE:
+            A safety cue is required this set. Always include it, even if the form payload is clean and the default rule would tell you to give praise only. Name the flagged area by its coaching noun (e.g., "knees", "lower back"). The safety cue replaces or precedes the primary form cue — do not skip it.
+            """
+        } else {
+            safetyOverride = ""
+        }
+
         let prompt = """
         You are phrasing pre-determined coaching feedback for a \(exerciseLabel) set.
 
@@ -111,16 +178,17 @@ class OpenAICoachingManager: ObservableObject {
         - Primary issue: \(primaryDisplay ?? "none") — cue: \(primaryCue ?? "none")
         - Secondary issue: \(secondaryDisplay ?? "none")
         - Positive note: \(payload.positiveNote ?? "none")
-        - Rep count: \(payload.repCount)\(previousCueBlock)
+        - Rep count: \(payload.repCount)\(previousCueBlock)\(profileBlock)\(safetyOverride)
 
         RULES:
         1. Start with a short positive phrase about what they did well (use the positive_note).
         2. Then give ONE specific coaching cue for the primary issue (use the cue text, rephrased naturally).
         3. If there is a secondary issue, weave it in briefly.
-        4. If there is no primary issue, give praise only.
+        4. If there is no primary issue, give praise only — UNLESS a SAFETY OVERRIDE is present above, in which case the safety cue is mandatory.
         5. Do NOT assess form, do NOT suggest new issues, do NOT interpret metrics.
         6. Do NOT use technical terms (eccentric, concentric, valgus, varus).
-        7. Keep it 12–18 words, conversational, encouraging.
+        7. Keep it 12–22 words, conversational, encouraging. Match the tone and intensity from the COACHING PROFILE.
+        8. If the COACHING PROFILE flags an injury/discomfort that applies to this exercise, mention the area by name and be more lenient about form strictness.
 
         EXAMPLES:
         "There we go, good depth — now push those knees out a bit more"
@@ -133,7 +201,7 @@ class OpenAICoachingManager: ObservableObject {
         }
 
         guard let url = URL(string: baseURL) else {
-            let fb = generateFallbackFeedback(payload: payload, exerciseType: exerciseType)
+            let fb = generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
             completion(fb)
             return
         }
@@ -159,7 +227,7 @@ class OpenAICoachingManager: ObservableObject {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
-            let fb = generateFallbackFeedback(payload: payload, exerciseType: exerciseType)
+            let fb = generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
             completion(fb)
             return
         }
@@ -179,12 +247,12 @@ class OpenAICoachingManager: ObservableObject {
             guard let self = self else { return }
 
             if error != nil {
-                let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType)
+                let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
                 safeComplete(fb, "path=api_fallback reason=network_error")
                 return
             }
             guard let data = data else {
-                let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType)
+                let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
                 safeComplete(fb, "path=api_fallback reason=no_data")
                 return
             }
@@ -202,24 +270,24 @@ class OpenAICoachingManager: ObservableObject {
                         .replacingOccurrences(of: "  ", with: " ")
 
                     if self.isGenericResponse(cleaned) {
-                        let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType)
+                        let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
                         safeComplete(fb, "path=api_fallback reason=generic_response")
                     } else {
                         safeComplete(cleaned, "path=openai_success")
                     }
                 } else {
-                    let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType)
+                    let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
                     safeComplete(fb, "path=api_fallback reason=parse_error")
                 }
             } catch {
-                let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType)
+                let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
                 safeComplete(fb, "path=api_fallback reason=json_decode_error")
             }
         }
         task.resume()
 
         DispatchQueue.global().asyncAfter(deadline: .now() + Self.apiTimeoutSeconds) {
-            let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType)
+            let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
             task.cancel()
             safeComplete(fb, "path=timeout")
         }
@@ -228,17 +296,31 @@ class OpenAICoachingManager: ObservableObject {
     // MARK: - Deterministic Fallback
 
     /// Produces a hard-coded fallback sentence from the payload when the LLM is unavailable.
-    /// Uses the contract's cue text for the primary issue.
-    private func generateFallbackFeedback(payload: PhrasingPayload, exerciseType: TrackedExerciseType) -> String {
+    /// Uses the contract's cue text for the primary issue, and prepends a
+    /// profile-aware safety clause when one is required this set so the
+    /// user-reported injury is still acknowledged by name.
+    private func generateFallbackFeedback(
+        payload: PhrasingPayload,
+        exerciseType: TrackedExerciseType,
+        profileContext: CoachingProfileContext?
+    ) -> String {
         let positive = payload.positiveNote ?? "Nice effort there"
         let positiveCapitalized = positive.prefix(1).uppercased() + positive.dropFirst()
 
-        guard let primary = payload.primaryIssue else {
-            return "\(positiveCapitalized) — keep that same form"
+        let safety = profileContext?.fallbackSafetyClause
+
+        let base: String
+        if let primary = payload.primaryIssue {
+            let cue = CoachingContract.cue(for: primary).lowercased()
+            base = "\(positiveCapitalized), now \(cue)"
+        } else {
+            base = "\(positiveCapitalized) — keep that same form"
         }
 
-        let cue = CoachingContract.cue(for: primary).lowercased()
-        return "\(positiveCapitalized), now \(cue)"
+        if let safety {
+            return "\(safety). \(base)"
+        }
+        return base
     }
 
     // MARK: - Generic Response Detection
