@@ -4,13 +4,16 @@
 //
 //  Phrasing-only coaching feedback via OpenAI API.
 //
-//  Architecture (correct pipeline):
-//    pose → metrics → flags → ranked issues → PhrasingPayload → LLM phrasing
+//  Architecture (set-end pipeline):
+//    pose → frame metrics → per-set aggregation
+//        → SetEndFeedbackPlanner (Stage 1 + Stage 2 gate in Swift)
+//        → LLM phrasing (persona-aware) → SetEndFeedback
 //
-//  The LLM is used ONLY for natural phrasing, combining cues, and tone.
-//  It must NOT decide what's wrong or interpret raw pose / metrics.
-//  All issue detection, ranking, and suppression happen in CoachingLogic
-//  (see CoachingContract.swift).
+//  The LLM is used ONLY for phrasing the deterministic plan. It never
+//  decides whether to critique — that decision happens in Swift via
+//  `SetEndFeedbackPlanner.plan(...)`. When the gate suppresses the
+//  critique, the prompt instructs the model to return a positive-only
+//  line; a clean set is a first-class outcome, not a missing slot.
 //
 
 import Combine
@@ -32,7 +35,8 @@ class OpenAICoachingManager: ObservableObject {
     private let baseURL = "https://api.openai.com/v1/chat/completions"
 
     /// Stores the primary cue text delivered at set-end, keyed by exercise type.
-    /// Enables the coach to reference the previous set's cue when the user does another set.
+    /// Enables the coach to reference the previous set's cue when the user does another set,
+    /// and feeds the Stage 2 gate's repeated-cue suppression check.
     private var lastCuedTextByExercise: [TrackedExerciseType: String] = [:]
 
     /// 1-based set counter per exercise in the current app session. Drives the
@@ -73,74 +77,96 @@ class OpenAICoachingManager: ObservableObject {
         lastCuedTextByExercise[exerciseType] = cue
     }
 
-    // MARK: - Main Entry Point
+    // MARK: - Public API — set-end feedback
 
-    /// Builds a `PhrasingPayload` from `FormAnalysis` via the deterministic logic layer,
-    /// then asks the LLM only for natural phrasing. No raw metrics are sent.
-    func analyzeAndGetNaturalFeedback(
+    /// Primary entry point. Builds a deterministic `SetEndFeedbackPlanner.Plan`
+    /// via Stage 1 + Stage 2 in Swift, then calls the LLM to phrase the plan
+    /// (persona-aware). On network/parse failure, falls back to a deterministic
+    /// spoken line. Always returns a fully-populated `SetEndFeedback`.
+    func generateSetEndFeedback(
         formAnalysis: FormAnalysis,
+        aggregatedMetrics: SetEndAggregatedMetrics,
         exerciseType: TrackedExerciseType,
-        completion: @escaping (String) -> Void
+        completion: @escaping (SetEndFeedback) -> Void
     ) {
+        // Early out: confidence / data-quality short-circuit — no LLM call.
         let payload = CoachingLogic.buildPayload(from: formAnalysis, exerciseType: exerciseType)
-
-        // Short-circuit non-normal feedback states without calling the LLM
         guard payload.feedbackState == .normal else {
-            let fb = Self.insufficientDataFallback
+            let fb = SetEndFeedback(
+                bestThing: "",
+                nextSetFocus: nil,
+                tone: .clean,
+                spokenText: Self.insufficientDataFallback,
+                displayShortCue: nil,
+                suppressionReason: nil,
+                candidateIssue: nil
+            )
             completion(fb)
             return
         }
 
-        // Advance the per-exercise set index so safety-frequency cadence can
-        // fire on the correct sets. Context is resolved once per call against
-        // the current profile + this set's index.
+        // Advance the per-exercise set index so safety-cue cadence works
+        // and the Stage 2 repeat-set gate has the right context.
         setIndexByExercise[exerciseType, default: 0] += 1
+        let currentSetIndex = setIndexByExercise[exerciseType] ?? 1
         let profileContext = cachedProfile.map {
             CoachingProfileContext(
                 profile: $0,
                 exerciseType: exerciseType,
-                setIndex: setIndexByExercise[exerciseType] ?? 1
+                setIndex: currentSetIndex
             )
         }
 
-        getPhrasing(
-            payload: payload,
+        // Stage 1 + Stage 2 in Swift. The LLM never sees the raw metrics or
+        // decides whether to critique; it only phrases the decided plan.
+        let plan = SetEndFeedbackPlanner.plan(
+            formAnalysis: formAnalysis,
+            aggregatedMetrics: aggregatedMetrics,
+            exerciseType: exerciseType,
+            previousCueText: getLastCuedText(exerciseType: exerciseType),
+            setIndex: currentSetIndex
+        )
+
+        // Remember the cue we surfaced (for the next set's repeated-cue check).
+        if let surfaced = plan.surfacedIssue {
+            recordLastCued(exerciseType: exerciseType, cue: CoachingContract.cue(for: surfaced))
+        }
+
+        phraseAndComplete(
+            plan: plan,
             exerciseType: exerciseType,
             profileContext: profileContext,
             completion: completion
         )
     }
 
-    // MARK: - LLM Phrasing (phrasing only — no assessment)
+    /// Back-compat shim for legacy callers that only have a FormAnalysis and
+    /// expect a spoken string. New callers should use `generateSetEndFeedback`.
+    func analyzeAndGetNaturalFeedback(
+        formAnalysis: FormAnalysis,
+        exerciseType: TrackedExerciseType,
+        completion: @escaping (String) -> Void
+    ) {
+        generateSetEndFeedback(
+            formAnalysis: formAnalysis,
+            aggregatedMetrics: .empty,
+            exerciseType: exerciseType
+        ) { feedback in
+            completion(feedback.spokenText)
+        }
+    }
 
-    /// Sends the pre-determined `PhrasingPayload` to the LLM for natural-language phrasing.
-    /// The prompt explicitly instructs the model NOT to assess form or invent new issues.
-    private func getPhrasing(
-        payload: PhrasingPayload,
+    // MARK: - LLM phrasing (phrasing only — no assessment)
+
+    private func phraseAndComplete(
+        plan: SetEndFeedbackPlanner.Plan,
         exerciseType: TrackedExerciseType,
         profileContext: CoachingProfileContext?,
-        completion: @escaping (String) -> Void
+        completion: @escaping (SetEndFeedback) -> Void
     ) {
         let exerciseLabel = Self.exerciseLabel(for: exerciseType)
 
-        let primaryDisplay = payload.primaryIssue.map { CoachingContract.displayName(for: $0) }
-        let primaryCue     = payload.primaryIssue.map { CoachingContract.cue(for: $0) }
-        let secondaryDisplay = payload.secondaryIssue.map { CoachingContract.displayName(for: $0) }
-
-        let previousCue = getLastCuedText(exerciseType: exerciseType)
-        let previousCueBlock: String
-        if let prev = previousCue, !prev.isEmpty {
-            previousCueBlock = """
-
-            PREVIOUS SET CUE: "\(prev)"
-            If the same or similar issue applies this set, reference it (e.g. "keep working on that" or "same focus: …").
-            If they improved on it, acknowledge briefly (e.g. "that looked better").
-            Do NOT repeat the previous cue verbatim.
-            """
-        } else {
-            previousCueBlock = ""
-        }
-
+        // Profile + safety directives are unchanged from the previous pipeline.
         let profileBlock: String
         if let profileContext, let block = profileContext.promptBlock {
             profileBlock = """
@@ -153,57 +179,67 @@ class OpenAICoachingManager: ObservableObject {
             profileBlock = ""
         }
 
-        // Safety directives override the default "praise only when no issues"
-        // behavior: when the context requires a safety callout this set, we
-        // must surface it regardless of whether the form layer detected issues.
         let safetyOverride: String
         if let profileContext, profileContext.injectSafetyThisSet {
             safetyOverride = """
 
 
             SAFETY OVERRIDE:
-            A safety cue is required this set. Always include it, even if the form payload is clean and the default rule would tell you to give praise only. Name the flagged area by its coaching noun (e.g., "knees", "lower back"). The safety cue replaces or precedes the primary form cue — do not skip it.
+            A safety cue is required this set. Always include it, even if FEEDBACK_TONE is "clean" and the default rule would tell you to give praise only. Name the flagged area by its coaching noun (e.g., "knees", "lower back"). The safety cue replaces or precedes any other cue — do not skip it.
             """
         } else {
             safetyOverride = ""
         }
 
+        let previousCue = getLastCuedText(exerciseType: exerciseType)
+        let previousCueBlock: String
+        if let prev = previousCue, !prev.isEmpty, plan.tone == .corrective {
+            previousCueBlock = """
+
+
+            PREVIOUS SET CUE: "\(prev)"
+            If this set's cue is similar, rephrase it — do not repeat verbatim.
+            If they improved, acknowledge briefly ("that looked better").
+            """
+        } else {
+            previousCueBlock = ""
+        }
+
+        let cueText = plan.nextSetFocus ?? "none"
+        let toneLabel = plan.tone.rawValue
+        let suppressionDebug = plan.suppressionReason?.rawValue ?? "none"
+        let lengthBudget = plan.tone == .corrective
+            ? "12–22 words, one natural sentence"
+            : "6–14 words, positive-only, one natural sentence"
+
         let prompt = """
         You are phrasing pre-determined coaching feedback for a \(exerciseLabel) set.
 
-        PHRASING_PAYLOAD:
-        \(payload.toJSON())
-
-        RESOLVED CONTEXT:
-        - Primary issue: \(primaryDisplay ?? "none") — cue: \(primaryCue ?? "none")
-        - Secondary issue: \(secondaryDisplay ?? "none")
-        - Positive note: \(payload.positiveNote ?? "none")
-        - Rep count: \(payload.repCount)\(previousCueBlock)\(profileBlock)\(safetyOverride)
+        PLAN (already decided — do not second-guess):
+        - FEEDBACK_TONE: \(toneLabel)
+        - BEST_THING: \(plan.bestThing)
+        - NEXT_SET_CUE: \(cueText)
+        - SUPPRESSION_REASON (debug, never mention): \(suppressionDebug)\(previousCueBlock)\(profileBlock)\(safetyOverride)
 
         RULES:
-        1. Start with a short positive phrase about what they did well (use the positive_note).
-        2. Then give ONE specific coaching cue for the primary issue (use the cue text, rephrased naturally).
-        3. If there is a secondary issue, weave it in briefly.
-        4. If there is no primary issue, give praise only — UNLESS a SAFETY OVERRIDE is present above, in which case the safety cue is mandatory.
-        5. Do NOT assess form, do NOT suggest new issues, do NOT interpret metrics.
-        6. Do NOT use technical terms (eccentric, concentric, valgus, varus).
-        7. Keep it 12–22 words, conversational, encouraging. Match the tone and intensity from the COACHING PROFILE.
-        8. If the COACHING PROFILE flags an injury/discomfort that applies to this exercise, mention the area by name and be more lenient about form strictness.
-        9. NEVER ask the athlete a question or prompt for input. The output is spoken aloud and there is no UI for the user to respond. Phrase every safety cue and check-in as a statement (e.g., "keep an eye on that lower back") — never as a question (e.g., "how's the lower back feeling?"). Do not end with "?" or any request for a response.
+        1. If FEEDBACK_TONE is "clean", output a short positive-only line that references BEST_THING. Do NOT invent a correction, do NOT mention anything about what to fix. A clean set is a reward — say so confidently.
+        2. If FEEDBACK_TONE is "corrective", output one natural sentence that opens with BEST_THING and then delivers NEXT_SET_CUE, rephrased naturally.
+        3. SAFETY OVERRIDE, when present, is mandatory regardless of FEEDBACK_TONE and precedes everything else.
+        4. Do NOT assess form, do NOT invent issues, do NOT interpret metrics.
+        5. Do NOT use technical terms (eccentric, concentric, valgus, varus).
+        6. Do NOT use similes, metaphors, or figurative comparisons. ANY clause starting with "like …", "as if …", "as though …", or "as X as Y" is forbidden. Banned examples — do NOT emit anything resembling these: "like you're showing off a medal", "as if you're holding a tray", "as solid as a rock", "like a well-oiled machine". Speak plainly and directly — every word is a literal cue spoken aloud.
+        7. Length: \(lengthBudget). Conversational, encouraging. Match persona + intensity from the COACHING PROFILE.
+        8. NEVER ask the athlete a question. The output is spoken aloud and the athlete cannot respond. Phrase every cue as a statement.
 
         EXAMPLES:
-        "There we go, good depth — now push those knees out a bit more"
-        "Nice control there, just keep that chest tall on the way down"
-        "Solid set, elbows looked great — keep that same form"
+        clean  → "That set was dialed in — depth looked great."
+        clean  → "Clean reps. Same thing next set."
+        corrective → "Nice depth — now lift your chest a bit more on the way down."
+        corrective → "Good control there, just push those knees out a touch further."
         """
 
-        if let primary = payload.primaryIssue {
-            recordLastCued(exerciseType: exerciseType, cue: CoachingContract.cue(for: primary))
-        }
-
         guard let url = URL(string: baseURL) else {
-            let fb = generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
-            completion(fb)
+            completion(buildFallbackFeedback(plan: plan, profileContext: profileContext))
             return
         }
 
@@ -217,44 +253,41 @@ class OpenAICoachingManager: ObservableObject {
             "messages": [
                 [
                     "role": "system",
-                    "content": "You are a natural, encouraging athletic trainer. You only PHRASE pre-determined feedback — you never assess form or invent new issues. Use simple everyday language. Be specific and supportive."
+                    "content": "You are a natural, encouraging athletic trainer. You only PHRASE pre-determined feedback — you never assess form or invent new issues. When FEEDBACK_TONE is 'clean', you happily give positive-only feedback — silence on a clean set is a feature, not a gap. Use simple everyday language."
                 ],
                 ["role": "user", "content": prompt]
             ],
-            "max_tokens": 40,
+            "max_tokens": 50,
             "temperature": 0.7
         ]
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
-            let fb = generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
-            completion(fb)
+            completion(buildFallbackFeedback(plan: plan, profileContext: profileContext))
             return
         }
 
         let completionLock = NSLock()
         var didComplete = false
 
-        let safeComplete: (String, String) -> Void = { feedback, _ in
+        let safeComplete: (SetEndFeedback) -> Void = { fb in
             completionLock.lock()
             defer { completionLock.unlock() }
             guard !didComplete else { return }
             didComplete = true
-            DispatchQueue.main.async { completion(feedback) }
+            DispatchQueue.main.async { completion(fb) }
         }
 
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
             guard let self = self else { return }
 
             if error != nil {
-                let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
-                safeComplete(fb, "path=api_fallback reason=network_error")
+                safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext))
                 return
             }
             guard let data = data else {
-                let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
-                safeComplete(fb, "path=api_fallback reason=no_data")
+                safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext))
                 return
             }
 
@@ -265,66 +298,148 @@ class OpenAICoachingManager: ObservableObject {
                    let message = first["message"] as? [String: Any],
                    let content = message["content"] as? String {
 
-                    let cleaned = content
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                        .replacingOccurrences(of: "\n", with: " ")
-                        .replacingOccurrences(of: "  ", with: " ")
+                    let cleaned = Self.stripSimiles(
+                        content
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .replacingOccurrences(of: "\n", with: " ")
+                            .replacingOccurrences(of: "  ", with: " ")
+                    )
 
                     if self.isGenericResponse(cleaned) {
-                        let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
-                        safeComplete(fb, "path=api_fallback reason=generic_response")
+                        safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext))
                     } else {
-                        safeComplete(cleaned, "path=openai_success")
+                        safeComplete(self.buildFeedback(plan: plan, spokenText: cleaned))
                     }
                 } else {
-                    let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
-                    safeComplete(fb, "path=api_fallback reason=parse_error")
+                    safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext))
                 }
             } catch {
-                let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
-                safeComplete(fb, "path=api_fallback reason=json_decode_error")
+                safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext))
             }
         }
         task.resume()
 
         DispatchQueue.global().asyncAfter(deadline: .now() + Self.apiTimeoutSeconds) {
-            let fb = self.generateFallbackFeedback(payload: payload, exerciseType: exerciseType, profileContext: profileContext)
             task.cancel()
-            safeComplete(fb, "path=timeout")
+            safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext))
         }
     }
 
-    // MARK: - Deterministic Fallback
+    // MARK: - SetEndFeedback construction
 
-    /// Produces a hard-coded fallback sentence from the payload when the LLM is unavailable.
-    /// Uses the contract's cue text for the primary issue, and prepends a
-    /// profile-aware safety clause when one is required this set so the
-    /// user-reported injury is still acknowledged by name.
-    private func generateFallbackFeedback(
-        payload: PhrasingPayload,
-        exerciseType: TrackedExerciseType,
+    /// Wraps a plan + an LLM-phrased spoken string into a full SetEndFeedback.
+    private func buildFeedback(
+        plan: SetEndFeedbackPlanner.Plan,
+        spokenText: String
+    ) -> SetEndFeedback {
+        SetEndFeedback(
+            bestThing: plan.bestThing,
+            nextSetFocus: plan.nextSetFocus,
+            tone: plan.tone,
+            spokenText: spokenText,
+            displayShortCue: plan.displayShortCue,
+            suppressionReason: plan.suppressionReason,
+            candidateIssue: plan.candidateIssue
+        )
+    }
+
+    /// Deterministic spoken-text fallback for when the LLM is unavailable or
+    /// returns something generic/unusable. Still respects the plan's tone.
+    private func buildFallbackFeedback(
+        plan: SetEndFeedbackPlanner.Plan,
         profileContext: CoachingProfileContext?
-    ) -> String {
-        let positive = payload.positiveNote ?? "Nice effort there"
-        let positiveCapitalized = positive.prefix(1).uppercased() + positive.dropFirst()
-
+    ) -> SetEndFeedback {
+        let capitalizedBest = plan.bestThing.isEmpty
+            ? "Nice effort there"
+            : (plan.bestThing.prefix(1).uppercased() + plan.bestThing.dropFirst())
         let safety = profileContext?.fallbackSafetyClause
 
         let base: String
-        if let primary = payload.primaryIssue {
-            let cue = CoachingContract.cue(for: primary).lowercased()
-            base = "\(positiveCapitalized), now \(cue)"
-        } else {
-            base = "\(positiveCapitalized) — keep that same form"
+        switch plan.tone {
+        case .corrective:
+            if let cue = plan.nextSetFocus {
+                base = "\(capitalizedBest), now \(cue.lowercased())"
+            } else {
+                base = "\(capitalizedBest) — keep that same form"
+            }
+        case .clean:
+            base = "\(capitalizedBest) — that set was dialed in"
         }
 
-        if let safety {
-            return "\(safety). \(base)"
-        }
-        return base
+        let spoken = safety.map { "\($0). \(base)" } ?? base
+        return buildFeedback(plan: plan, spokenText: spoken)
     }
 
-    // MARK: - Generic Response Detection
+    // MARK: - Simile / figurative-language filter
+
+    /// Defence-in-depth against similes and figurative comparisons that slip
+    /// past the prompt rule. Strips clauses introduced by `like …`, `as if …`,
+    /// `as though …`, and `as X as …` through the next sentence boundary,
+    /// then cleans up residue. Keeps the surrounding sentence intact.
+    ///
+    /// Literal coaching language lands better than clever flourishes, and
+    /// similes throw off the speech synthesiser's cadence. Examples that
+    /// MUST be stripped:
+    ///   "You're dialled in, like you're showing off a medal."
+    ///   "Lock it out as if you're standing at attention."
+    ///   "Chest up, like a proud lion."
+    ///   "Stand as tall as a flagpole."
+    ///
+    /// The `\blike\b` pattern is intentionally aggressive — in a short
+    /// coaching cue the word "like" is effectively always a simile
+    /// introducer, not a literal verb ("I like that"). False positives are
+    /// acceptable here; overcoached-sounding audio is not.
+    static func stripSimiles(_ text: String) -> String {
+        // One alternation covers every introducer we care about. All four are
+        // treated as simile bait: "like", "as if", "as though", "as X as Y".
+        // False positives on literal uses of these words are acceptable —
+        // in a short spoken coaching cue, they're effectively always similes.
+        let introducer = #"\b(?:like|as\s+if|as\s+though|as\s+[a-z]+\s+as)\b"#
+
+        // Three structural patterns, applied in order. Each gets global
+        // replacement against the full string.
+        //
+        // 1) Trailing-simile attached to a finished sentence:
+        //    "Great set. Like a rocket!" → "Great set."
+        //    Uses a lookbehind so the opening ".!?" is preserved; consumes
+        //    the simile's own terminating punctuation.
+        // 2) Embedded simile introduced by a comma:
+        //    "You're dialled in, like you're showing off a medal."
+        //      → "You're dialled in."
+        //    Stops before the next punctuation so the sentence-ending "."
+        //    stays attached to the surviving clause.
+        // 3) Inline simile with no comma boundary:
+        //    "You're dialled in like a rocket."
+        //      → "You're dialled in."
+        let patterns: [String] = [
+            #"(?i)(?<=[.!?])\s+"# + introducer + #"[^.!?]+[.!?]?"#,
+            #"(?i)\s*,\s+"# + introducer + #"[^,.!?]+"#,
+            #"(?i)\s+"# + introducer + #"[^,.!?]+"#
+        ]
+
+        var out = text
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                let range = NSRange(out.startIndex..<out.endIndex, in: out)
+                out = regex.stringByReplacingMatches(
+                    in: out, range: range, withTemplate: ""
+                )
+            }
+        }
+
+        // Residue cleanup for doubled separators or adjacency artefacts.
+        out = out.replacingOccurrences(of: "  ", with: " ")
+        out = out.replacingOccurrences(of: " ,", with: ",")
+        out = out.replacingOccurrences(of: " .", with: ".")
+        out = out.replacingOccurrences(of: ".!", with: ".")
+        out = out.replacingOccurrences(of: ".?", with: ".")
+        out = out.replacingOccurrences(of: "!.", with: "!")
+        out = out.replacingOccurrences(of: "?.", with: "?")
+        out = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        return out
+    }
+
+    // MARK: - Generic response detection
 
     private func isGenericResponse(_ response: String) -> Bool {
         let genericPatterns = [
@@ -351,12 +466,7 @@ class OpenAICoachingManager: ObservableObject {
         }
     }
 
-    // MARK: - Backward Compatibility
-
-    @available(*, deprecated, message: "Use analyzeAndGetNaturalFeedback(formAnalysis:exerciseType:completion:) with explicit exerciseType")
-    func analyzeAndGetFeedback(formAnalysis: FormAnalysis, isDetailed: Bool = false, completion: @escaping (String) -> Void) {
-        analyzeAndGetNaturalFeedback(formAnalysis: formAnalysis, exerciseType: .bodyweight, completion: completion)
-    }
+    // MARK: - Legacy entry points
 
     /// Legacy string-based entry point. Builds a minimal FormAnalysis so the new pipeline can handle it.
     func getCoachingFeedback(summary: String, isDetailed: Bool = false, completion: @escaping (String) -> Void) {
@@ -377,29 +487,8 @@ class OpenAICoachingManager: ObservableObject {
         }
     }
 
-    // MARK: - Legacy Speech (deprecated)
-
-    @available(*, deprecated, message: "OpenAICoachingManager returns text only. Use SpeechManager.shared.speak() from the caller.")
+    @available(*, deprecated, message: "Use generateSetEndFeedback(formAnalysis:aggregatedMetrics:exerciseType:completion:)")
     func speakFeedback(_ feedback: String) {
         SpeechManager.shared.speak(feedback, priority: .high)
-    }
-
-    @available(*, deprecated, message: "Use analyzeAndGetNaturalFeedback instead")
-    func getTwoPointFeedback(formAnalysis: FormAnalysis, completion: @escaping (String, String) -> Void) {
-        analyzeAndGetNaturalFeedback(formAnalysis: formAnalysis, exerciseType: .bodyweight) { feedback in
-            let parts = feedback.components(separatedBy: ", but ")
-            if parts.count >= 2 {
-                completion(parts[0], parts[1])
-            } else {
-                completion("Good work there", "keep focusing on your form")
-            }
-        }
-    }
-
-    /// Convenience wrapper: builds PhrasingPayload for use by callers who only have a FormAnalysis.
-    /// Deprecated — callers should migrate to `analyzeAndGetNaturalFeedback`.
-    @available(*, deprecated, message: "Use analyzeAndGetNaturalFeedback")
-    func getNaturalFeedback(formAnalysis: FormAnalysis, exerciseType: TrackedExerciseType, completion: @escaping (String) -> Void) {
-        analyzeAndGetNaturalFeedback(formAnalysis: formAnalysis, exerciseType: exerciseType, completion: completion)
     }
 }

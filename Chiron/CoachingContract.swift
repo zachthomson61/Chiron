@@ -367,6 +367,50 @@ enum CoachingContract {
     static func shortCue(for code: IssueCode) -> String {
         definitions[code]?.shortCue ?? ""
     }
+
+    // MARK: Safety classification
+
+    /// Whether this issue is safety-critical — i.e. failing to correct it
+    /// materially raises injury risk (spine under load, collapsed hinge, etc.)
+    /// rather than merely degrading form quality or ROM.
+    ///
+    /// This drives the "quiet after set 1" rule: on the second-and-later set of
+    /// an exercise in a session, only safety-critical critiques surface. Form
+    /// optimizations (depth, tempo, bar path) stay silent after the first cue —
+    /// repeating them on every set trains the user to tune the coach out.
+    static func isSafetyCritical(_ code: IssueCode) -> Bool {
+        switch code {
+        // Spine-under-load issues — disc / facet injury risk.
+        case .deadliftRoundedBack,
+             .rdlRoundedBack,
+             .rowRoundedBack,
+             .deadliftHipShootUp,
+             .deadliftHyperextension:
+            return true
+        // Loaded-squat forward lean — lumbar shear under the bar.
+        case .forwardLean:
+            return true
+        // Collapsed hinge converts an RDL into a bad squat — hamstring/back risk.
+        case .rdlExcessiveKneeBend:
+            return true
+        // Form / optimization issues — important, but not injury-imminent.
+        case .insufficientDepth,
+             .kneeValgus,
+             .kneeVarus,
+             .gripTooWide,
+             .elbowsFlaring,
+             .incompleteRom,
+             .eccentricTooFast,
+             .concentricTooSlow,
+             .rowMomentumDrive,
+             .rowKneeInternalRotation,
+             .rowElbowFlare,
+             .deadliftBarDrift,
+             .rdlShallowHinge,
+             .rdlBarDrift:
+            return false
+        }
+    }
 }
 
 // MARK: - Deterministic Logic Layer

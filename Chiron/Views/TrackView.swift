@@ -620,16 +620,22 @@ struct TrackView: View {
 
         if let analysis = formAnalysis, let exercise = selectedExercise {
             let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
-            coachingManager.analyzeAndGetNaturalFeedback(
+            let metrics = poseManager.aggregatedMetricsSnapshot()
+            coachingManager.generateSetEndFeedback(
                 formAnalysis: analysis,
+                aggregatedMetrics: metrics,
                 exerciseType: exerciseType
             ) { feedback in
-                SpeechManager.shared.speak(feedback)
-                // Fade the cue text in at the same moment the spoken feedback arrives.
-                if let cue = resolvedShortCue {
-                    withAnimation(.easeInOut(duration: 0.35)) {
-                        primaryCueText = cue
-                    }
+                SpeechManager.shared.speak(feedback.spokenText)
+                // Fade in the correct card contents for this set's outcome:
+                //  - corrective: show the short coaching cue (existing behavior)
+                //  - clean:      show a rewarding affirmation — silence is a valid coaching
+                //                outcome, but a blank card between sets is not.
+                let cardText: String? = feedback.displayShortCue ?? (
+                    feedback.tone == .clean ? "Dialed in" : nil
+                )
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    primaryCueText = cardText
                 }
             }
         }

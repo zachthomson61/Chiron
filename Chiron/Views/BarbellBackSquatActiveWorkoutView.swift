@@ -349,12 +349,14 @@ struct BarbellBackSquatActiveWorkoutView: View {
         startRestTimer()
         // Get latest form analysis snapshot (if available)
         if let analysis = OnDevicePoseManager.shared.currentFormAnalysis {
-            OpenAICoachingManager.shared.analyzeAndGetNaturalFeedback(
+            let metrics = OnDevicePoseManager.shared.aggregatedMetricsSnapshot()
+            OpenAICoachingManager.shared.generateSetEndFeedback(
                 formAnalysis: analysis,
+                aggregatedMetrics: metrics,
                 exerciseType: .barbell
             ) { feedback in
-                if !feedback.isEmpty {
-                    SpeechManager.shared.speak(feedback, priority: .high)
+                if !feedback.spokenText.isEmpty {
+                    SpeechManager.shared.speak(feedback.spokenText, priority: .high)
                 }
             }
         } else {

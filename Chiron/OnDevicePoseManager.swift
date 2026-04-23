@@ -357,16 +357,14 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         .insufficientDepth: "Squat a little deeper"
     ]
     
-    // Aggregation for mid-set feedback (collected during the set, spoken between sets)
+    // Aggregation for mid-set feedback (collected during the set, spoken between sets).
+    // `PositiveKey` is defined in `SetEndFeedback.swift` so the coaching manager can read it.
     private var issueCounts: [IssueCode: Int] = [:]
-
-    private enum PositiveKey: String { case goodDepth, chestTall, kneesOverToes }
     private var positiveCounts: [PositiveKey: Int] = [:]
-    private let positiveCueByKey: [PositiveKey: String] = [
-        .goodDepth:     "Good depth",
-        .chestTall:     "Chest tall",
-        .kneesOverToes: "Knees over toes"
-    ]
+
+    // Running mean of FormAnalysis.overallScore across the set (for Stage 2 gate).
+    private var sumOverallScore: Double = 0
+    private var overallScoreSamples: Int = 0
     
     // Tempo tracking for hypertrophy (milliseconds)
     private var repStartTime: CFTimeInterval?
@@ -3408,6 +3406,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         lastRepValidationTime = nil
         issueCounts.removeAll()
         positiveCounts.removeAll()
+        sumOverallScore = 0
+        overallScoreSamples = 0
         repStartTime = nil
         bottomTime = nil
         lastDepth = 0
@@ -3555,33 +3555,22 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         if abs(analysis.kneeAlignment) <= CoachingContract.PositiveThreshold.kneesTracking {
             positiveCounts[.kneesOverToes, default: 0] += 1
         }
+        sumOverallScore += Double(analysis.overallScore)
+        overallScoreSamples += 1
     }
-    
-    // MARK: - Legacy Two-Point Feedback (Deprecated)
-    @available(*, deprecated, message: "Use OpenAICoachingManager.analyzeAndGetNaturalFeedback instead")
-    private func aggregatedTwoPointFeedback() -> (String, String) {
-        let topPositiveKey = positiveCounts.max(by: { $0.value < $1.value })?.key
-        let good = (topPositiveKey.flatMap { positiveCueByKey[$0] }) ?? {
-            if let analysis = currentFormAnalysis {
-                if analysis.depth >= CoachingContract.PositiveThreshold.goodDepth { return "Good depth" }
-                if abs(analysis.backAngle) <= CoachingContract.PositiveThreshold.chestTall { return "Chest tall" }
-            }
-            return "Controlled tempo"
-        }()
-        
-        let topIssue = issueCounts.max(by: { $0.value < $1.value })?.key
-        let improve: String = {
-            if let issue = topIssue, let cue = cueByIssue[issue] { return cue }
-            if let analysis = currentFormAnalysis {
-                if analysis.issues.contains(.kneeValgus) { return "Push your knees out" }
-                if analysis.issues.contains(.kneeVarus) { return "Keep your knees over your toes" }
-                if analysis.issues.contains(.forwardLean) { return "Lift your chest" }
-                if analysis.depth < 0.45 { return "Squat a little deeper" }
-            }
-            return "Brace your core"
-        }()
-        
-        return (good, improve)
+
+    /// Public snapshot of per-set aggregation for the set-end feedback planner.
+    /// Safe to call at set-end from the main thread; returns a value type.
+    func aggregatedMetricsSnapshot() -> SetEndAggregatedMetrics {
+        let mean: Float? = overallScoreSamples > 0
+            ? Float(sumOverallScore / Double(overallScoreSamples))
+            : nil
+        return SetEndAggregatedMetrics(
+            issueCounts: issueCounts,
+            positiveCounts: positiveCounts,
+            bodyweightRepHistory: bodyweightRepHistory,
+            overallScoreMean: mean
+        )
     }
     
     private func updateTempoTracking(currentDepth: Float) {
