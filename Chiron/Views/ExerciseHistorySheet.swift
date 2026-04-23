@@ -104,6 +104,17 @@ struct ExerciseHistorySheet: View {
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.bottom, 8)
 
+                        // PR summary — actual top set (not estimated).
+                        // Weighted: max weight logged + its reps. Bodyweight:
+                        // max reps. Both tagged with the date they happened.
+                        if let prText = personalRecordText {
+                            Text(prText)
+                                .font(.neueMontrealSemiBold(size: 14))
+                                .foregroundColor(.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.bottom, 12)
+                        }
+
                         // Progression chart.
                         ProgressChartSection(
                             setLogs: setLogs,
@@ -164,6 +175,38 @@ struct ExerciseHistorySheet: View {
         .preferredColorScheme(.dark)
     }
     
+    /// Actual (not estimated) personal record across the loaded set logs.
+    /// Weighted exercises: heaviest weight ever logged; ties broken by
+    /// highest reps at that weight. Bodyweight exercises: most reps in a
+    /// single set. Returns nil if there's no qualifying set yet.
+    private var personalRecordText: String? {
+        let performed = setLogs.filter { ($0.reps ?? 0) > 0 }
+        guard !performed.isEmpty else { return nil }
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "M/d"
+
+        if isBodyweight {
+            guard let best = performed.max(by: { ($0.reps ?? 0) < ($1.reps ?? 0) }),
+                  let reps = best.reps else { return nil }
+            return "PR: \(reps) reps - \(dateFormatter.string(from: best.timestamp))"
+        } else {
+            let weighted = performed.filter { ($0.weight ?? 0) > 0 }
+            guard !weighted.isEmpty else { return nil }
+            guard let maxWeight = weighted.compactMap({ $0.weight }).max() else { return nil }
+            let atMax = weighted.filter { ($0.weight ?? 0) == maxWeight }
+            guard let best = atMax.max(by: { ($0.reps ?? 0) < ($1.reps ?? 0) }),
+                  let reps = best.reps else { return nil }
+            let weightStr: String
+            if maxWeight == floor(maxWeight) {
+                weightStr = "\(Int(maxWeight))"
+            } else {
+                weightStr = String(format: "%.1f", maxWeight)
+            }
+            return "PR: \(weightStr) lbs for \(reps) reps - \(dateFormatter.string(from: best.timestamp))"
+        }
+    }
+
     private func loadHistory() {
         isLoading = true
         errorMessage = nil
@@ -242,9 +285,13 @@ struct ProgressChartSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if showsOuterChrome {
-                Text("Strength")
-                    .font(.neueMontrealBold(size: 24))
-                    .foregroundColor(.textPrimary)
+                HStack {
+                    Text("Strength")
+                        .font(.neueMontrealBold(size: 24))
+                        .foregroundColor(.textPrimary)
+                    Spacer()
+                    volumeButton
+                }
             }
 
             let points = dailyPoints()
@@ -256,8 +303,17 @@ struct ProgressChartSection: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 24)
             } else {
-                // Volume button is overlaid on the chart itself, riding the
-                // top gridline — see the .chartOverlay inside chart(for:).
+                // On the Home card the pill used to float over the chart's
+                // top-right corner and visually overlapped the top
+                // gridline / latest-point capsule. Lift it into its own row
+                // just above the chart so the graph has a clean top edge.
+                if !showsOuterChrome {
+                    HStack {
+                        Spacer()
+                        volumeButton
+                    }
+                }
+
                 chart(for: points)
                     .frame(height: 220)
 
@@ -271,7 +327,7 @@ struct ProgressChartSection: View {
                         label: isBodyweight ? "Top Set Reps" : "Top Set Estimated 1 Rep Max"
                     )
                     if showVolume {
-                        legendBar(color: .volumeAccent, label: "Volume")
+                        legendBar(color: .volumeAccent, label: "Total Weight Lifted")
                     }
                     Spacer()
                 }
@@ -296,7 +352,7 @@ struct ProgressChartSection: View {
             HStack(spacing: 6) {
                 Image(systemName: "chart.bar.fill")
                     .font(.system(size: 11, weight: .semibold))
-                Text("Volume")
+                Text(showVolume ? "Hide Volume" : "Show Volume")
                     .font(.neueMontrealSemiBold(size: 13))
             }
             // When active, the button adopts the same cyan as the bars /
@@ -415,6 +471,19 @@ struct ProgressChartSection: View {
                 .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
             }
 
+            // Plain markers for every non-PR day so the user can see each
+            // data point on the line. Smaller and dimmer than the PR /
+            // peak markers so the focal point stays dominant.
+            ForEach(points.filter { !$0.isPR }) { p in
+                PointMark(
+                    x: .value("Day", p.day),
+                    y: .value("Top", p.topMetric)
+                )
+                .symbol(.circle)
+                .symbolSize(45)
+                .foregroundStyle(Color.primaryPurple.opacity(0.7))
+            }
+
             // PR markers — soft purple halo behind a solid dot so new-high
             // days glow without being noisy.
             ForEach(points.filter { $0.isPR }) { p in
@@ -435,12 +504,14 @@ struct ProgressChartSection: View {
                 .foregroundStyle(Color.secondaryPurple)
             }
 
-            // Latest point — oversized accent dot so the user's most recent
-            // lift is the focal point of the chart.
-            if let last = points.last {
+            // Peak point — oversized accent dot + value capsule on the
+            // best lift on this graph (highest reps for bodyweight,
+            // highest e1RM for weighted). `max(by:)` picks the first
+            // occurrence for ties, matching when the PR was actually set.
+            if let peak = points.max(by: { $0.topMetric < $1.topMetric }) {
                 PointMark(
-                    x: .value("Day", last.day),
-                    y: .value("Top", last.topMetric)
+                    x: .value("Day", peak.day),
+                    y: .value("Top", peak.topMetric)
                 )
                 .symbol(.circle)
                 .symbolSize(120)
@@ -448,7 +519,7 @@ struct ProgressChartSection: View {
                 .annotation(position: .top, alignment: .center, spacing: 4) {
                     // Unit switches with mode — "123 lbs" for weighted,
                     // "8 reps" for bodyweight.
-                    Text("\(Int(last.topMetric)) \(isBodyweight ? "reps" : "lbs")")
+                    Text("\(Int(peak.topMetric)) \(isBodyweight ? "reps" : "lbs")")
                         .font(.neueMontrealBold(size: 11))
                         .foregroundColor(.textPrimary)
                         .padding(.horizontal, 6)
@@ -574,19 +645,6 @@ struct ProgressChartSection: View {
                     }
                 }
             }
-        }
-        // Volume button uses SwiftUI's native top-trailing alignment
-        // instead of `.position` inside chartOverlay. With `.position`,
-        // a ~94pt-wide pill centered at `plotRect.maxX − 60` would extend
-        // 13pt past the plot-area edge — which ran past the Home card's
-        // `cornerRadius(16)` clip on narrower layouts. Top-trailing
-        // alignment + 8pt trailing padding guarantees the pill's right
-        // edge sits inside the chart frame regardless of chart width, so
-        // it renders fully on the history sheet AND every Home card.
-        .overlay(alignment: .topTrailing) {
-            volumeButton
-                .padding(.trailing, 8)
-                .padding(.top, 2)
         }
         .onAppear {
             lineProgress = 0

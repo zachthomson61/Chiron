@@ -97,18 +97,21 @@ struct RecentProgressCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {
-                // Title only — the "N lbs — first session logged" /
-                // "+N lbs since last session" subtitle was removed so the
-                // card header stays minimal and the chart's own latest-
-                // point capsule ("118 lbs" / "2 reps") carries the
-                // current-value callout.
-                Text(entry.exerciseName)
-                    .font(.neueMontrealBold(size: 17))
-                    .foregroundColor(.textPrimary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 12)
                 RecentProgressThumbnail(imageName: entry.imageName)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(entry.exerciseName)
+                        .font(.neueMontrealBold(size: 17))
+                        .foregroundColor(.textPrimary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    if let prText = entry.personalRecordText {
+                        Text(prText)
+                            .font(.neueMontrealSemiBold(size: 13))
+                            .foregroundColor(.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 16)
 
@@ -224,6 +227,38 @@ struct RecentProgressEntry: Identifiable {
     /// Recent-slope-change score — higher means the last data point pushed
     /// the progression curve upward more steeply than the prior trend.
     let slopeScore: Double
+
+    /// Actual (not estimated) personal record derived from the raw set
+    /// logs. Mirrors the history sheet so the Home card and the sheet
+    /// stay in sync. Weighted: heaviest weight logged, tie-broken by the
+    /// highest reps at that weight. Bodyweight: most reps in one set.
+    var personalRecordText: String? {
+        let performed = setLogs.filter { ($0.reps ?? 0) > 0 }
+        guard !performed.isEmpty else { return nil }
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "M/d"
+
+        if isBodyweight {
+            guard let best = performed.max(by: { ($0.reps ?? 0) < ($1.reps ?? 0) }),
+                  let reps = best.reps else { return nil }
+            return "PR: \(reps) reps - \(dateFormatter.string(from: best.timestamp))"
+        } else {
+            let weighted = performed.filter { ($0.weight ?? 0) > 0 }
+            guard !weighted.isEmpty else { return nil }
+            guard let maxWeight = weighted.compactMap({ $0.weight }).max() else { return nil }
+            let atMax = weighted.filter { ($0.weight ?? 0) == maxWeight }
+            guard let best = atMax.max(by: { ($0.reps ?? 0) < ($1.reps ?? 0) }),
+                  let reps = best.reps else { return nil }
+            let weightStr: String
+            if maxWeight == floor(maxWeight) {
+                weightStr = "\(Int(maxWeight))"
+            } else {
+                weightStr = String(format: "%.1f", maxWeight)
+            }
+            return "PR: \(weightStr) lbs for \(reps) reps - \(dateFormatter.string(from: best.timestamp))"
+        }
+    }
 
     /// Short descriptor shown under the exercise name. Two cases:
     ///  - ≥ 2 days of data → delta from previous session ("+8 lbs since
