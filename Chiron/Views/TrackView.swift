@@ -186,26 +186,24 @@ struct TrackView: View {
                 Spacer()
             }
 
+            // Primary coaching cue — appears when OpenAI feedback arrives, fades on Begin Next.
+            // Centered card with opaque purple background, legible against any gym background.
+            // Placed at the parent ZStack level so it sits in the direct middle of the track view.
+            if trackViewState == .armed, let cueText = primaryCueText {
+                Text(cueText)
+                    .font(.title2.weight(.bold))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 18)
+                    .background(Color.primaryPurple, in: RoundedRectangle(cornerRadius: 20))
+                    .padding(.horizontal, 24)
+                    .transition(.opacity.animation(.easeInOut(duration: 0.35)))
+            }
+
             // Framing overlay + message bar + action button
             VStack {
-                // Primary coaching cue — appears when OpenAI feedback arrives, fades on Begin Next.
-                // Left-aligned, bold, with shadow for readability against bright gym backgrounds.
-                if trackViewState == .armed, let cueText = primaryCueText {
-                    HStack {
-                        Text("- \(cueText)")
-                            .font(.title2.weight(.bold))
-                            .foregroundColor(.white)
-                            .multilineTextAlignment(.leading)
-                            .shadow(color: .black.opacity(0.85), radius: 4, x: 0, y: 2)
-                            .shadow(color: .black.opacity(0.6), radius: 8, x: 0, y: 0)
-                            .padding(.leading, 20)
-                            .padding(.trailing, 16)
-                            .padding(.top, 100)
-                        Spacer(minLength: 0)
-                    }
-                    .transition(.opacity.animation(.easeInOut(duration: 0.35)))
-                }
-
                 Spacer()
 
                 if trackViewState == .armed && setsCompletedInSession == 0 {
@@ -521,6 +519,9 @@ struct TrackView: View {
     private func beginSet() {
         guard let exercise = selectedExercise else { return }
 
+        // Capture the prior set's cue before clearing it so it can be spoken.
+        let cueToSpeak = primaryCueText
+
         // Fade the previous set's cue out as the user starts the next set.
         if primaryCueText != nil {
             withAnimation(.easeInOut(duration: 0.35)) {
@@ -528,11 +529,17 @@ struct TrackView: View {
             }
         }
 
-        // Speak a framing reminder only on the first set of each exercise.
-        // Subsequent sets of the same exercise skip this prompt to avoid repetition.
+        // First set of each exercise: framing reminder + affirmation.
+        // Subsequent sets: supportive phrase followed by the prior set's cue.
         if setsCompletedInSession == 0 {
             SpeechManager.shared.speak(
                 "Ensure your full body is in frame. \(Self.nextBeginSetAffirmation())",
+                priority: .high,
+                context: .instruction
+            )
+        } else if let cue = cueToSpeak {
+            SpeechManager.shared.speak(
+                "\(Self.nextBeginSetAffirmation()) \(cue).",
                 priority: .high,
                 context: .instruction
             )

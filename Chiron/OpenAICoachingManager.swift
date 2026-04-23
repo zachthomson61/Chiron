@@ -189,6 +189,7 @@ class OpenAICoachingManager: ObservableObject {
         6. Do NOT use technical terms (eccentric, concentric, valgus, varus).
         7. Keep it 12–22 words, conversational, encouraging. Match the tone and intensity from the COACHING PROFILE.
         8. If the COACHING PROFILE flags an injury/discomfort that applies to this exercise, mention the area by name and be more lenient about form strictness.
+        9. NEVER ask the athlete a question or prompt for input. The output is spoken aloud and there is no UI for the user to respond. Phrase every safety cue and check-in as a statement (e.g., "keep an eye on that lower back") — never as a question (e.g., "how's the lower back feeling?"). Do not end with "?" or any request for a response.
 
         EXAMPLES:
         "There we go, good depth — now push those knees out a bit more"

@@ -313,13 +313,13 @@ struct CoachingProfileContext {
 
         switch severity {
         case .noLimitation:
-            return "SAFETY CUE: mention the \(noun) once in a brief awareness line ('keep an eye on those \(noun)'). Stay encouraging."
+            return "SAFETY CUE: mention the \(noun) once in a brief awareness statement ('keep an eye on those \(noun)'). Stay encouraging. Do NOT ask the athlete a question — there is no way for them to respond."
         case .mildDiscomfort:
-            return "SAFETY CUE: check in on the \(noun) by name. Keep it light — one short reassurance plus one gentle form cue."
+            return "SAFETY CUE: acknowledge the \(noun) by name with a short reassuring statement plus one gentle form cue. Do NOT ask how the \(noun) is feeling — state, don't ask. There is no input UI for a response."
         case .moderateLimitation:
-            return "SAFETY CUE: name the \(noun) explicitly. Be forgiving about form — depth or range shortfalls are acceptable. If it hurts, back off."
+            return "SAFETY CUE: name the \(noun) explicitly as a statement. Be forgiving about form — depth or range shortfalls are acceptable. If it hurts, back off. Do NOT ask the athlete a question; there is no way for them to answer."
         case .severe:
-            return "SAFETY CUE: name the \(noun) explicitly. Be very lenient on form. Explicitly tell the athlete it is OK to stop or shorten the range if the \(noun) hurts. No 'push harder' language."
+            return "SAFETY CUE: name the \(noun) explicitly. Be very lenient on form. Tell the athlete (as a statement, not a question) that it is OK to stop or shorten the range if the \(noun) hurts. No 'push harder' language. Do NOT ask how they are feeling — there is no input UI."
         }
     }
 
