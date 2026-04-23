@@ -55,7 +55,7 @@ struct WeightScrollerSheet: View {
             Color.background.ignoresSafeArea()
 
             VStack(spacing: 20) {
-                Text("Input Weight")
+                Text("Input Set Weight")
                     .font(.neueMontrealBold(size: 24))
                     .foregroundColor(.textPrimary)
                     .padding(.top, 24)

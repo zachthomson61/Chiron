@@ -60,8 +60,16 @@ struct TrackView: View {
     // MARK: - Weight / History Logging State
 
     /// Weight the user has dialed in for the current set (persists across sets
-    /// of the same exercise so they don't re-enter it every time).
+    /// of the same exercise so they don't re-enter it every time). Stays nil
+    /// until the user saves a value in the weight picker — the button label
+    /// shows "Weight" until that happens even if `suggestedWeight` is populated.
     @State private var currentWeight: Double?
+    /// Most recently logged weight for the selected exercise, pulled from
+    /// UserDefaults cache and refreshed from Firestore history. Used only to
+    /// pre-fill the weight picker; it does NOT drive the weight button label
+    /// so a freshly selected exercise still reads "Weight" until the user
+    /// confirms a value.
+    @State private var suggestedWeight: Double?
     /// Presentation toggle for the scroller-based weight picker.
     @State private var showWeightScroller: Bool = false
     /// Presentation toggle for the Firestore-backed exercise history sheet.
@@ -78,6 +86,11 @@ struct TrackView: View {
     @ObservedObject private var coachingManager = OpenAICoachingManager.shared
 
     private let lastTrackedExerciseKey = "lastTrackedExerciseName"
+    /// UserDefaults key for the last-used weight per exercise, stored as
+    /// `[exerciseName: Double]`. Survives app relaunches and exercise switches
+    /// so the weight picker opens at the value the user last logged for that
+    /// specific exercise.
+    private let lastWeightByExerciseKey = "lastWeightByExercise"
 
     var body: some View {
         ZStack {
@@ -415,7 +428,7 @@ struct TrackView: View {
         .sheet(isPresented: $showWeightScroller) {
             WeightScrollerSheet(
                 isPresented: $showWeightScroller,
-                initialWeight: currentWeight,
+                initialWeight: currentWeight ?? suggestedWeight,
                 onSave: { weight in
                     // Local-only update. Firestore is not written here —
                     // the set log (weight + reps + date/time + cues) is
@@ -423,6 +436,9 @@ struct TrackView: View {
                     // presses End Set, so the history sheet only ever sees
                     // completed sets.
                     currentWeight = weight
+                    if let name = selectedExercise?.name {
+                        persistLastWeight(weight, for: name)
+                    }
                 }
             )
             .presentationDetents([.medium, .large])
@@ -680,9 +696,14 @@ struct TrackView: View {
                 setsCompletedInSession = 0
                 primaryCueText = nil
             }
-            // New exercise = new weight context. Keep setNumbersByExercise so
-            // re-selecting an exercise resumes the same set numbering.
+            // New exercise → button label resets to "Weight" until the user
+            // confirms a value. The last-logged weight hydrates `suggestedWeight`
+            // so the picker still opens at the right number. Keep
+            // setNumbersByExercise so re-selecting an exercise resumes the
+            // same set numbering.
             currentWeight = nil
+            suggestedWeight = loadLastWeight(for: exercise.name)
+            fetchLastWeightFromHistory(for: exercise.name)
         }
         if trackViewState == .idle {
             trackViewState = .armed
@@ -746,7 +767,48 @@ struct TrackView: View {
         if let savedName = UserDefaults.standard.string(forKey: lastTrackedExerciseKey),
            let match = exercises.first(where: { $0.name == savedName }) {
             selectedExercise = match
+            // Button label stays "Weight" on restore — the user hasn't
+            // confirmed a value for this session yet. Suggestion hydrates
+            // from cache + Firestore so the picker opens at the right number.
+            currentWeight = nil
+            suggestedWeight = loadLastWeight(for: match.name)
+            fetchLastWeightFromHistory(for: match.name)
             trackViewState = .armed
+        }
+    }
+
+    /// Reads the last-used weight for a specific exercise out of UserDefaults,
+    /// or returns nil if the user has never saved a weight for that movement.
+    private func loadLastWeight(for exerciseName: String) -> Double? {
+        let stored = UserDefaults.standard.dictionary(forKey: lastWeightByExerciseKey) as? [String: Double]
+        return stored?[exerciseName]
+    }
+
+    /// Persists the given weight as the last-used value for `exerciseName` so
+    /// the weight picker pre-fills with it on the next open (even across app
+    /// relaunches and exercise switches).
+    private func persistLastWeight(_ weight: Double, for exerciseName: String) {
+        var stored = (UserDefaults.standard.dictionary(forKey: lastWeightByExerciseKey) as? [String: Double]) ?? [:]
+        stored[exerciseName] = weight
+        UserDefaults.standard.set(stored, forKey: lastWeightByExerciseKey)
+    }
+
+    /// Pulls the most recent Firestore-logged weight for `exerciseName` and
+    /// applies it to `suggestedWeight` so the picker pre-fills at the right
+    /// number. Does not touch `currentWeight` — the button label stays
+    /// "Weight" until the user confirms a value. Silently no-ops if the
+    /// fetch fails or every returned log is weightless (bodyweight).
+    private func fetchLastWeightFromHistory(for exerciseName: String) {
+        let userId = UserManager.shared.getUserId()
+        WorkoutLogService.shared.getHistoryForExercise(exerciseName, userId: userId, limit: 10) { result in
+            guard case .success(let logs) = result else { return }
+            guard let latestWeight = logs.first(where: { $0.weight != nil })?.weight else { return }
+            DispatchQueue.main.async {
+                // Only apply if the user is still on this exercise.
+                guard selectedExercise?.name == exerciseName else { return }
+                suggestedWeight = latestWeight
+                persistLastWeight(latestWeight, for: exerciseName)
+            }
         }
     }
 
