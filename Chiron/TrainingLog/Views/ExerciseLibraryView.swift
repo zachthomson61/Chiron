@@ -389,15 +389,20 @@ struct ExerciseLibraryView: View {
         if let existing = barbellBackSquatExercise {
             let expectedTargets: Set<MuscleGroup> = [.quadriceps, .glutes, .adductors]
             let currentTargets = Set(existing.primaryTargets)
-            if currentTargets != expectedTargets || existing.difficulty != .intermediate {
+            let expectedImageName = "BarbellBackSquat"
+            let needsUpdate = currentTargets != expectedTargets
+                || existing.difficulty != .intermediate
+                || existing.imageName != expectedImageName
+            if needsUpdate {
                 existing.primaryTargets = [.quadriceps, .glutes, .adductors]
                 existing.secondaryTargets = []
                 existing.difficulty = .intermediate
+                existing.imageName = expectedImageName
                 try? ctx.save()
             }
             return
         }
-        
+
         // If it doesn't exist, ExerciseSeeder will create it on first launch
     }
     
@@ -523,26 +528,29 @@ struct ExerciseLibraryView: View {
             let expectedSecondaryTargets: Set<MuscleGroup> = [.rearDelts, .biceps]
             let currentPrimaryTargets = existing.primaryTargets
             let currentSecondaryTargets = Set(existing.secondaryTargets)
-            
+            let expectedImageName = "BarbellRow"
+
             // Array comparison preserves order (ensures Lats appears before Middle Back)
-            if currentPrimaryTargets != expectedPrimaryTargets || 
-               currentSecondaryTargets != expectedSecondaryTargets || 
-               existing.difficulty != .intermediate {
+            if currentPrimaryTargets != expectedPrimaryTargets ||
+               currentSecondaryTargets != expectedSecondaryTargets ||
+               existing.difficulty != .intermediate ||
+               existing.imageName != expectedImageName {
                 existing.primaryTargets = [.lats, .back]
                 existing.secondaryTargets = [.rearDelts, .biceps]
                 existing.difficulty = .intermediate
+                existing.imageName = expectedImageName
                 try? ctx.save()
             }
             return
         }
-        
+
         // Create if it doesn't exist
         let row = Exercise(
             name: barbellRowName,
             primaryTargets: [.lats, .back],
             secondaryTargets: [.rearDelts, .biceps],
             difficulty: .intermediate,
-            imageName: "figure.strengthtraining.traditional"
+            imageName: "BarbellRow"
         )
         ctx.insert(row)
         try? ctx.save()

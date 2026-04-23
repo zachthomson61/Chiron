@@ -30,14 +30,14 @@ enum ExerciseSeeder {
             primaryTargets: [.quadriceps, .glutes, .adductors],
             secondaryTargets: [],
             difficulty: .intermediate,
-            imageName: "figure.strengthtraining.traditional"
+            imageName: "BarbellBackSquat"
         ),
         ExerciseData(
             name: "Barbell Row",
             primaryTargets: [.lats, .back],
             secondaryTargets: [.rearDelts, .biceps],
             difficulty: .intermediate,
-            imageName: "figure.strengthtraining.traditional"
+            imageName: "BarbellRow"
         ),
         ExerciseData(
             name: "Barbell Bench Press",

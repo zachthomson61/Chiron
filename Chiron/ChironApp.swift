@@ -24,7 +24,6 @@ struct ChironApp: App {
 /// Central app state for data dependencies. Heavy services are lazily created on demand.
 @MainActor
 class AppState: ObservableObject {
-    lazy var planStore = PlanStore()
     lazy var modelContainer: ModelContainer = {
         do {
             return try ModelContainer(for: Exercise.self)

@@ -150,7 +150,7 @@ struct RecentProgressCard: View {
 
 /// 52×52 rounded thumbnail matching the exercise-library card artwork.
 /// Falls back to a system icon for exercises whose imageName points to an
-/// SF Symbol (Barbell Back Squat, Barbell Row).
+/// SF Symbol (rather than an asset-catalog image).
 private struct RecentProgressThumbnail: View {
     let imageName: String?
 
@@ -481,9 +481,9 @@ final class RecentProgressLoader: ObservableObject {
         case "romanian deadlift (rdl)", "romanian deadlift":
             return "RomanianDeadlift"
         case "barbell back squat", "back squat":
-            return "figure.strengthtraining.traditional"
+            return "BarbellBackSquat"
         case "barbell row":
-            return "figure.strengthtraining.traditional"
+            return "BarbellRow"
         default:
             return nil
         }

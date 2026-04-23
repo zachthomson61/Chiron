@@ -2,15 +2,14 @@ import SwiftUI
 import SwiftData
 
 /// Root tab view that provides the main navigation structure for the app.
-/// Tabs (left→right): Home, Plans, Track, Research, Profile.
+/// Tabs (left→right): Home, Track, Research, Profile.
 /// Each tab is wrapped in its own `NavigationStack` to isolate toolbars and preserve scroll position.
 /// Optimized: Views are lazily loaded only when their tab is first selected.
 struct RootTabView: View {
     enum Tab: Hashable {
-        case home, plans, track, research, profile
+        case home, track, research, profile
     }
 
-    @EnvironmentObject private var planStore: PlanStore
     @Environment(\.modelContext) private var modelContext
     @State private var selectedTab: Tab = .home
     @State private var loadedTabs: Set<Tab> = [.home] // Track which tabs have been loaded
@@ -27,9 +26,10 @@ struct RootTabView: View {
             // MARK: - Home Tab
             NavigationStack {
                 HomeView {
-                    // Keep the tab bar visible by hopping directly to Research,
-                    // which already hosts the shared ExerciseLibrary experience.
-                    selectedTab = .research
+                    // "Start Training" hops directly to the Track tab so the
+                    // tab bar stays in place while the camera-driven session
+                    // mounts inside its own NavigationStack.
+                    selectedTab = .track
                 }
             }
             .tabItem {
@@ -38,21 +38,6 @@ struct RootTabView: View {
             }
             .tag(Tab.home)
             .accessibilityLabel("Home")
-
-            // MARK: - Plans Tab
-            NavigationStack {
-                if loadedTabs.contains(.plans) {
-                    PlansScreen()
-                } else {
-                    Color.clear.onAppear { loadedTabs.insert(.plans) }
-                }
-            }
-            .tabItem {
-                Image(systemName: "list.bullet.rectangle")
-                Text("Plans")
-            }
-            .tag(Tab.plans)
-            .accessibilityLabel("Plans")
 
             // MARK: - Track Tab
             NavigationStack {
@@ -108,9 +93,7 @@ struct RootTabView: View {
         .task {
             guard !hasPreloadedData else { return }
             hasPreloadedData = true
-            
-            planStore.loadPlansIfNeeded()
-            
+
             do {
                 try ExerciseSeeder.seedIfNeeded(context: modelContext)
             } catch {
@@ -138,171 +121,6 @@ struct RootTabView: View {
         }
     }
 }
-
-/// Plans screen displays saved plans and provides access to plan creation.
-/// Currently an empty state with a primary CTA to build a plan.
-struct PlansScreen: View {
-    @State private var showPlanBuilder = false
-    @EnvironmentObject private var planStore: PlanStore
-    @State private var selectedPlan: TrainingPlan?
-    
-    var body: some View {
-        List {
-            Section {
-                VStack(spacing: 16) {
-                    VStack(spacing: 8) {
-                        Text("Plans")
-                            .font(.title.bold())
-                            .foregroundColor(.textPrimary)
-                        Text("Create and manage your workout programs")
-                            .font(.subheadline)
-                            .foregroundColor(.textSecondary)
-                    }
-                    
-                    Button(action: {
-                        showPlanBuilder = true
-                    }) {
-                        Text("Build Workout Plan")
-                            .font(.headline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.textPrimary)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 56)
-                            .background(Color.primaryPurple)
-                            .cornerRadius(28)
-                    }
-                }
-                .padding(.vertical, 8)
-            }
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-            
-            if !planStore.savedPlans.isEmpty {
-                Section {
-                    ForEach(planStore.savedPlans) { plan in
-                    Button(action: {
-                        // Keep the pinned plan consistent so the home card knows what to show.
-                        planStore.markPlanSelected(plan)
-                        selectedPlan = plan
-                    }) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(plan.name)
-                                        .font(.title3)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.textPrimary)
-                                    
-                                    if !plan.goals.isEmpty {
-                                        Text(plan.goals.map { $0.rawValue }.joined(separator: ", "))
-                                            .font(.subheadline)
-                                            .foregroundColor(.textSecondary)
-                                    }
-                                    
-                                    HStack(spacing: 8) {
-                                        Text("\(plan.duration) weeks")
-                                            .font(.caption)
-                                            .foregroundColor(.textSecondary)
-                                        
-                                        Text("•")
-                                            .font(.caption)
-                                            .foregroundColor(.textSecondary)
-                                        
-                                        Text("\(plan.daysPerWeek) days/week")
-                                            .font(.caption)
-                                            .foregroundColor(.textSecondary)
-                                        
-                                        Text("•")
-                                            .font(.caption)
-                                            .foregroundColor(.textSecondary)
-                                        
-                                        Text(plan.createdAt, style: .date)
-                                            .font(.caption)
-                                            .foregroundColor(.textSecondary)
-                                    }
-                                }
-                                
-                                Spacer()
-                                
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundColor(.textSecondary)
-                            }
-                            .padding()
-                            .background(Color.background)
-                            .cornerRadius(12)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(Color.primaryPurple.opacity(0.5), lineWidth: 2)
-                            )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                planStore.deletePlan(withId: plan.id)
-                                if selectedPlan?.id == plan.id {
-                                    selectedPlan = nil
-                                }
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                    }
-                } header: {
-                    Text("Saved Plans")
-                        .font(.headline)
-                        .foregroundColor(.textPrimary)
-                        .padding(.bottom, 4)
-                }
-            } else {
-                Section {
-                    VStack(spacing: 16) {
-                        Image(systemName: "list.bullet.rectangle")
-                            .font(.system(size: 48))
-                            .foregroundColor(.textSecondary)
-                        
-                        Text("No plans yet")
-                            .font(.headline)
-                            .foregroundColor(.textPrimary)
-                        
-                        Text("Create a program to get started with structured training")
-                            .font(.subheadline)
-                            .foregroundColor(.textSecondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 80)
-                }
-                .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Color.background)
-        .onAppear {
-            // Load plans lazily when view appears
-            planStore.loadPlansIfNeeded()
-        }
-        .navigationDestination(isPresented: $showPlanBuilder) {
-            PlanBuilderView(isPresented: $showPlanBuilder)
-        }
-        // Navigate to a simple plan preview when a saved plan is tapped.
-        // This uses the existing `TrainingPlan` model from the builder and
-        // shows details via `PlanPreviewView` without altering Plans UI.
-        .navigationDestination(isPresented: Binding(
-            get: { selectedPlan != nil },
-            set: { if !$0 { selectedPlan = nil } }
-        )) {
-            if let plan = selectedPlan {
-                PlanPreviewView(plan: plan, source: .savedList)
-            }
-        }
-    }
-}
-
 
 // MARK: - Preview
 #Preview {

@@ -10,20 +10,14 @@ struct HomeScreenSpacing {
 
 /// Landing surface for the Home tab.
 ///
-/// When users tap "Start Workout" (either the play button or the primary button),
-/// they are presented with a workout selection menu via sheet modal.
-///
-/// **Note:** The `onStartWorkout` callback parameter is currently unused but retained
-/// for potential future use or external integrations.
+/// Tapping "Start Training" invokes the `onStartWorkout` closure supplied by
+/// `RootTabView`, which switches the tab bar over to the Track tab.
 struct HomeView: View {
     var onStartWorkout: (() -> Void)? = nil
     @StateObject private var preferencesManager = UserPreferencesManager.shared
     @State private var showGoalSelector = false
-    @State private var showWorkoutSelection = false
     @State private var contentHeight: CGFloat = 0
     @State private var pulseGoal = false
-    @State private var homeSelectedPlan: TrainingPlan? = nil
-    @EnvironmentObject private var planStore: PlanStore
     /// Drives the header animation so we can animate shadow and offset without
     /// triggering extra layout changes.
     @State private var animateTitle = false
@@ -85,13 +79,13 @@ struct HomeView: View {
                                     .foregroundColor(.textPrimary)
                             }
 
-                            // Primary action button - Start Workout
-                            // Note: "Build Workout Plan" button moved to Plans tab
+                            // Primary action — jumps to the Track tab so the
+                            // session mounts inside the shared tab bar.
                             Button(action: handleStartWorkout) {
                                 HStack(spacing: 8) {
                                     Image(systemName: "play.fill")
                                         .font(.neueMontrealSemiBold(size: 17))
-                                    Text("Start Workout")
+                                    Text("Start Training")
                                         .font(.neueMontrealSemiBold(size: 17))
                                 }
                                 .foregroundColor(.textPrimary)
@@ -101,8 +95,6 @@ struct HomeView: View {
                                 .cornerRadius(28)
                             }
                         }
-
-                        myWorkoutPlanSection
 
                         // Top three exercises ranked by the biggest recent
                         // improvement (slope change at the latest point).
@@ -130,17 +122,6 @@ struct HomeView: View {
                 Color.clear.frame(height: HomeScreenSpacing.topInset) 
             }
             .preferredColorScheme(.dark)
-            .navigationDestination(isPresented: Binding(
-                get: { homeSelectedPlan != nil },
-                set: { if !$0 { homeSelectedPlan = nil } }
-            )) {
-                if let plan = homeSelectedPlan {
-                    PlanPreviewView(plan: plan, source: .savedList)
-                }
-            }
-            .sheet(isPresented: $showWorkoutSelection) {
-                WorkoutSelectionView()
-            }
             .sheet(isPresented: $showGoalSelector) {
                 GoalSelectorView(preferencesManager: preferencesManager, isPresented: $showGoalSelector)
             }
@@ -149,127 +130,27 @@ struct HomeView: View {
 }
 
 private extension HomeView {
-    /// Handles "Start Workout" action from both the play button and primary button.
-    ///
-    /// Presents the workout selection menu as a sheet modal. Both buttons
-    /// (the circular play button and the "Start Workout" button) call this
-    /// function to ensure consistent behavior.
+    /// "Start Training" hands control back to `RootTabView`, which switches
+    /// to the Track tab so the camera session mounts inside the shared
+    /// tab bar rather than a modal sheet.
     func handleStartWorkout() {
-        showWorkoutSelection = true
+        onStartWorkout?()
     }
-    
+
     func handleGoalHintAppear() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             pulseGoal = true
         }
         AnalyticsManager.shared.trackFirstRunGoalPrompt()
     }
-    
+
     func startTitleAnimationIfNeeded() {
         guard !animateTitle else { return }
         animateTitle = true
     }
-    
+
     func resetTitleAnimation() {
         animateTitle = false
-    }
-
-    /// Shows the pinned training plan with a lightweight active badge and a progress slider.
-    private var myWorkoutPlanSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("My Workout Plan")
-                .font(.neueMontrealBold(size: 20))
-                .foregroundColor(.textPrimary)
-
-            if let plan = planStore.lastSelectedPlan {
-                let planGoalsText = plan.goals.map { $0.rawValue }.joined(separator: ", ")
-                Button(action: {
-                    homeSelectedPlan = plan
-                }) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(plan.name)
-                                    .font(.neueMontrealBold(size: 22))
-                                    .foregroundColor(.textPrimary)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-
-                                if !planGoalsText.isEmpty {
-                                    Text(planGoalsText)
-                                        .font(.neueMontrealRegular(size: 15))
-                                        .foregroundColor(.planTextSecondary)
-                                        .lineLimit(2)
-                                }
-                            }
-
-                            Spacer()
-
-                            Text("Active")
-                                .font(.neueMontrealBold(size: 11))
-                                .foregroundColor(.primaryPurple)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 4)
-                                .background(Color.primaryPurple.opacity(0.15))
-                                .clipShape(Capsule())
-                        }
-
-                        HStack(spacing: 6) {
-                            Text("\(plan.duration) weeks")
-                            Text("•")
-                            Text("\(plan.daysPerWeek) days/week")
-                        }
-                        .font(.neueMontrealRegular(size: 12))
-                        .foregroundColor(.planTextSecondary)
-
-                        if let progressValue = planProgress(for: plan) {
-                            ProgressView(value: progressValue)
-                                .progressViewStyle(LinearProgressViewStyle(tint: Color.secondaryPurple))
-                                .frame(height: 6)
-                                .padding(.vertical, 2)
-                                .background(Color.secondaryPurple.opacity(0.15))
-                                .cornerRadius(3)
-
-                            Text("\(Int(progressValue * 100))% complete")
-                                .font(.neueMontrealRegular(size: 11))
-                                .foregroundColor(.planTextSecondary)
-                        }
-                    }
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.planCardBackground)
-                    .cornerRadius(20)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20)
-                            .stroke(Color.primaryPurple.opacity(0.2), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("No plan pinned yet")
-                        .font(.neueMontrealBold(size: 17))
-                        .foregroundColor(.textPrimary)
-                    Text("Select a plan on the Plans tab and it will be shown here for quick access.")
-                        .font(.neueMontrealRegular(size: 15))
-                        .foregroundColor(.planTextSecondary)
-                }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.planCardBackground)
-                .cornerRadius(16)
-            }
-        }
-        .padding(.top, 4)
-    }
-
-    /// Estimates completion by comparing wall time since creation with the target duration.
-    private func planProgress(for plan: TrainingPlan) -> Double? {
-        guard plan.duration > 0 else { return nil }
-        let totalSeconds = Double(plan.duration) * 7 * 24 * 60 * 60
-        guard totalSeconds > 0 else { return nil }
-        let elapsed = min(max(Date().timeIntervalSince(plan.createdAt), 0), totalSeconds)
-        return min(max(elapsed / totalSeconds, 0), 1)
     }
 }
 

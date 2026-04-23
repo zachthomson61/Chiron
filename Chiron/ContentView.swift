@@ -7,11 +7,7 @@ struct ContentView: View {
     var body: some View {
         if userProfile != nil {
             RootTabView()
-                .environmentObject(appState.planStore)
                 .modelContainer(appState.modelContainer)
-                #if DEBUG
-                .overlay(debugResetButton, alignment: .topTrailing)
-                #endif
         } else {
             OnboardingRootView(store: UserDefaultsUserProfileStore()) { profile in
                 userProfile = profile
@@ -28,25 +24,6 @@ struct ContentView: View {
         UserPreferencesManager.shared.primaryGoal = profile.topGoal.asPrimaryGoal
         OpenAICoachingManager.shared.refreshProfile()
     }
-
-    #if DEBUG
-    private var debugResetButton: some View {
-        Button(action: resetOnboarding) {
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(.red)
-                .padding(12)
-                .background(Color.black.opacity(0.6))
-                .clipShape(Circle())
-        }
-        .padding(12)
-    }
-
-    private func resetOnboarding() {
-        UserDefaultsUserProfileStore().clear()
-        userProfile = nil
-    }
-    #endif
 }
 
 #Preview {
