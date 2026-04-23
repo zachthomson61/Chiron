@@ -2203,6 +2203,27 @@ struct WorkoutActiveView: View {
         // This ensures weight is preserved even if currentSetWeight gets reset
         let currentData = exerciseData[currentExerciseIndex] ?? (weight: nil, reps: nil)
         let weightToSave = currentSetWeight ?? currentData.weight
+
+        // PR check before the write. This flow has no pose-based coaching
+        // manager to fold the celebration into, so when a PR lands we both
+        // fire confetti and have the center speak the celebratory line.
+        let exerciseName = exercise.name
+        let isBodyweight = TrackedExerciseType.from(exerciseName: exerciseName) == .bodyweight
+        WorkoutLogService.shared.getHistoryForExercise(exerciseName, userId: userId) { historyResult in
+            if case .success(let history) = historyResult,
+               let pr = PersonalRecord.check(
+                   exerciseName: exerciseName,
+                   isBodyweight: isBodyweight,
+                   weight: weightToSave,
+                   reps: reps,
+                   history: history
+               ) {
+                DispatchQueue.main.async {
+                    PRCelebrationCenter.shared.celebrate(info: pr, speak: true)
+                }
+            }
+        }
+
         WorkoutLogService.shared.saveSetLog(
                 workoutLogId: workoutLogId,
                 userId: userId,

@@ -605,37 +605,65 @@ struct TrackView: View {
             resolvedShortCue = payload.primaryIssue.map { CoachingContract.shortCue(for: $0) }
         }
 
-        // Single Firestore write for this set — weight, reps, timestamp
-        // (date/time), and cues/notes. This is the only path that pushes
-        // data to Firebase from the Track tab; the History sheet reads back
-        // from the same collection.
+        // Detect PR against prior history BEFORE writing this set, then fan
+        // out: save the set, fire confetti on PR, and call coaching with the
+        // PR info so the spoken line celebrates (and form cues stay silent
+        // unless a safety-critical issue fires).
         if let exercise = selectedExercise {
-            saveCompletedSetToFirestore(
-                exerciseName: exercise.name,
-                weight: currentWeight,
-                reps: poseManager.repCount,
-                cues: resolvedShortCue
-            )
-        }
-
-        if let analysis = formAnalysis, let exercise = selectedExercise {
-            let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
+            let exerciseName = exercise.name
+            let weightForSet = currentWeight
+            let repsForSet = poseManager.repCount
+            let isBodyweight = isCurrentExerciseBodyweight
+            let userId = UserManager.shared.getUserId()
             let metrics = poseManager.aggregatedMetricsSnapshot()
-            coachingManager.generateSetEndFeedback(
-                formAnalysis: analysis,
-                aggregatedMetrics: metrics,
-                exerciseType: exerciseType
-            ) { feedback in
-                SpeechManager.shared.speak(feedback.spokenText)
-                // Fade in the correct card contents for this set's outcome:
-                //  - corrective: show the short coaching cue (existing behavior)
-                //  - clean:      show a rewarding affirmation — silence is a valid coaching
-                //                outcome, but a blank card between sets is not.
-                let cardText: String? = feedback.displayShortCue ?? (
-                    feedback.tone == .clean ? "Dialed in" : nil
-                )
-                withAnimation(.easeInOut(duration: 0.35)) {
-                    primaryCueText = cardText
+
+            WorkoutLogService.shared.getHistoryForExercise(exerciseName, userId: userId) { result in
+                let prInfo: PersonalRecord.Info?
+                if case .success(let history) = result {
+                    prInfo = PersonalRecord.check(
+                        exerciseName: exerciseName,
+                        isBodyweight: isBodyweight,
+                        weight: weightForSet,
+                        reps: repsForSet,
+                        history: history
+                    )
+                } else {
+                    prInfo = nil
+                }
+
+                DispatchQueue.main.async {
+                    // Save the completed set regardless of PR status.
+                    saveCompletedSetToFirestore(
+                        exerciseName: exerciseName,
+                        weight: weightForSet,
+                        reps: repsForSet,
+                        cues: resolvedShortCue
+                    )
+
+                    // Visual celebration. Audio is delivered by the coaching
+                    // manager below so we don't overlap speech.
+                    if let pr = prInfo {
+                        PRCelebrationCenter.shared.celebrate(info: pr, speak: false)
+                    }
+
+                    if let analysis = formAnalysis {
+                        let exerciseType = TrackedExerciseType.from(exerciseName: exerciseName)
+                        coachingManager.generateSetEndFeedback(
+                            formAnalysis: analysis,
+                            aggregatedMetrics: metrics,
+                            exerciseType: exerciseType,
+                            personalRecord: prInfo
+                        ) { feedback in
+                            SpeechManager.shared.speak(feedback.spokenText)
+                            // Fade in the correct card contents for this set's outcome.
+                            let cardText: String? = feedback.displayShortCue ?? (
+                                feedback.tone == .clean ? "Dialed in" : nil
+                            )
+                            withAnimation(.easeInOut(duration: 0.35)) {
+                                primaryCueText = cardText
+                            }
+                        }
+                    }
                 }
             }
         }

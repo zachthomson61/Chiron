@@ -83,10 +83,19 @@ class OpenAICoachingManager: ObservableObject {
     /// via Stage 1 + Stage 2 in Swift, then calls the LLM to phrase the plan
     /// (persona-aware). On network/parse failure, falls back to a deterministic
     /// spoken line. Always returns a fully-populated `SetEndFeedback`.
+    ///
+    /// - Parameter personalRecord: when non-nil, the just-completed set beat
+    ///   the user's prior best for this exercise. The planner suppresses any
+    ///   non-safety-critical critique so the spoken line celebrates cleanly,
+    ///   and the prompt is injected with PR context so the model opens with
+    ///   an explicit "personal record" call-out. Safety-critical cues still
+    ///   surface — a dangerous rep at a new PR is exactly when the coach
+    ///   needs to speak up.
     func generateSetEndFeedback(
         formAnalysis: FormAnalysis,
         aggregatedMetrics: SetEndAggregatedMetrics,
         exerciseType: TrackedExerciseType,
+        personalRecord: PersonalRecord.Info? = nil,
         completion: @escaping (SetEndFeedback) -> Void
     ) {
         // Early out: confidence / data-quality short-circuit — no LLM call.
@@ -124,7 +133,8 @@ class OpenAICoachingManager: ObservableObject {
             aggregatedMetrics: aggregatedMetrics,
             exerciseType: exerciseType,
             previousCueText: getLastCuedText(exerciseType: exerciseType),
-            setIndex: currentSetIndex
+            setIndex: currentSetIndex,
+            isPersonalRecord: personalRecord != nil
         )
 
         // Remember the cue we surfaced (for the next set's repeated-cue check).
@@ -136,6 +146,7 @@ class OpenAICoachingManager: ObservableObject {
             plan: plan,
             exerciseType: exerciseType,
             profileContext: profileContext,
+            personalRecord: personalRecord,
             completion: completion
         )
     }
@@ -150,7 +161,8 @@ class OpenAICoachingManager: ObservableObject {
         generateSetEndFeedback(
             formAnalysis: formAnalysis,
             aggregatedMetrics: .empty,
-            exerciseType: exerciseType
+            exerciseType: exerciseType,
+            personalRecord: nil
         ) { feedback in
             completion(feedback.spokenText)
         }
@@ -162,6 +174,7 @@ class OpenAICoachingManager: ObservableObject {
         plan: SetEndFeedbackPlanner.Plan,
         exerciseType: TrackedExerciseType,
         profileContext: CoachingProfileContext?,
+        personalRecord: PersonalRecord.Info?,
         completion: @escaping (SetEndFeedback) -> Void
     ) {
         let exerciseLabel = Self.exerciseLabel(for: exerciseType)
@@ -205,12 +218,37 @@ class OpenAICoachingManager: ObservableObject {
             previousCueBlock = ""
         }
 
+        // PR celebration block: when the set just beat the user's prior best,
+        // the spoken line opens with an explicit "personal record" call-out
+        // and skips all non-safety-critical critique. Safety cues, when the
+        // SAFETY OVERRIDE fires, still precede everything else — a risky rep
+        // at a new PR is exactly when the coach needs to speak up.
+        let personalRecordBlock: String
+        if let pr = personalRecord {
+            personalRecordBlock = """
+
+
+            PERSONAL RECORD (mandatory — this is the athlete's new best):
+            - Descriptor (say aloud): "\(pr.spokenDescriptor)"
+            - Open the line by celebrating the PR explicitly. Use the exact phrase "personal record" at the start.
+            - Do NOT deliver any form-correction cue, optimization cue, or critical feedback in this response, UNLESS a SAFETY OVERRIDE is present — safety cues still take precedence.
+            - Keep the line warm and confident, not over-the-top.
+            """
+        } else {
+            personalRecordBlock = ""
+        }
+
         let cueText = plan.nextSetFocus ?? "none"
         let toneLabel = plan.tone.rawValue
         let suppressionDebug = plan.suppressionReason?.rawValue ?? "none"
-        let lengthBudget = plan.tone == .corrective
-            ? "12–22 words, one natural sentence"
-            : "6–14 words, positive-only, one natural sentence"
+        let lengthBudget: String
+        if personalRecord != nil {
+            lengthBudget = "10–20 words, celebratory, one natural sentence"
+        } else if plan.tone == .corrective {
+            lengthBudget = "12–22 words, one natural sentence"
+        } else {
+            lengthBudget = "6–14 words, positive-only, one natural sentence"
+        }
 
         let prompt = """
         You are phrasing pre-determined coaching feedback for a \(exerciseLabel) set.
@@ -219,23 +257,26 @@ class OpenAICoachingManager: ObservableObject {
         - FEEDBACK_TONE: \(toneLabel)
         - BEST_THING: \(plan.bestThing)
         - NEXT_SET_CUE: \(cueText)
-        - SUPPRESSION_REASON (debug, never mention): \(suppressionDebug)\(previousCueBlock)\(profileBlock)\(safetyOverride)
+        - SUPPRESSION_REASON (debug, never mention): \(suppressionDebug)\(previousCueBlock)\(personalRecordBlock)\(profileBlock)\(safetyOverride)
 
         RULES:
-        1. If FEEDBACK_TONE is "clean", output a short positive-only line that references BEST_THING. Do NOT invent a correction, do NOT mention anything about what to fix. A clean set is a reward — say so confidently.
-        2. If FEEDBACK_TONE is "corrective", output one natural sentence that opens with BEST_THING and then delivers NEXT_SET_CUE, rephrased naturally.
-        3. SAFETY OVERRIDE, when present, is mandatory regardless of FEEDBACK_TONE and precedes everything else.
-        4. Do NOT assess form, do NOT invent issues, do NOT interpret metrics.
-        5. Do NOT use technical terms (eccentric, concentric, valgus, varus).
-        6. Do NOT use similes, metaphors, or figurative comparisons. ANY clause starting with "like …", "as if …", "as though …", or "as X as Y" is forbidden. Banned examples — do NOT emit anything resembling these: "like you're showing off a medal", "as if you're holding a tray", "as solid as a rock", "like a well-oiled machine". Speak plainly and directly — every word is a literal cue spoken aloud.
-        7. Length: \(lengthBudget). Conversational, encouraging. Match persona + intensity from the COACHING PROFILE.
-        8. NEVER ask the athlete a question. The output is spoken aloud and the athlete cannot respond. Phrase every cue as a statement.
+        1. If PERSONAL RECORD is present, the line MUST open with the phrase "personal record" and include the descriptor exactly as given. Do NOT include any critique, form correction, or optimization suggestion in a PR response, unless SAFETY OVERRIDE is also present (safety always wins).
+        2. If FEEDBACK_TONE is "clean" and PERSONAL RECORD is absent, output a short positive-only line that references BEST_THING. Do NOT invent a correction, do NOT mention anything about what to fix. A clean set is a reward — say so confidently.
+        3. If FEEDBACK_TONE is "corrective" and PERSONAL RECORD is absent, output one natural sentence that opens with BEST_THING and then delivers NEXT_SET_CUE, rephrased naturally.
+        4. SAFETY OVERRIDE, when present, is mandatory regardless of FEEDBACK_TONE and precedes everything else.
+        5. Do NOT assess form, do NOT invent issues, do NOT interpret metrics.
+        6. Do NOT use technical terms (eccentric, concentric, valgus, varus).
+        7. Do NOT use similes, metaphors, or figurative comparisons. ANY clause starting with "like …", "as if …", "as though …", or "as X as Y" is forbidden. Banned examples — do NOT emit anything resembling these: "like you're showing off a medal", "as if you're holding a tray", "as solid as a rock", "like a well-oiled machine". Speak plainly and directly — every word is a literal cue spoken aloud.
+        8. Length: \(lengthBudget). Conversational, encouraging. Match persona + intensity from the COACHING PROFILE.
+        9. NEVER ask the athlete a question. The output is spoken aloud and the athlete cannot respond. Phrase every cue as a statement.
 
         EXAMPLES:
         clean  → "That set was dialed in — depth looked great."
         clean  → "Clean reps. Same thing next set."
         corrective → "Nice depth — now lift your chest a bit more on the way down."
         corrective → "Good control there, just push those knees out a touch further."
+        PR     → "Personal record — 185 for 8. Huge work."
+        PR     → "Personal record — 25 reps. That's a new best, great job."
         """
 
         guard let url = URL(string: baseURL) else {

@@ -57,6 +57,10 @@ enum SetEndSuppressionReason: String, Codable {
     /// Second-or-later set of the same exercise and the candidate is not
     /// safety-critical. Repeating form-only cues on every set trains tune-out.
     case nonSafetyCueOnRepeatSet
+    /// Set just hit a personal record and the candidate isn't safety-critical.
+    /// PRs are a reward moment; form-optimization cues during celebration erode
+    /// the signal. Safety-critical cues (spine-under-load etc.) still surface.
+    case personalRecordCelebration
 }
 
 /// The complete set-end feedback emitted to the UI and voice layers.
@@ -176,12 +180,18 @@ enum SetEndFeedbackPlanner {
     ///   suppressed — the user already got the form cue once, and repeating
     ///   it every set trains them to tune the coach out. Safety-critical cues
     ///   (spine-under-load etc.) still surface on every set.
+    /// - Parameter isPersonalRecord: true when this set just beat the user's
+    ///   prior best for the exercise. PR sets suppress non-safety-critical
+    ///   critiques so the celebration isn't diluted; safety-critical cues
+    ///   still surface (a dangerous rep at a PR weight is the most important
+    ///   moment to speak up).
     static func plan(
         formAnalysis: FormAnalysis,
         aggregatedMetrics: SetEndAggregatedMetrics,
         exerciseType: TrackedExerciseType,
         previousCueText: String?,
-        setIndex: Int = 1
+        setIndex: Int = 1,
+        isPersonalRecord: Bool = false
     ) -> Plan {
         let bestThing = stage1BestThing(
             formAnalysis: formAnalysis,
@@ -210,7 +220,8 @@ enum SetEndFeedbackPlanner {
             aggregatedMetrics: aggregatedMetrics,
             bestThing: bestThing,
             previousCueText: previousCueText,
-            setIndex: setIndex
+            setIndex: setIndex,
+            isPersonalRecord: isPersonalRecord
         )
 
         return Plan(
@@ -337,9 +348,20 @@ enum SetEndFeedbackPlanner {
         aggregatedMetrics: SetEndAggregatedMetrics,
         bestThing: String,
         previousCueText: String?,
-        setIndex: Int
+        setIndex: Int,
+        isPersonalRecord: Bool = false
     ) -> SetEndSuppressionReason? {
-        // 0) Second-and-later set of this exercise: only safety-critical cues
+        // 0a) PR celebration: a set that just beat the user's prior best gets
+        // celebration-only feedback. Form-optimization cues during a PR blunt
+        // the reward signal — the user earned the moment. Safety-critical
+        // issues (spine-under-load, collapsed hinge) still surface: a risky
+        // rep at a new-PR weight is precisely when the coach needs to speak.
+        if isPersonalRecord,
+           !CoachingContract.isSafetyCritical(candidate) {
+            return .personalRecordCelebration
+        }
+
+        // 0b) Second-and-later set of this exercise: only safety-critical cues
         // surface. The user already had set 1 to hear form cues; hammering
         // them on every subsequent set is overcoaching and erodes trust in
         // the signal. Safety cues (spine-under-load etc.) always pass.

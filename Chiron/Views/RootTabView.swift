@@ -6,17 +6,23 @@ import SwiftData
 /// Each tab is wrapped in its own `NavigationStack` to isolate toolbars and preserve scroll position.
 /// Optimized: Views are lazily loaded only when their tab is first selected.
 struct RootTabView: View {
-    enum Tab: Hashable { 
-        case home, plans, track, research, profile 
+    enum Tab: Hashable {
+        case home, plans, track, research, profile
     }
-    
+
     @EnvironmentObject private var planStore: PlanStore
     @Environment(\.modelContext) private var modelContext
     @State private var selectedTab: Tab = .home
     @State private var loadedTabs: Set<Tab> = [.home] // Track which tabs have been loaded
     @State private var hasPreloadedData = false
+    /// Global PR celebration publisher. Mounting the confetti overlay at the
+    /// tab-view root means any workout flow (Track tab, predetermined
+    /// workouts) fires into the same surface without needing to own its own
+    /// overlay. The view is non-hit-testing so it doesn't block interaction.
+    @ObservedObject private var prCelebration = PRCelebrationCenter.shared
 
     var body: some View {
+        ZStack {
         TabView(selection: $selectedTab) {
             // MARK: - Home Tab
             NavigationStack {
@@ -113,15 +119,22 @@ struct RootTabView: View {
         .onChange(of: selectedTab) {
             // Ensure the tab is marked as loaded when selected
             loadedTabs.insert(selectedTab)
-            
+
             // `TrackView.onAppear` may not run again when returning to this tab; coached workouts leave the shared session in setup mode, which blocks `captureOutput` and rep tracking until we re-attach the workout delegate.
             if selectedTab == .track {
                 SharedCameraSessionManager.shared.switchToWorkoutMode()
             }
-            
+
             #if os(iOS)
             UIImpactFeedbackGenerator(style: .light).impactOccurred() // Light haptic on tab switch
             #endif
+        }
+
+            // PR celebration — rendered above the tab bar so the burst covers
+            // the whole screen. `ConfettiView` clears itself when its burst
+            // finishes, flipping `isShowingConfetti` back to false.
+            ConfettiView(isActive: $prCelebration.isShowingConfetti)
+                .allowsHitTesting(false)
         }
     }
 }
