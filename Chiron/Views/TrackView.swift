@@ -1236,6 +1236,8 @@ struct TrackExerciseLibrarySheetView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
+            Color.background.ignoresSafeArea()
+
             NavigationStack {
                 ExerciseLibraryView(
                     onExerciseSelected: onExerciseSelected,
@@ -1244,6 +1246,7 @@ struct TrackExerciseLibrarySheetView: View {
                     selectedCategoryBinding: $sheetCategory
                 )
             }
+            .padding(.top, 52)
 
             Button {
                 dismiss()
