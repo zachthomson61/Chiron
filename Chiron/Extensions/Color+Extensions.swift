@@ -57,6 +57,12 @@ extension Color {
         Color(red: 220/255, green: 38/255, blue: 38/255)
     }
 
+    /// Green color for beginner difficulty badges in the exercise library.
+    /// Color: #22C55E — matches the saturation of intermediateYellow/expertRed.
+    static var beginnerGreen: Color {
+        Color(red: 34/255, green: 197/255, blue: 94/255)
+    }
+
     /// Bright secondary accent used for the Volume series in progression
     /// charts — bar overlay, trailing y-axis numbers, and legend dot all use
     /// this color so the two series (purple = strength, cyan = volume) are

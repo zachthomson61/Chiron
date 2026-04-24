@@ -1231,7 +1231,8 @@ struct TrackExerciseLibrarySheetView: View {
     var onExerciseSelected: (Exercise) -> Void
 
     @State private var sheetSearch: String = ""
-    @State private var sheetCategory: String? = nil
+    @State private var sheetCategories: Set<String> = []
+    @State private var sheetDifficulties: Set<Difficulty> = []
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1243,7 +1244,8 @@ struct TrackExerciseLibrarySheetView: View {
                     onExerciseSelected: onExerciseSelected,
                     selectedForSelectionMode: selectedExercise,
                     searchBinding: $sheetSearch,
-                    selectedCategoryBinding: $sheetCategory
+                    selectedCategoriesBinding: $sheetCategories,
+                    selectedDifficultiesBinding: $sheetDifficulties
                 )
             }
             .padding(.top, 52)

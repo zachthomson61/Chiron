@@ -24,18 +24,23 @@ struct ExerciseLibraryView: View {
 
     /// When provided, the parent owns search/category state so it persists when the sheet is dismissed and reopened.
     var searchBinding: Binding<String>?
-    var selectedCategoryBinding: Binding<String?>?
+    var selectedCategoriesBinding: Binding<Set<String>>?
+    var selectedDifficultiesBinding: Binding<Set<Difficulty>>?
 
     @State private var _internalSearch: String = ""
-    @State private var _internalCategory: String? = nil
+    @State private var _internalCategories: Set<String> = []
+    @State private var _internalDifficulties: Set<Difficulty> = []
     @State private var newName: String = ""
     @State private var error: String?
 
     private var search: Binding<String> {
         searchBinding ?? $_internalSearch
     }
-    private var selectedCategory: Binding<String?> {
-        selectedCategoryBinding ?? $_internalCategory
+    private var selectedCategories: Binding<Set<String>> {
+        selectedCategoriesBinding ?? $_internalCategories
+    }
+    private var selectedDifficulties: Binding<Set<Difficulty>> {
+        selectedDifficultiesBinding ?? $_internalDifficulties
     }
 
     // MARK: - View Models
@@ -63,7 +68,8 @@ struct ExerciseLibraryView: View {
             .count < 2
     }
     
-    private let categories = ["Compound", "Push", "Pull", "Bodyweight"]
+    private let categories = ["Compound", "Push", "Pull", "Bodyweight", "Barbell"]
+    private let difficulties: [Difficulty] = [.beginner, .intermediate, .expert]
 
     private var normalizedQuery: String {
         search.wrappedValue
@@ -113,56 +119,107 @@ struct ExerciseLibraryView: View {
     }
     
     private var shouldShowBodyweightSquatCard: Bool {
-        guard bodyweightSquatExercise != nil else { return false }
+        guard let exercise = bodyweightSquatExercise else { return false }
         let query = normalizedQuery
-        return query.isEmpty || bodyweightSquatName.lowercased().contains(query)
+        let nameMatch = query.isEmpty || bodyweightSquatName.lowercased().contains(query)
+        return nameMatch && matchesSelectedCategory(exercise) && matchesSelectedDifficulty(exercise)
     }
-    
+
     /// Determines if the deadlift card should be displayed.
     /// Shows the card if the exercise exists and matches the search query (if any).
     private var shouldShowDeadliftCard: Bool {
-        guard deadliftExercise != nil else { return false }
+        guard let exercise = deadliftExercise else { return false }
         let query = normalizedQuery
-        return query.isEmpty || deadliftName.lowercased().contains(query)
+        let nameMatch = query.isEmpty || deadliftName.lowercased().contains(query)
+        return nameMatch && matchesSelectedCategory(exercise) && matchesSelectedDifficulty(exercise)
     }
-    
+
     /// Determines if the barbell bench press card should be displayed.
     /// Returns true if the exercise exists and matches the current search query.
     private var shouldShowBarbellBenchPressCard: Bool {
-        guard barbellBenchPressExercise != nil else { return false }
+        guard let exercise = barbellBenchPressExercise else { return false }
         let query = normalizedQuery
-        return query.isEmpty || barbellBenchPressName.lowercased().contains(query)
+        let nameMatch = query.isEmpty || barbellBenchPressName.lowercased().contains(query)
+        return nameMatch && matchesSelectedCategory(exercise) && matchesSelectedDifficulty(exercise)
     }
-    
+
     /// Determines if the Romanian Deadlift card should be displayed.
     /// Shows the card if the exercise exists and matches the search query (if any).
     private var shouldShowRomanianDeadliftCard: Bool {
-        guard romanianDeadliftExercise != nil else { return false }
+        guard let exercise = romanianDeadliftExercise else { return false }
         let query = normalizedQuery
-        return query.isEmpty || romanianDeadliftName.lowercased().contains(query)
+        let nameMatch = query.isEmpty || romanianDeadliftName.lowercased().contains(query)
+        return nameMatch && matchesSelectedCategory(exercise) && matchesSelectedDifficulty(exercise)
     }
-    
+
     /// Determines if the barbell row card should be displayed.
     /// Shows the card if the exercise exists and matches the search query (if any).
     private var shouldShowBarbellRowCard: Bool {
-        guard barbellRowExercise != nil else { return false }
+        guard let exercise = barbellRowExercise else { return false }
         let query = normalizedQuery
-        return query.isEmpty || barbellRowName.lowercased().contains(query)
+        let nameMatch = query.isEmpty || barbellRowName.lowercased().contains(query)
+        return nameMatch && matchesSelectedCategory(exercise) && matchesSelectedDifficulty(exercise)
     }
-    
+
     /// Filtered exercise list excluding exercises with dedicated cards.
     /// Exercises with dedicated cards (Bodyweight Squat, Deadlift, Barbell Bench Press,
     /// Romanian Deadlift, Barbell Row) are excluded since they appear separately above.
     var filtered: [Exercise] {
         let query = normalizedQuery
         let base = query.isEmpty ? exercises : exercises.filter { $0.name.lowercased().contains(query) }
-        return base.filter { 
-            !isBodyweightSquat($0) && 
-            !isDeadlift($0) && 
-            !isBarbellBenchPress($0) && 
-            !isRomanianDeadlift($0) && 
-            !isBarbellRow($0) 
+        return base.filter {
+            matchesSelectedCategory($0) &&
+            matchesSelectedDifficulty($0) &&
+            !isBodyweightSquat($0) &&
+            !isDeadlift($0) &&
+            !isBarbellBenchPress($0) &&
+            !isRomanianDeadlift($0) &&
+            !isBarbellRow($0)
         }
+    }
+
+    /// Returns true only if the exercise matches EVERY currently-selected category (or no category is selected).
+    /// Multiple selected categories narrow the result set (intersection), so "Push" + "Barbell" shows only barbell push movements.
+    private func matchesSelectedCategory(_ exercise: Exercise) -> Bool {
+        let selected = selectedCategories.wrappedValue
+        guard !selected.isEmpty else { return true }
+        return selected.allSatisfy { matchesCategory(exercise, category: $0) }
+    }
+
+    /// Rule for a single category chip.
+    /// - Compound: targets two or more primary muscle groups (multi-joint movement).
+    /// - Push: primary targets include chest, front delts, shoulders, or triceps.
+    /// - Pull: primary targets include back, lats, traps, rear delts, biceps, or posterior chain (hamstrings, lower back).
+    /// - Bodyweight: exercise name contains "bodyweight" (no external load).
+    /// - Barbell: exercise name contains "barbell".
+    private func matchesCategory(_ exercise: Exercise, category: String) -> Bool {
+        let primary = Set(exercise.primaryTargets)
+        let lowerName = exercise.name.lowercased()
+        switch category {
+        case "Compound":
+            return exercise.primaryTargets.count >= 2
+        case "Push":
+            return !primary.isDisjoint(with: Self.pushMuscles)
+        case "Pull":
+            return !primary.isDisjoint(with: Self.pullMuscles)
+        case "Bodyweight":
+            return lowerName.contains("bodyweight")
+        case "Barbell":
+            return lowerName.contains("barbell")
+        default:
+            return true
+        }
+    }
+
+    private static let pushMuscles: Set<MuscleGroup> = [.chest, .frontDelts, .shoulders, .triceps]
+    private static let pullMuscles: Set<MuscleGroup> = [.back, .lats, .traps, .rearDelts, .biceps, .hamstrings, .lowerBack]
+
+    /// Difficulty chips act as an OR within the row (an exercise has one difficulty),
+    /// but combine with the category row as AND so "Push" + "Beginner" only shows beginner push movements.
+    private func matchesSelectedDifficulty(_ exercise: Exercise) -> Bool {
+        let selected = selectedDifficulties.wrappedValue
+        guard !selected.isEmpty else { return true }
+        return selected.contains(exercise.difficulty)
     }
 
     var body: some View {
@@ -206,19 +263,47 @@ struct ExerciseLibraryView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
                         ForEach(categories, id: \.self) { category in
+                            let isSelected = selectedCategories.wrappedValue.contains(category)
                             Button(action: {
-                                if selectedCategory.wrappedValue == category {
-                                    selectedCategory.wrappedValue = nil
+                                if isSelected {
+                                    selectedCategories.wrappedValue.remove(category)
                                 } else {
-                                    selectedCategory.wrappedValue = category
+                                    selectedCategories.wrappedValue.insert(category)
                                 }
                             }) {
                                 Text(category)
                                     .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(selectedCategory.wrappedValue == category ? Color.textPrimary : Color.textSecondary)
+                                    .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
                                     .padding(.horizontal, 20)
                                     .padding(.vertical, 10)
-                                    .background(selectedCategory.wrappedValue == category ? Color.primaryPurple.opacity(0.3) : Color.white.opacity(0.06))
+                                    .background(isSelected ? Color.primaryPurple.opacity(0.3) : Color.white.opacity(0.06))
+                                    .cornerRadius(20)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .padding(.bottom, 12)
+
+                // Difficulty filters
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(difficulties, id: \.self) { difficulty in
+                            let isSelected = selectedDifficulties.wrappedValue.contains(difficulty)
+                            Button(action: {
+                                if isSelected {
+                                    selectedDifficulties.wrappedValue.remove(difficulty)
+                                } else {
+                                    selectedDifficulties.wrappedValue.insert(difficulty)
+                                }
+                            }) {
+                                Text(difficulty.rawValue)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 10)
+                                    .background(isSelected ? Color.primaryPurple.opacity(0.3) : Color.white.opacity(0.06))
                                     .cornerRadius(20)
                             }
                             .buttonStyle(.plain)
@@ -227,7 +312,7 @@ struct ExerciseLibraryView: View {
                     .padding(.horizontal, 20)
                 }
                 .padding(.bottom, 24)
-                
+
                 // Exercise cards — all go through exerciseRow for consistent routing
                 LazyVStack(spacing: 12) {
                     if shouldShowBodyweightSquatCard, let squat = bodyweightSquatExercise {
@@ -734,12 +819,15 @@ private struct Pill: View {
     }
     
     /// Returns background and foreground colors based on difficulty level.
-    /// - Beginner/Advanced: Purple badge
-    /// - Intermediate: Yellow badge (visual distinction)
-    /// - Expert: Red badge (visual distinction)
+    /// - Beginner: Green badge
+    /// - Advanced: Purple badge
+    /// - Intermediate: Yellow badge
+    /// - Expert: Red badge
     private func colorForDifficulty(_ difficulty: Difficulty) -> (Color, Color) {
         switch difficulty {
-        case .beginner, .advanced:
+        case .beginner:
+            return (Color.beginnerGreen.opacity(0.18), Color.beginnerGreen)
+        case .advanced:
             return (Color.brandAccentPurple.opacity(0.18), Color.brandAccentPurple)
         case .intermediate:
             return (Color.intermediateYellow.opacity(0.18), Color.intermediateYellow)
