@@ -58,6 +58,49 @@ enum PrimaryGoal: String, CaseIterable, Identifiable, Codable {
             return "Build lean muscle and improve definition"
         }
     }
+
+    /// Goal-specific tempo reference points. `nil` means tempo is not coached
+    /// for this goal (on-device tempo issue codes stay suppressed).
+    ///
+    /// Values are soft references, not thresholds — see `TempoTargets`.
+    var tempoTargets: TempoTargets? {
+        switch self {
+        case .buildMuscle:
+            // Slow eccentric + hold the stretch. Concentric is "as fast as
+            // possible" for hypertrophy concentric intent — not coached.
+            return TempoTargets(
+                minEccentricMs: 2500,
+                maxConcentricMs: nil,
+                minStretchPauseMs: 1000
+            )
+        case .getStronger:
+            // 1000 ms eccentric floor so the lifter stays in control under
+            // heavy load. Concentric should be explosive — not coached.
+            return TempoTargets(
+                minEccentricMs: 1000,
+                maxConcentricMs: 3000,
+                minStretchPauseMs: nil
+            )
+        case .enhanceAthleticPerformance:
+            // Same control floor as strength; dawdling concentric is flagged
+            // because the whole point is developing power output.
+            return TempoTargets(
+                minEccentricMs: 1000,
+                maxConcentricMs: 3000,
+                minStretchPauseMs: nil
+            )
+        case .rehabPreventInjury:
+            // Slow controlled eccentric; no cue on concentric (grinding a
+            // rehab rep shouldn't get flagged as "dawdling").
+            return TempoTargets(
+                minEccentricMs: 2500,
+                maxConcentricMs: nil,
+                minStretchPauseMs: nil
+            )
+        case .loseFat, .getToned, .improveEndurance, .improveHealthLongevity:
+            return nil
+        }
+    }
 }
 
 /// Manager for persisting user preferences
@@ -67,6 +110,7 @@ class UserPreferencesManager: ObservableObject {
     @Published var primaryGoal: PrimaryGoal? {
         didSet {
             persistGoal()
+            OnDevicePoseManager.shared.tempoTargets = primaryGoal?.tempoTargets
             if let oldValue = oldValue {
                 trackGoalChanged(from: oldValue, to: primaryGoal)
             }

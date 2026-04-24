@@ -17,15 +17,16 @@ import Foundation
 /// Stable machine-readable identifiers for form issues.
 /// Use these everywhere in logic and APIs; map to display text only at UI boundaries.
 enum IssueCode: String, Codable, CaseIterable, Hashable {
-    case insufficientDepth  = "insufficient_depth"
-    case forwardLean        = "forward_lean"
-    case kneeValgus         = "knee_valgus"
-    case kneeVarus          = "knee_varus"
-    case gripTooWide        = "grip_too_wide"
-    case elbowsFlaring      = "elbows_flaring"
-    case incompleteRom      = "incomplete_rom"
-    case eccentricTooFast   = "eccentric_too_fast"
-    case concentricTooSlow  = "concentric_too_slow"
+    case insufficientDepth      = "insufficient_depth"
+    case forwardLean            = "forward_lean"
+    case kneeValgus             = "knee_valgus"
+    case kneeVarus              = "knee_varus"
+    case gripTooWide            = "grip_too_wide"
+    case elbowsFlaring          = "elbows_flaring"
+    case incompleteRom          = "incomplete_rom"
+    case eccentricTooFast       = "eccentric_too_fast"
+    case concentricTooSlow      = "concentric_too_slow"
+    case insufficientStretchPause = "insufficient_stretch_pause"
     // Barbell row specific issues
     case rowMomentumDrive       = "row_momentum_drive"
     case rowRoundedBack         = "row_rounded_back"
@@ -90,6 +91,31 @@ struct PhrasingPayload: Codable {
               let str = String(data: data, encoding: .utf8) else { return "{}" }
         return str
     }
+}
+
+// MARK: - Tempo Targets
+
+/// Goal-derived tempo reference points. These are **not** pass/fail thresholds.
+/// On-device issue detection flags only clear deviations (e.g. avgEccentric well
+/// below `minEccentricMs`); the LLM at set end weighs rep number and context to
+/// decide whether the deviation warrants a spoken cue.
+///
+/// When a field is `nil` the corresponding tempo phase is not coached for this
+/// goal (e.g. build muscle treats concentric as "as fast as possible" — no cue
+/// ever fires on concentric speed).
+struct TempoTargets: Codable, Equatable {
+    /// Eccentric floor. Below `minEccentricMs * 0.5` → `.eccentricTooFast`.
+    let minEccentricMs: Float?
+    /// Concentric ceiling. Above `maxConcentricMs * 1.5` → `.concentricTooSlow`.
+    let maxConcentricMs: Float?
+    /// Stretch-pause floor (hold at the bottom). Below
+    /// `minStretchPauseMs * 0.6` → `.insufficientStretchPause`.
+    ///
+    /// Intentionally surfaced as a periodic reminder rather than a per-set
+    /// critique. The "quiet after set 1" rule (non-safety-critical cues go
+    /// silent on sets 2+) handles the cadence; the lenient 0.6 multiplier
+    /// keeps mildly-short pauses from tripping it at all.
+    let minStretchPauseMs: Float?
 }
 
 // MARK: - Coaching Contract (static registry)
@@ -163,6 +189,13 @@ enum CoachingContract {
             severity: .low,
             cue: "Press up a little faster",
             shortCue: "Press up faster"
+        ),
+        .insufficientStretchPause: IssueDefinition(
+            code: .insufficientStretchPause,
+            displayName: "Insufficient Stretch Pause",
+            severity: .low,
+            cue: "Hold the stretch at the bottom for a full second",
+            shortCue: "Pause at the bottom"
         ),
         // Barbell row
         .rowMomentumDrive: IssueDefinition(
@@ -272,6 +305,7 @@ enum CoachingContract {
         .rowElbowFlare,
         .gripTooWide,
         .incompleteRom,
+        .insufficientStretchPause,
         .eccentricTooFast,
         .kneeVarus,
         .rowKneeInternalRotation,
@@ -291,8 +325,6 @@ enum CoachingContract {
         static let gripTooWide: Float    = 0.6
         static let elbowsFlaring: Float  = 0.6
         static let incompleteRom: Float  = 0.6
-        static let eccentricTooFast: Float = 0.6
-        static let concentricTooSlow: Float = 0.6
         // Barbell row (score below this triggers the issue)
         static let rowMomentum: Float       = 0.55
         static let rowBackNeutral: Float    = 0.55
@@ -402,6 +434,7 @@ enum CoachingContract {
              .incompleteRom,
              .eccentricTooFast,
              .concentricTooSlow,
+             .insufficientStretchPause,
              .rowMomentumDrive,
              .rowKneeInternalRotation,
              .rowElbowFlare,

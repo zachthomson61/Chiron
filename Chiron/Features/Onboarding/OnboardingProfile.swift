@@ -73,10 +73,6 @@ struct OnboardingProfile: Codable {
 
     let hasInjuryConcern: Bool
 
-    // -- Tempo coaching gate --
-
-    var wantsTempoCoaching: Bool
-
     // -- Computed helpers --
 
     /// Returns the initial TrackedExerciseType to set on OnDevicePoseManager.
@@ -108,20 +104,8 @@ struct OnboardingProfile: Codable {
             profile.repGoodDepthThreshold = 0.42
         }
 
-        switch primaryGoal {
-        case .getStronger, .buildMuscle:
-            profile.formWeightDepth = 1.0
-            profile.formWeightForwardLean = 0.85
-        case .rehabPreventInjury:
-            profile.formWeightKneeTracking = 1.0
-            profile.formWeightDepth = 0.7
-        case .loseFat, .getToned, .improveEndurance:
-            profile.formWeightDepth = 0.85
-            profile.formWeightForwardLean = 1.0
-        default:
-            break
-        }
-
+        // Form weights are uniform across goals — the LLM phrasing layer
+        // handles goal-specific slant via the goalDirective in the system prompt.
         if hasInjuryConcern {
             profile.formWeightKneeTracking = 1.0
             profile.repGoodDepthThreshold = min(profile.repGoodDepthThreshold, 0.30)
@@ -143,11 +127,22 @@ struct OnboardingProfile: Codable {
     }
 
     /// IssueCode items that should be suppressed from PhrasingPayload entirely.
+    ///
+    /// Tempo issues are suppressed on a per-phase basis: a goal only receives
+    /// the cue if its `TempoTargets` has a non-nil value for that phase. Goals
+    /// without tempo coaching at all (nil `tempoTargets`) have all three
+    /// stripped as a safety net in case the pose pipeline ever emits them.
     var suppressedIssueCodes: Set<IssueCode> {
         var suppressed = Set<IssueCode>()
-        if !wantsTempoCoaching {
+        let targets = primaryGoal.tempoTargets
+        if targets?.minEccentricMs == nil {
             suppressed.insert(.eccentricTooFast)
+        }
+        if targets?.maxConcentricMs == nil {
             suppressed.insert(.concentricTooSlow)
+        }
+        if targets?.minStretchPauseMs == nil {
+            suppressed.insert(.insufficientStretchPause)
         }
         return suppressed
     }

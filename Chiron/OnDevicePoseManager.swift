@@ -189,6 +189,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     @Published var currentSet: Int = 0
     @Published var trackedExerciseType: TrackedExerciseType = .bodyweight
 
+    /// Goal-derived tempo reference points for the current user. `nil` means
+    /// the active goal does not receive tempo coaching. Set from the user's
+    /// PrimaryGoal at onboarding completion and whenever the goal changes.
+    /// See `TempoTargets` for how deviations are detected.
+    var tempoTargets: TempoTargets?
+
     /// Enables per-frame debug logging for squat rep detection.
     /// Toggle from the debug overlay in TrackView. Zero overhead when false.
     @Published var debugLoggerEnabled: Bool = false {
@@ -680,16 +686,15 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         if gripWidthScore < CoachingContract.Threshold.gripTooWide { issues.append(.gripTooWide) }
         if elbowPositionScore < CoachingContract.Threshold.elbowsFlaring { issues.append(.elbowsFlaring) }
         if romScore < CoachingContract.Threshold.incompleteRom { issues.append(.incompleteRom) }
-        if eccentricScore < CoachingContract.Threshold.eccentricTooFast { issues.append(.eccentricTooFast) }
-        if concentricScore < CoachingContract.Threshold.concentricTooSlow { issues.append(.concentricTooSlow) }
-        
+        issues.append(contentsOf: detectTempoIssues())
+
         let summary = generateCloseGripBenchPressSummary(
             gripScore: gripWidthScore,
             elbowScore: elbowPositionScore,
             romScore: romScore,
             overallScore: overallScore
         )
-        
+
         // Use the depth field to store wrist Y position for rep detection
         let depth = calculateBenchPressDepth(points)
         
@@ -945,7 +950,35 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return max(0.6, Float(3000.0 / avgConcentricMs))
         }
     }
-    
+
+    /// Goal-aware tempo issue detection. Only fires on clear deviations; the
+    /// LLM at set end weighs rep number, effort, and context to decide what
+    /// to actually say. When `tempoTargets` is nil or no tempo samples exist,
+    /// nothing fires.
+    ///
+    /// Trip rules come from `TempoTargets`:
+    /// - ecc < `minEccentricMs * 0.5`   → `.eccentricTooFast`
+    /// - con > `maxConcentricMs * 1.5`  → `.concentricTooSlow`
+    /// - pause < `minStretchPauseMs * 0.6` → `.insufficientStretchPause`
+    private func detectTempoIssues() -> [IssueCode] {
+        guard let targets = tempoTargets, tempoRepSamples > 0 else { return [] }
+        var issues: [IssueCode] = []
+        let avgEcc = sumEccentricMs / Double(tempoRepSamples)
+        let avgCon = sumConcentricMs / Double(tempoRepSamples)
+        let avgPause = sumPauseMs / Double(tempoRepSamples)
+        if let minEcc = targets.minEccentricMs, avgEcc < Double(minEcc) * 0.5 {
+            issues.append(.eccentricTooFast)
+        }
+        if let maxCon = targets.maxConcentricMs, avgCon > Double(maxCon) * 1.5 {
+            issues.append(.concentricTooSlow)
+        }
+        if let minPause = targets.minStretchPauseMs, avgPause < Double(minPause) * 0.6 {
+            issues.append(.insufficientStretchPause)
+        }
+        return issues
+    }
+
+
     /// Generate summary for close-grip bench press form analysis
     private func generateCloseGripBenchPressSummary(gripScore: Float, elbowScore: Float, romScore: Float, overallScore: Float) -> String {
         var summaryParts: [String] = []
@@ -1469,16 +1502,15 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         if gripWidthScore < CoachingContract.Threshold.gripTooWide { issues.append(.gripTooWide) }
         if elbowPositionScore < CoachingContract.Threshold.elbowsFlaring { issues.append(.elbowsFlaring) }
         if romScore < CoachingContract.Threshold.incompleteRom { issues.append(.incompleteRom) }
-        if eccentricScore < CoachingContract.Threshold.eccentricTooFast { issues.append(.eccentricTooFast) }
-        if concentricScore < CoachingContract.Threshold.concentricTooSlow { issues.append(.concentricTooSlow) }
-        
+        issues.append(contentsOf: detectTempoIssues())
+
         let summary = generateCloseGripBenchPressSummary(
             gripScore: gripWidthScore,
             elbowScore: elbowPositionScore,
             romScore: romScore,
             overallScore: overallScore
         )
-        
+
         let depth = calculateBenchPressDepth3D(skeleton)
         
         return FormAnalysis(

@@ -65,6 +65,13 @@
       "severity": "low",
       "cue": "Press up a little faster",
       "exercise_scope": ["close_grip_bench_press"]
+    },
+    {
+      "issue_code": "insufficient_stretch_pause",
+      "display_name": "Insufficient Stretch Pause",
+      "severity": "low",
+      "cue": "Hold the stretch at the bottom for a full second",
+      "exercise_scope": ["close_grip_bench_press"]
     }
   ],
 
@@ -75,6 +82,7 @@
     "knee_valgus",
     "grip_too_wide",
     "incomplete_rom",
+    "insufficient_stretch_pause",
     "eccentric_too_fast",
     "knee_varus",
     "concentric_too_slow"
@@ -146,15 +154,30 @@
     },
     "eccentric_score": {
       "range": [0.0, 1.0],
-      "thresholds": {
-        "too_fast": 0.6
-      }
+      "description": "Rough tempo quality component of overallScore. Not an issue gate — tempo issues are detected on-device against the user's goal-derived TempoTargets (ms-based)."
     },
     "concentric_score": {
       "range": [0.0, 1.0],
-      "thresholds": {
-        "too_slow": 0.6
-      }
+      "description": "Rough tempo quality component of overallScore. See eccentric_score."
+    }
+  },
+
+  "tempo_targets": {
+    "description": "Goal-derived tempo reference points. NOT pass/fail thresholds. On-device issue detection only fires on clear deviations; the LLM at set end weighs rep number, effort, and context. Fields are nil when the phase is not coached for that goal.",
+    "trip_rules": {
+      "eccentric_too_fast": "avg_eccentric_ms < min_eccentric_ms * 0.5",
+      "concentric_too_slow": "avg_concentric_ms > max_concentric_ms * 1.5",
+      "insufficient_stretch_pause": "avg_pause_ms < min_stretch_pause_ms * 0.6"
+    },
+    "by_goal": {
+      "build_muscle": { "min_eccentric_ms": 2500, "max_concentric_ms": null, "min_stretch_pause_ms": 1000 },
+      "get_stronger": { "min_eccentric_ms": 1000, "max_concentric_ms": 3000, "min_stretch_pause_ms": null },
+      "enhance_athletic_performance": { "min_eccentric_ms": 1000, "max_concentric_ms": 3000, "min_stretch_pause_ms": null },
+      "rehab_prevent_injury": { "min_eccentric_ms": 2500, "max_concentric_ms": null, "min_stretch_pause_ms": null },
+      "lose_fat": null,
+      "get_toned": null,
+      "improve_endurance": null,
+      "improve_health_longevity": null
     }
   }
 }

@@ -15,7 +15,6 @@ struct OnboardingProfileBuilder: Codable {
     var usesRack: Bool = false
     var preferredCameraPosition: CameraPosition? = nil
     var hasInjuryConcern: Bool = false
-    var wantsTempoCoaching: Bool = false
 
     /// Whether the user indicated "I'm just starting" on screen 2.
     var isBeginner: Bool = false
@@ -32,13 +31,6 @@ struct OnboardingProfileBuilder: Codable {
     /// Build the final immutable profile. Returns nil if primaryGoal is not set.
     func build() -> OnboardingProfile? {
         guard let goal = primaryGoal else { return nil }
-        let tempo: Bool
-        switch goal {
-        case .getStronger, .buildMuscle, .enhanceAthleticPerformance:
-            tempo = true
-        default:
-            tempo = wantsTempoCoaching
-        }
         return OnboardingProfile(
             primaryGoal: goal,
             fitnessLiteracy: fitnessLiteracy,
@@ -46,8 +38,7 @@ struct OnboardingProfileBuilder: Codable {
             squatSelfAssessment: squatSelfAssessment,
             usesRack: usesRack,
             preferredCameraPosition: preferredCameraPosition,
-            hasInjuryConcern: hasInjuryConcern,
-            wantsTempoCoaching: tempo
+            hasInjuryConcern: hasInjuryConcern
         )
     }
 }
@@ -197,14 +188,6 @@ final class OnboardingCoordinator: ObservableObject {
         if fromScreen5 {
             profile.goalSelectedOnScreen5 = true
         }
-        // Default wantsTempoCoaching from goal
-        switch goal {
-        case .getStronger, .buildMuscle, .enhanceAthleticPerformance:
-            profile.wantsTempoCoaching = true
-        default:
-            profile.wantsTempoCoaching = false
-        }
-        // Reveal Goal field
         revealPlanField(id: "primary_goal", value: goal.displayName)
     }
 
@@ -360,6 +343,9 @@ final class OnboardingCoordinator: ObservableObject {
 
         // 3. Set bench press view type
         OnDevicePoseManager.shared.benchPressViewType = finalProfile.resolvedBenchPressViewType
+
+        // 3a. Set goal-derived tempo targets
+        OnDevicePoseManager.shared.tempoTargets = finalProfile.primaryGoal.tempoTargets
 
         // 4. Write coaching verbosity
         UserDefaults.standard.set(
