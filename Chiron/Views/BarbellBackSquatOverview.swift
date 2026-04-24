@@ -20,9 +20,8 @@ struct BarbellBackSquatOverview: View {
     }
     
     var body: some View {
-        NavigationView {
-            ZStack {
-                Color.background.ignoresSafeArea()
+        ZStack {
+            Color.background.ignoresSafeArea()
                 ScrollView {
                     VStack(spacing: 0) {
                         // Collapsing header that shrinks and fades as you scroll
@@ -99,35 +98,27 @@ struct BarbellBackSquatOverview: View {
                     }
                 }
                 .coordinateSpace(name: "scroll")
+                .ignoresSafeArea(.container, edges: .top)
 
-                // Top-left dismiss chevron. Matches the ExerciseHistorySheet's
-                // close affordance (40×40 circle, semitransparent black,
-                // `chevron.down` glyph) so sheet-dismiss iconography is
-                // consistent across the app. GeometryReader keeps it clear
-                // of the Dynamic Island while the video header still bleeds
-                // into the top safe area.
-                GeometryReader { geo in
-                    VStack {
-                        HStack {
-                            Button(action: { dismiss() }) {
-                                Image(systemName: "chevron.down")
-                                    .font(.headline.weight(.semibold))
-                                    .foregroundColor(.textPrimary)
-                                    .frame(width: 40, height: 40)
-                                    .background(Color.black.opacity(0.35))
-                                    .clipShape(Circle())
-                            }
-                            .accessibilityLabel("Dismiss")
-                            Spacer()
+                // Top-left back chevron. Sits naturally in the top safe area,
+                // below the Dynamic Island, while the video extends behind it.
+                VStack {
+                    HStack {
+                        Button(action: { dismiss() }) {
+                            Image(systemName: "chevron.left")
+                                .font(.headline.weight(.semibold))
+                                .foregroundColor(.textPrimary)
+                                .frame(width: 40, height: 40)
+                                .background(Color.black.opacity(0.35))
+                                .clipShape(Circle())
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, geo.safeAreaInsets.top + 12)
+                        .accessibilityLabel("Back")
                         Spacer()
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    Spacer()
                 }
-                .ignoresSafeArea(.container, edges: .top)
-                .allowsHitTesting(true)
-            }
         }
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)

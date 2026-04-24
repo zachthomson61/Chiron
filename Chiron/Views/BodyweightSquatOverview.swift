@@ -20,113 +20,104 @@ struct BodyweightSquatOverview: View {
     }
     
     var body: some View {
-        NavigationView {
-            ZStack {
-                Color.background.ignoresSafeArea()
-                ScrollView {
-                    VStack(spacing: 0) {
-                        // Collapsing header that shrinks and fades as you scroll
-                        let maxHeaderHeight = UIScreen.main.bounds.height * 0.7
-                        GeometryReader { geo in
-                            let offset = geo.frame(in: .named("scroll")).minY
-                            let currentHeight = max(maxHeaderHeight - offset, 0)
-                            let opacity = max(0, min(1, currentHeight / maxHeaderHeight))
-                            
-                            ZStack(alignment: .bottom) {
-                                CroppedDemoVideoHeader(videoName: "bodyweight_squat_demo")
-                                
-                                // Gradient overlay for readability
-                                LinearGradient(
-                                    gradient: Gradient(colors: [
-                                        Color.black.opacity(0.0),
-                                        Color.black.opacity(0.15),
-                                        Color.black.opacity(0.35),
-                                        Color.black.opacity(0.55)
-                                    ]),
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: currentHeight)
-                            .clipped()
-                            .opacity(opacity)
-                            .offset(y: offset < 0 ? -offset : 0)
-                            .ignoresSafeArea(.container, edges: .top)
-                        }
-                        .frame(height: maxHeaderHeight)
+        ZStack {
+            Color.background.ignoresSafeArea()
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Collapsing header that shrinks and fades as you scroll
+                    let maxHeaderHeight = UIScreen.main.bounds.height * 0.7
+                    GeometryReader { geo in
+                        let offset = geo.frame(in: .named("scroll")).minY
+                        let currentHeight = max(maxHeaderHeight - offset, 0)
+                        let opacity = max(0, min(1, currentHeight / maxHeaderHeight))
 
-                        // Scrollable menu content
-                        VStack(alignment: .leading, spacing: 16) {
-                            // Tab selector inside scroll
-                            TabSelector(selectedTab: $selectedTab)
-                                .padding(.horizontal, 20)
-                                .padding(.top, 16)
-                            
-                            Text("Bodyweight Squat")
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .foregroundColor(.textPrimary)
-                                .shadow(color: .black.opacity(0.6), radius: 6, x: 0, y: 2)
-                            
-                            switch selectedTab {
-                            case 0:
-                                FlowContent()
-                            case 1:
-                                DosContent()
-                            case 2:
-                                DontsContent()
-                            default:
-                                FlowContent()
-                            }
-                            
-                            Button(action: {
-                                showCameraSetup = true
-                                viewModel.startWorkout()
-                            }) {
-                                Text("Continue to Camera Setup")
-                                    .font(.headline)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 48)
-                                    .background(Color.primaryPurple)
-                                    .cornerRadius(24)
-                            }
+                        ZStack(alignment: .bottom) {
+                            CroppedDemoVideoHeader(videoName: "bodyweight_squat_demo")
+
+                            // Gradient overlay for readability
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color.black.opacity(0.0),
+                                    Color.black.opacity(0.15),
+                                    Color.black.opacity(0.35),
+                                    Color.black.opacity(0.55)
+                                ]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: currentHeight)
+                        .clipped()
+                        .opacity(opacity)
+                        .offset(y: offset < 0 ? -offset : 0)
+                        .ignoresSafeArea(.container, edges: .top)
+                    }
+                    .frame(height: maxHeaderHeight)
+
+                    // Scrollable menu content
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Tab selector inside scroll
+                        TabSelector(selectedTab: $selectedTab)
+                            .padding(.horizontal, 20)
                             .padding(.top, 16)
-                        }
-                        .padding(20)
-                    }
-                }
-                .coordinateSpace(name: "scroll")
 
-                // Top-left dismiss chevron. Matches the ExerciseHistorySheet's
-                // close affordance (40×40 circle, semitransparent black,
-                // `chevron.down` glyph) so sheet-dismiss iconography is
-                // consistent across the app. GeometryReader keeps it clear
-                // of the Dynamic Island while the video header still bleeds
-                // into the top safe area.
-                GeometryReader { geo in
-                    VStack {
-                        HStack {
-                            Button(action: { dismiss() }) {
-                                Image(systemName: "chevron.down")
-                                    .font(.headline.weight(.semibold))
-                                    .foregroundColor(.textPrimary)
-                                    .frame(width: 40, height: 40)
-                                    .background(Color.black.opacity(0.35))
-                                    .clipShape(Circle())
-                            }
-                            .accessibilityLabel("Dismiss")
-                            Spacer()
+                        Text("Bodyweight Squat")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.textPrimary)
+                            .shadow(color: .black.opacity(0.6), radius: 6, x: 0, y: 2)
+
+                        switch selectedTab {
+                        case 0:
+                            FlowContent()
+                        case 1:
+                            DosContent()
+                        case 2:
+                            DontsContent()
+                        default:
+                            FlowContent()
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, geo.safeAreaInsets.top + 12)
-                        Spacer()
+
+                        Button(action: {
+                            showCameraSetup = true
+                            viewModel.startWorkout()
+                        }) {
+                            Text("Continue to Camera Setup")
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 48)
+                                .background(Color.primaryPurple)
+                                .cornerRadius(24)
+                        }
+                        .padding(.top, 16)
                     }
+                    .padding(20)
                 }
-                .ignoresSafeArea(.container, edges: .top)
-                .allowsHitTesting(true)
+            }
+            .coordinateSpace(name: "scroll")
+            .ignoresSafeArea(.container, edges: .top)
+
+            // Top-left back chevron. Sits naturally in the top safe area,
+            // below the Dynamic Island, while the video extends behind it.
+            VStack {
+                HStack {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.headline.weight(.semibold))
+                            .foregroundColor(.textPrimary)
+                            .frame(width: 40, height: 40)
+                            .background(Color.black.opacity(0.35))
+                            .clipShape(Circle())
+                    }
+                    .accessibilityLabel("Back")
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                Spacer()
             }
         }
         .toolbar(.hidden, for: .navigationBar)
