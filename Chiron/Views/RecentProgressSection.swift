@@ -237,7 +237,7 @@ struct RecentProgressEntry: Identifiable {
         guard !performed.isEmpty else { return nil }
 
         let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "M/d"
+        dateFormatter.dateFormat = "M/d/yy"
 
         if isBodyweight {
             guard let best = performed.max(by: { ($0.reps ?? 0) < ($1.reps ?? 0) }),

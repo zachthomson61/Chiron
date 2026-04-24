@@ -7,77 +7,81 @@ struct GoalSelectorView: View {
     @State private var hasShownHint = UserDefaults.standard.bool(forKey: "has_shown_goal_hint")
     
     var body: some View {
-        NavigationView {
-            ZStack {
-                Color.background
-                    .ignoresSafeArea()
-                
-                VStack(spacing: 24) {
-                    // Header
-                    VStack(spacing: 8) {
-                        Text("What's your primary goal?")
-                            .font(.neueMontrealBold(size: 22))
-                            .foregroundColor(.textPrimary)
-                        
-                        Text("We'll customize your training to help you achieve it")
-                            .font(.neueMontrealRegular(size: 15))
-                            .foregroundColor(.textSecondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(.top, 8)
-                    
-                    // Goals List
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(PrimaryGoal.allCases) { goal in
-                                GoalOptionCard(
-                                    goal: goal,
-                                    isSelected: selectedGoal == goal,
-                                    onTap: {
-                                        withAnimation(.easeInOut(duration: 0.2)) {
-                                            selectedGoal = goal
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
-                    
-                    // Save Button
-                    Button(action: saveGoal) {
-                        Text("Save Goal")
-                            .font(.neueMontrealSemiBold(size: 17))
-                            .foregroundColor(.textPrimary)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 56)
-                            .background(
-                                Group {
-                                    if selectedGoal != nil {
-                                        Color.primaryPurple
-                                    } else {
-                                        Color.primaryPurple.opacity(0.3)
+        ZStack(alignment: .topLeading) {
+            Color.background
+                .ignoresSafeArea()
+
+            VStack(spacing: 24) {
+                // Leave room for the dismiss chevron overlay.
+                Spacer().frame(height: 48)
+
+                // Header
+                VStack(spacing: 8) {
+                    Text("What's your primary goal?")
+                        .font(.neueMontrealBold(size: 22))
+                        .foregroundColor(.textPrimary)
+
+                    Text("We'll customize your training to help you achieve it")
+                        .font(.neueMontrealRegular(size: 15))
+                        .foregroundColor(.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                // Goals List
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(PrimaryGoal.allCases) { goal in
+                            GoalOptionCard(
+                                goal: goal,
+                                isSelected: selectedGoal == goal,
+                                onTap: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        selectedGoal = goal
                                     }
                                 }
                             )
-                            .cornerRadius(28)
-                            .animation(.easeInOut(duration: 0.2), value: selectedGoal)
+                        }
                     }
-                    .disabled(selectedGoal == nil)
                     .padding(.horizontal)
-                    .padding(.bottom, 8)
                 }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                    .font(.neueMontrealRegular(size: 17))
-                    .foregroundColor(.textSecondary)
+
+                // Save Button
+                Button(action: saveGoal) {
+                    Text("Save Goal")
+                        .font(.neueMontrealSemiBold(size: 17))
+                        .foregroundColor(.textPrimary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(
+                            Group {
+                                if selectedGoal != nil {
+                                    Color.primaryPurple
+                                } else {
+                                    Color.primaryPurple.opacity(0.3)
+                                }
+                            }
+                        )
+                        .cornerRadius(28)
+                        .animation(.easeInOut(duration: 0.2), value: selectedGoal)
                 }
+                .disabled(selectedGoal == nil)
+                .padding(.horizontal)
+                .padding(.bottom, 8)
             }
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.headline.weight(.semibold))
+                    .foregroundColor(.textPrimary)
+                    .frame(width: 40, height: 40)
+                    .background(Color.black.opacity(0.35))
+                    .clipShape(Circle())
+            }
+            .padding(.leading, 16)
+            .padding(.top, 12)
+            .accessibilityLabel("Dismiss")
         }
         .preferredColorScheme(.dark)
         .onAppear {

@@ -149,16 +149,10 @@ struct ExerciseHistorySheet: View {
                 }
             }
 
-            // Dismiss chevron — top-left of the screen, matching the dark
-            // circular icon-button style used elsewhere in the app (Track
-            // tab's pose toggle / info button: 40x40 circle, semitransparent
-            // black background, semibold chevron glyph). `chevron.down` is
-            // the same glyph used for Track's exercise-picker pill, so the
-            // iconography is consistent across the app.
             Button {
                 isPresented = false
             } label: {
-                Image(systemName: "chevron.down")
+                Image(systemName: "xmark")
                     .font(.headline.weight(.semibold))
                     .foregroundColor(.textPrimary)
                     .frame(width: 40, height: 40)
@@ -184,7 +178,7 @@ struct ExerciseHistorySheet: View {
         guard !performed.isEmpty else { return nil }
 
         let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "M/d"
+        dateFormatter.dateFormat = "M/d/yy"
 
         if isBodyweight {
             guard let best = performed.max(by: { ($0.reps ?? 0) < ($1.reps ?? 0) }),

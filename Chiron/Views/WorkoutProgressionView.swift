@@ -293,7 +293,7 @@ struct WorkoutProgressionView: View {
                 VStack {
                     HStack {
                         Button(action: { dismiss() }) {
-                            Image(systemName: "chevron.down")
+                            Image(systemName: "xmark")
                                 .font(.system(size: 18, weight: .semibold))
                                 .foregroundColor(.textPrimary)
                                 .frame(width: 40, height: 40)

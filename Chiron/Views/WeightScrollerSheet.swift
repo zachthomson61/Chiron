@@ -51,7 +51,7 @@ struct WeightScrollerSheet: View {
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             Color.background.ignoresSafeArea()
 
             VStack(spacing: 20) {
@@ -116,6 +116,20 @@ struct WeightScrollerSheet: View {
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 20)
             }
+
+            Button {
+                isPresented = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.headline.weight(.semibold))
+                    .foregroundColor(.textPrimary)
+                    .frame(width: 40, height: 40)
+                    .background(Color.black.opacity(0.35))
+                    .clipShape(Circle())
+            }
+            .padding(.leading, 16)
+            .padding(.top, 12)
+            .accessibilityLabel("Dismiss")
         }
         .onAppear {
             // Seeding of selectedWeight / manualInput / lastHapticValue
