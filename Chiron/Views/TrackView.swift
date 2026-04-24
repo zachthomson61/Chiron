@@ -56,6 +56,10 @@ struct TrackView: View {
     /// Snapshot of the view state captured when the info sheet opens so we can restore pose
     /// tracking / rep counting to the exact mode that was running before the sheet paused the camera.
     @State private var trackViewStateBeforeInfoSheet: TrackViewState?
+    /// Pending framing-reminder speech scheduled 2s after a dropdown exercise
+    /// selection. Cancelled on re-selection or view disappear so navigation
+    /// and quick re-picks don't trigger stale speech.
+    @State private var pendingFramingSpeech: DispatchWorkItem?
 
     // MARK: - Weight / History Logging State
 
@@ -503,6 +507,122 @@ struct TrackView: View {
     ]
     private static var beginSetAffirmationIndex: Int = 0
 
+    /// First-set-of-exercise intent cue: ties the user's primary goal to the
+    /// exercise pattern they're about to train. Spoken before the affirmation
+    /// on the first set only (subsequent sets speak the prior set's cue).
+    /// Returns nil if the user has no goal set — caller falls back to just
+    /// the affirmation.
+    private static func firstSetGoalCue(for exerciseType: TrackedExerciseType) -> String? {
+        guard let goal = UserPreferencesManager.shared.primaryGoal else { return nil }
+        switch exerciseType {
+        case .bodyweight, .barbell:
+            return squatIntentCue(for: goal)
+        case .benchPress, .closeGripBenchPress:
+            return benchIntentCue(for: goal)
+        case .deadlift:
+            return deadliftIntentCue(for: goal)
+        case .romanianDeadlift:
+            return rdlIntentCue(for: goal)
+        case .row:
+            return rowIntentCue(for: goal)
+        }
+    }
+
+    private static func squatIntentCue(for goal: PrimaryGoal) -> String {
+        switch goal {
+        case .buildMuscle:
+            return "Sit deep and pause at the bottom — that stretch is where your muscle grows."
+        case .getStronger:
+            return "Brace hard, control the descent, drive through the floor."
+        case .enhanceAthleticPerformance:
+            return "Slow down, then explode up — this is your power builder."
+        case .rehabPreventInjury:
+            return "Move slow through the full range, no bouncing at the bottom."
+        case .loseFat, .getToned:
+            return "Steady pace, tight form, feel every rep."
+        case .improveEndurance:
+            return "Find a clean, repeatable rhythm for the whole set."
+        case .improveHealthLongevity:
+            return "Full range of motion, controlled all the way."
+        }
+    }
+
+    private static func benchIntentCue(for goal: PrimaryGoal) -> String {
+        switch goal {
+        case .buildMuscle:
+            return "Slow on the way down, pause at your chest — that's where the chest grows."
+        case .getStronger:
+            return "Lock in tight, control the bar down, press with intent."
+        case .enhanceAthleticPerformance:
+            return "Control down, press up fast and powerful."
+        case .rehabPreventInjury:
+            return "Smooth and controlled, no bouncing off your chest."
+        case .loseFat, .getToned:
+            return "Steady tempo, tight form, squeeze the chest on every press."
+        case .improveEndurance:
+            return "Clean reps at a consistent tempo."
+        case .improveHealthLongevity:
+            return "Full range of motion, move the bar with control."
+        }
+    }
+
+    private static func deadliftIntentCue(for goal: PrimaryGoal) -> String {
+        switch goal {
+        case .buildMuscle:
+            return "Control the descent and feel your back and legs loading up."
+        case .getStronger:
+            return "Push the floor away — this is your whole-body strength builder."
+        case .enhanceAthleticPerformance:
+            return "Explosive off the floor — hip drive is raw power."
+        case .rehabPreventInjury:
+            return "Set your back, move slow, keep the bar close to your body."
+        case .loseFat, .getToned:
+            return "Tight form, controlled pulls, whole-body engagement."
+        case .improveEndurance:
+            return "Repeatable clean reps — never sacrifice form."
+        case .improveHealthLongevity:
+            return "Neutral spine, smooth from the floor to lockout."
+        }
+    }
+
+    private static func rdlIntentCue(for goal: PrimaryGoal) -> String {
+        switch goal {
+        case .buildMuscle:
+            return "Hinge deep and feel that hamstring stretch — let it load the muscle."
+        case .getStronger:
+            return "Control the hinge, load the hamstrings, drive your hips forward."
+        case .enhanceAthleticPerformance:
+            return "Load the hamstrings deep, fire your hips on the way up."
+        case .rehabPreventInjury:
+            return "Soft knees, flat back, hinge only as far as control allows."
+        case .loseFat, .getToned:
+            return "Tight core, clean hinge, steady pace."
+        case .improveEndurance:
+            return "Smooth hinge, consistent rhythm, don't rush it."
+        case .improveHealthLongevity:
+            return "Controlled hinge to keep your spine safe."
+        }
+    }
+
+    private static func rowIntentCue(for goal: PrimaryGoal) -> String {
+        switch goal {
+        case .buildMuscle:
+            return "Pull with your back, squeeze at the top — feel the muscle working."
+        case .getStronger:
+            return "Solid hinge, drive the elbows back, own every rep."
+        case .enhanceAthleticPerformance:
+            return "Pull hard, stay tight, transfer power through your back."
+        case .rehabPreventInjury:
+            return "Flat back, no jerking, control both directions."
+        case .loseFat, .getToned:
+            return "Controlled pulls, tight form, no momentum."
+        case .improveEndurance:
+            return "Clean reps, steady pace, keep form through fatigue."
+        case .improveHealthLongevity:
+            return "Tall chest, flat back, move with control."
+        }
+    }
+
     private static func nextBeginSetAffirmation() -> String {
         let phrase = beginSetAffirmations[beginSetAffirmationIndex % beginSetAffirmations.count]
         beginSetAffirmationIndex += 1
@@ -545,11 +665,20 @@ struct TrackView: View {
             }
         }
 
-        // First set of each exercise: framing reminder + affirmation.
+        let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
+
+        // First set of each exercise: goal-specific intent cue + affirmation.
         // Subsequent sets: supportive phrase followed by the prior set's cue.
         if setsCompletedInSession == 0 {
+            let affirmation = Self.nextBeginSetAffirmation()
+            let spoken: String
+            if let intent = Self.firstSetGoalCue(for: exerciseType) {
+                spoken = "\(intent) \(affirmation)"
+            } else {
+                spoken = affirmation
+            }
             SpeechManager.shared.speak(
-                "Ensure your full body is in frame. \(Self.nextBeginSetAffirmation())",
+                spoken,
                 priority: .high,
                 context: .instruction
             )
@@ -561,7 +690,6 @@ struct TrackView: View {
             )
         }
 
-        let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
         cameraManager.poseManager.trackedExerciseType = exerciseType
         // Keep pose pipeline on (already from `startPoseTrackingOnly`) without `startPoseAnalysis()`, which
         // calls `resetRepCountingState()` and async-sets `workoutState = .waiting` — that can race after
@@ -708,6 +836,25 @@ struct TrackView: View {
         if trackViewState == .idle {
             trackViewState = .armed
         }
+        scheduleFramingReminder()
+    }
+
+    /// Speak "Ensure your full body is in frame" 2s after a dropdown exercise
+    /// selection. Only fires from this path — onAppear's `restoreLastTrackedExercise`
+    /// does not call `didSelectExercise`, so re-entering the tab stays silent.
+    /// Cancels any previously scheduled reminder so rapid re-selection or
+    /// leaving the view doesn't produce stale speech.
+    private func scheduleFramingReminder() {
+        pendingFramingSpeech?.cancel()
+        let work = DispatchWorkItem {
+            SpeechManager.shared.speak(
+                "Ensure your full body is in frame.",
+                priority: .high,
+                context: .instruction
+            )
+        }
+        pendingFramingSpeech = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
     }
 
     // MARK: - Lifecycle
@@ -731,6 +878,8 @@ struct TrackView: View {
     private func onDisappear() {
         cameraManager.suppressRepCounting = false
         cameraManager.trackExplicitSetActive = false
+        pendingFramingSpeech?.cancel()
+        pendingFramingSpeech = nil
         if trackViewState == .tracking {
             cameraManager.stopPoseAnalysis()
             trackViewState = .armed
