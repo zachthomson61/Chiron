@@ -25,7 +25,7 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSCameraUsageDescription</key>
-	<string>This app uses the camera to analyze your workout form and provide real-time feedback.</string>
+	<string>Chiron uses the camera to analyze your workout form in real time and to capture a profile photo when you choose.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app uses the microphone for voice commands during workouts.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

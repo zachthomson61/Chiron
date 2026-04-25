@@ -154,13 +154,6 @@ Four required patterns are implemented:
 All primitives live in `DesignSystem/` and are reusable outside onboarding — the
 theme and typography enums are deliberately not namespaced to onboarding state.
 
-## DEBUG affordances
-
-`OnboardingRootView` overlays a small orange "Skip → End" pill inside a
-`#if DEBUG` block. Tapping it fills the draft with plausible defaults and jumps
-to the reveal so the closing screens can be iterated on without re-answering
-every question.
-
 ## Testing
 
 Each step view has at least one SwiftUI `#Preview` with realistic mock state.

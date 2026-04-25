@@ -76,27 +76,6 @@ struct OnboardingRootView: View {
             .transition(OnboardingTheme.screenTransition(
                 forward: coordinator.lastDirection == .forward
             ))
-
-            #if DEBUG
-            VStack {
-                HStack {
-                    Spacer()
-                    Button("Skip → End") {
-                        coordinator.debugSkipToEnd()
-                    }
-                    .font(.system(size: 11, weight: .semibold))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule().fill(Color.orange.opacity(0.8))
-                    )
-                    .foregroundStyle(Color.black)
-                    .padding(.trailing, 12)
-                    .padding(.top, 6)
-                }
-                Spacer()
-            }
-            #endif
         }
         .preferredColorScheme(.dark)
     }

@@ -161,15 +161,6 @@ final class ChironOnboardingCoordinator {
         return false
     }
 
-    /// Jump to a specific step. Used by the calculating-loader auto-advance and DEBUG skip.
-    /// Direction is inferred from the step indices so the transition still matches.
-    func jump(to step: OnboardingStep) {
-        lastDirection = step.rawValue >= self.step.rawValue ? .forward : .backward
-        withAnimation(OnboardingTheme.selectionSpring) {
-            self.step = step
-        }
-    }
-
     // MARK: Completion
 
     func finish() {
@@ -210,20 +201,4 @@ final class ChironOnboardingCoordinator {
         }
     }
 
-    // MARK: DEBUG helpers
-
-    #if DEBUG
-    /// Fills the draft with plausible defaults and skips to the reveal. DEBUG only.
-    func debugSkipToEnd() {
-        draft.topGoal = draft.topGoal ?? .getStronger
-        draft.experienceLevel = draft.experienceLevel ?? .someExperience
-        draft.gender = draft.gender ?? .preferNotToSay
-        draft.birthYear = draft.birthYear ?? 1995
-        draft.heightCm = draft.heightCm ?? 178
-        draft.weightKg = draft.weightKg ?? 80
-        draft.hasInjuryConcerns = draft.hasInjuryConcerns ?? false
-        draft.coachPersona = draft.coachPersona ?? .technician
-        jump(to: .reveal)
-    }
-    #endif
 }
