@@ -789,11 +789,9 @@ struct TrackView: View {
                         cues: resolvedShortCue
                     )
 
-                    // Visual celebration. Audio is delivered by the coaching
-                    // manager below so we don't overlap speech.
-                    if let pr = prInfo {
-                        PRCelebrationCenter.shared.celebrate(info: pr, speak: false)
-                    }
+                    // PR confetti is dropped from inside the LLM-speech `onStart` below so the
+                    // visual lands together with the audio. Firing it here (~3–5s before the LLM
+                    // returns) made the confetti seem unrelated to the spoken announcement.
 
                     // Badge evaluation: read the in-memory form metrics for
                     // this set (Form Quality / Set Closer / Tempo Master),
@@ -814,13 +812,19 @@ struct TrackView: View {
 
                     if let analysis = formAnalysis {
                         let exerciseType = TrackedExerciseType.from(exerciseName: exerciseName)
+                        let prToCelebrate = prInfo
                         coachingManager.generateSetEndFeedback(
                             formAnalysis: analysis,
                             aggregatedMetrics: metrics,
                             exerciseType: exerciseType,
-                            personalRecord: prInfo
+                            personalRecord: prToCelebrate
                         ) { feedback in
-                            SpeechManager.shared.speak(feedback.spokenText)
+                            // When this set is a PR, drop confetti at the moment the LLM line
+                            // begins playing so visual + audio land together.
+                            let onStart: (() -> Void)? = prToCelebrate == nil ? nil : {
+                                PRCelebrationCenter.shared.fireConfetti()
+                            }
+                            SpeechManager.shared.speak(feedback.spokenText, onStart: onStart)
                             // Fade in the correct card contents for this set's outcome.
                             let cardText: String? = feedback.displayShortCue ?? (
                                 feedback.tone == .clean ? "Dialed in" : nil

@@ -270,11 +270,10 @@ class OpenAICoachingManager: ObservableObject {
         8. Length: \(lengthBudget). Conversational, encouraging. Match persona + intensity from the COACHING PROFILE.
         9. NEVER ask the athlete a question. The output is spoken aloud and the athlete cannot respond. Phrase every cue as a statement.
 
-        EXAMPLES:
-        clean  → "That set was dialed in — depth looked great."
+        EXAMPLES (illustrative shape only — your actual cue MUST come from NEXT_SET_CUE, never from these):
+        clean  → "That set was dialed in — \\(BEST_THING here)."
         clean  → "Clean reps. Same thing next set."
-        corrective → "Nice depth — now lift your chest a bit more on the way down."
-        corrective → "Good control there, just push those knees out a touch further."
+        corrective → "\\(BEST_THING here), now \\(NEXT_SET_CUE rephrased)."
         PR     → "Personal record — 185 for 8. Huge work."
         PR     → "Personal record — 25 reps. That's a new best, great job."
         """

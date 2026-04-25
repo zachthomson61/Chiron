@@ -2219,7 +2219,7 @@ struct WorkoutActiveView: View {
                    history: history
                ) {
                 DispatchQueue.main.async {
-                    PRCelebrationCenter.shared.celebrate(info: pr, speak: true)
+                    PRCelebrationCenter.shared.celebrateWithSpeech(info: pr)
                 }
             }
         }

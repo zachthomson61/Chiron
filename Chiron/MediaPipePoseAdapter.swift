@@ -19,6 +19,30 @@ struct PoseAdapterResult {
     let overlayLandmarks: [String: CGPoint]
     let perJointConfidence: [String: Float]
     let timestampMs: Int
+    let barbellLine: BarbellLine?
+}
+
+// MARK: - Barbell Line
+//
+// Wrist-derived bar segment for barbell exercises. Both wrist landmarks must be visible
+// above `minWristVisibility`; the segment is extended past each wrist by `extensionFraction`
+// of the wrist-to-wrist distance to approximate the actual bar (sleeves + plates).
+//
+// Coordinates are normalized image coords (top-left origin, 0–1), matching `overlayLandmarks`.
+// The same `PoseOverlayCoordinateMapping.viewPoint` transform applies for on-screen drawing.
+
+struct BarbellLine {
+    let start: CGPoint     // extended past leftWrist
+    let end: CGPoint       // extended past rightWrist
+    let midpoint: CGPoint  // wrist-to-wrist midpoint (used as the rep-counting Y signal)
+    let confidence: Float  // min(leftWrist visibility, rightWrist visibility)
+}
+
+private enum BarbellGeometry {
+    /// Both wrists must be at least this visible to publish a bar line.
+    static let minWristVisibility: Float = 0.4
+    /// Extend past each wrist by this fraction of the wrist-to-wrist distance to approximate plates.
+    static let extensionFraction: CGFloat = 0.25
 }
 
 // MARK: - MediaPipe Pose Adapter
@@ -40,12 +64,37 @@ struct MediaPipePoseAdapter {
             mergedConfidence[key] = val
         }
 
+        let barbellLine = buildBarbellLine(overlay: overlay, confidence: confidence2D)
+
         return PoseAdapterResult(
             skeleton: skeleton,
             overlayLandmarks: overlay,
             perJointConfidence: mergedConfidence,
-            timestampMs: timestampMs
+            timestampMs: timestampMs,
+            barbellLine: barbellLine
         )
+    }
+
+    // MARK: - Barbell line (wrist-derived)
+
+    private func buildBarbellLine(overlay: [String: CGPoint], confidence: [String: Float]) -> BarbellLine? {
+        guard let lw = overlay["leftWrist"], let rw = overlay["rightWrist"] else { return nil }
+        let lvis = confidence["leftWrist"] ?? 0
+        let rvis = confidence["rightWrist"] ?? 0
+        guard lvis >= BarbellGeometry.minWristVisibility,
+              rvis >= BarbellGeometry.minWristVisibility else { return nil }
+
+        let dx = rw.x - lw.x
+        let dy = rw.y - lw.y
+        let len = (dx * dx + dy * dy).squareRoot()
+        guard len > 0.02 else { return nil } // degenerate (wrists too close, e.g. close-grip)
+
+        let ext = BarbellGeometry.extensionFraction
+        let start = CGPoint(x: lw.x - dx * ext, y: lw.y - dy * ext)
+        let end = CGPoint(x: rw.x + dx * ext, y: rw.y + dy * ext)
+        let mid = CGPoint(x: (lw.x + rw.x) / 2, y: (lw.y + rw.y) / 2)
+
+        return BarbellLine(start: start, end: end, midpoint: mid, confidence: min(lvis, rvis))
     }
 
     // MARK: - Skeleton (world landmarks, meters, hip origin)

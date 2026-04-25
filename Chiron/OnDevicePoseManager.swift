@@ -124,6 +124,16 @@ enum TrackedExerciseType {
     case row                  // Barbell row exercises
     case deadlift             // Conventional deadlift exercises
     case romanianDeadlift     // Romanian deadlift exercises
+
+    /// True for exercises that involve a held barbell — used to gate bar overlay drawing.
+    var usesBarbell: Bool {
+        switch self {
+        case .barbell, .benchPress, .closeGripBenchPress, .row, .deadlift, .romanianDeadlift:
+            return true
+        case .bodyweight:
+            return false
+        }
+    }
 }
 
 // MARK: - Inactivity Detection
@@ -211,6 +221,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// Latest pose landmarks in normalised coordinates (0–1).
     /// Populated by MediaPipePoseAdapter from PoseLandmarkerResult.landmarks.
     @Published var currentNormalizedLandmarks: [String: CGPoint]?
+
+    /// Wrist-derived bar segment (normalised coords) for barbell exercises.
+    /// `nil` when the exercise is not barbell-based or both wrists are not sufficiently visible.
+    @Published var currentBarbellLine: BarbellLine?
     
     /// Camera view type for close-grip bench press exercises.
     /// Used to adjust form analysis calculations based on camera angle:
@@ -259,6 +273,81 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var bwLastRejectReason: String?   // transient, for debug CSV
     private var bwSelectedSide: String = ""   // "L" or "R"
     private var bwRawKneeAngle: Float?        // unsmoothed, for debug CSV
+
+    // MARK: - Row rep state (bodyweight-style 2-state hysteresis on elbow angle)
+    //
+    // 3D world-coordinate elbow angle (shoulder→elbow→wrist) is camera-angle invariant.
+    // Pick the better-visible arm side; EMA-smooth; 2-state .extended ↔ .flexed with timing gates.
+
+    private enum RowRepPhase: String { case extended, flexed }
+    private var rowRepPhase: RowRepPhase = .extended
+    private var rowSmoothedElbowAngle: Float?
+    private var rowRepCycleStartTime: Date?
+    private var rowBadFrameStreak: Int = 0
+    private let rowEMAAlpha: Float = 0.4
+    /// Enter FLEXED when smoothed angle ≤ this (top of the pull, peak elbow flexion ≈ 70–100°).
+    private let rowFlexedThreshold: Float = 110
+    /// Return to EXTENDED when smoothed angle ≥ this (arms back near straight ≈ 160–170°).
+    private let rowExtendedThreshold: Float = 145
+    private let rowMinRepCycleDuration: TimeInterval = 0.5
+    private let rowMaxRepCycleDuration: TimeInterval = 5.0
+    private let rowMinRepInterval: TimeInterval = 0.5
+
+    // MARK: - Deadlift rep state (bodyweight-style 2-state hysteresis on hip angle)
+    //
+    // Hip angle (shoulder→hip→knee) is camera-angle invariant. At setup the user is hinged
+    // (~80–100°); at lockout they're standing tall (~170°). REP counted on the return to hinged.
+
+    private enum DeadliftRepPhase: String { case hinged, lockedOut }
+    private var deadliftRepPhase: DeadliftRepPhase = .hinged
+    private var deadliftSmoothedHipAngle: Float?
+    private var deadliftRepCycleStartTime: Date?
+    private var deadliftBadFrameStreak: Int = 0
+    private let deadliftEMAAlpha: Float = 0.4
+    /// Enter LOCKED OUT when smoothed angle ≥ this.
+    private let deadliftLockoutThreshold: Float = 155
+    /// Return to HINGED when smoothed angle ≤ this — REP counted on this transition.
+    private let deadliftHingeThreshold: Float = 115
+    private let deadliftMinRepCycleDuration: TimeInterval = 0.7
+    private let deadliftMaxRepCycleDuration: TimeInterval = 6.0
+    private let deadliftMinRepInterval: TimeInterval = 0.7
+
+    // MARK: - Romanian deadlift rep state
+    //
+    // RDL starts at standing (~170°) and hinges down to ~90–110°, then returns. Mirror image of
+    // deadlift — same shape but opposite directionality at rest.
+
+    private enum RdlRepPhase: String { case standing, hinged }
+    private var rdlRepPhase: RdlRepPhase = .standing
+    private var rdlSmoothedHipAngle: Float?
+    private var rdlRepCycleStartTime: Date?
+    private var rdlBadFrameStreak: Int = 0
+    private let rdlEMAAlpha: Float = 0.4
+    /// Enter HINGED when smoothed angle ≤ this.
+    private let rdlHingeThreshold: Float = 130
+    /// Return to STANDING when smoothed angle ≥ this — REP counted on this transition.
+    private let rdlStandingThreshold: Float = 160
+    private let rdlMinRepCycleDuration: TimeInterval = 0.6
+    private let rdlMaxRepCycleDuration: TimeInterval = 5.0
+    private let rdlMinRepInterval: TimeInterval = 0.6
+
+    private let weightedRepBadFrameLimit: Int = 15
+
+    // MARK: - Stationary-feet gate (shared across weighted exercises)
+    //
+    // Real-world test data: weighted exercises counted false reps when the user walked into / out
+    // of position between reps (or put the bar down at the end of a set). Translating across the
+    // floor changes ankle Y in normalized image coords; a real rep keeps feet planted.
+    //
+    // We sample the ankle Y on each frame in the active rep cycle and reject the rep if the ankle
+    // Y range exceeds `ankleStabilityTolerance`. Used by barbell back squat, row, deadlift, RDL,
+    // and bench press (where feet are planted on the floor).
+
+    private var currentRepCycleAnkleYMin: Float = .greatestFiniteMagnitude
+    private var currentRepCycleAnkleYMax: Float = -.greatestFiniteMagnitude
+    /// 0.05 ≈ 5% of frame height. A planted-foot rep keeps ankle Y stable to ~1–2%; walking
+    /// toward/away from the camera quickly exceeds this even in a single frame pair.
+    private let ankleStabilityTolerance: Float = 0.05
 
     // MARK: - Automatic Set Detection Properties
     private var inactivityDetector = InactivityDetector()
@@ -472,6 +561,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     self.poseDetected = false
                     self.currentFormAnalysis = nil
                     self.currentNormalizedLandmarks = nil
+                    self.currentBarbellLine = nil
                 }
             }
             return
@@ -484,6 +574,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     self.poseDetected = false
                     self.currentFormAnalysis = nil
                     self.currentNormalizedLandmarks = nil
+                    self.currentBarbellLine = nil
                 }
             }
             return
@@ -495,7 +586,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         let smoothed = jointSmoother.smooth(adapted.skeleton)
         lastSmoothedSkeleton = smoothed
         let landmarks = overlayLandmarkSmoother.smooth(adapted.overlayLandmarks)
-        if trackedExerciseType == .bodyweight {
+        // Barbell back squat reuses the bodyweight knee-angle rep algorithm, so it also
+        // needs viewpoint-aware profiles.
+        if trackedExerciseType == .bodyweight || trackedExerciseType == .barbell {
             updateBodyweightViewpointAndExtension(overlay: landmarks, skeleton: smoothed, confidence: adapted.perJointConfidence)
         }
         let formAnalysis = formAnalysisFrom3D(skeleton: smoothed)
@@ -510,10 +603,15 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }()
         updateTempoTracking(currentDepth: tempoDepth)
         
+        let publishedBarLine: BarbellLine? = trackedExerciseType.usesBarbell ? adapted.barbellLine : nil
+        // Sample ankle Y on the analysis queue so the rep-cycle stability gate is in sync with rep state.
+        sampleAnkleStability(landmarks: landmarks)
+
         DispatchQueue.main.async {
             self.poseDetected = true
             self.currentFormAnalysis = formAnalysis
             self.currentNormalizedLandmarks = landmarks
+            self.currentBarbellLine = publishedBarLine
             self.inactivityDetector.updateLastActivity()
         }
         
@@ -1914,50 +2012,83 @@ class OnDevicePoseManager: NSObject, ObservableObject {
 
     // MARK: Barbell Row — Rep Validation
 
-    /// Row rep detection via elbow angle hysteresis.
-    /// Tracks the angle at the elbow (shoulder→elbow→wrist). At the top of the pull, the
-    /// elbow is most flexed (~70-90°); at the bottom (arms extended), it's ~160-180°.
-    private func validateRowRep(skeleton: Skeleton3D?, now: Date) -> Bool {
+    /// Row rep detection — bodyweight-style algorithm on the 3D elbow angle.
+    ///
+    /// Real-world testing showed front/oblique camera angles failed (0/3) because the previous
+    /// validator required BOTH wrists at full visibility — front-on, the far-side wrist is
+    /// occluded by the torso. This version mirrors the bodyweight squat algorithm:
+    ///   1. Pick the better-visible arm side (more spatial spread, like the squat does for legs).
+    ///   2. Compute the 3D elbow angle (shoulder→elbow→wrist) — camera-angle invariant.
+    ///   3. EMA-smooth to reduce landmark jitter.
+    ///   4. Two-state machine .extended ↔ .flexed with hysteresis.
+    ///   5. Timing gates reject impossibly fast / slow cycles.
+    ///   6. Stationary-feet gate rejects "walking into / out of position" false reps.
+    private func validateRowRep(skeleton: Skeleton3D?, overlay: [String: CGPoint]?, now: Date) -> Bool {
         guard let skeleton = skeleton else { return false }
-        guard let ls = skeleton.position("leftShoulder"),
-              let le = skeleton.position("leftElbow"),
-              let lw = skeleton.position("leftWrist"),
-              let rs = skeleton.position("rightShoulder"),
-              let re = skeleton.position("rightElbow"),
-              let rw = skeleton.position("rightWrist") else { return false }
 
-        let leftElbowAngle = angleDegrees(a: ls, b: le, c: lw)
-        let rightElbowAngle = angleDegrees(a: rs, b: re, c: rw)
-        let avgElbowAngle = (leftElbowAngle + rightElbowAngle) / 2.0
+        let ls = skeleton.position("leftShoulder"),  le = skeleton.position("leftElbow"),  lw = skeleton.position("leftWrist")
+        let rs = skeleton.position("rightShoulder"), re = skeleton.position("rightElbow"), rw = skeleton.position("rightWrist")
+        let leftOk  = ls != nil && le != nil && lw != nil
+        let rightOk = rs != nil && re != nil && rw != nil
 
-        // Use hip-depth style hysteresis on elbow angle:
-        // Arms extended = ~160° (idle/top), flexed at peak row = ~80-100° (bottom of pull).
-        // "descending" = pulling (angle decreasing), "ascending" = lowering (angle increasing).
-        let pullThreshold: Float = 120.0  // Below this = started pulling
-        let peakFlexion: Float = 100.0    // Below this = reached the top of the pull
-        let extendThreshold: Float = 140.0 // Above this = arms extended again = rep complete
+        let s: SIMD3<Float>, e: SIMD3<Float>, w: SIMD3<Float>
+        if leftOk, rightOk {
+            // Pick the side with more spatial spread (closer to camera in side / oblique views).
+            let lSpread = abs(ls!.x - lw!.x) + abs(ls!.y - lw!.y) + abs(ls!.z - lw!.z)
+            let rSpread = abs(rs!.x - rw!.x) + abs(rs!.y - rw!.y) + abs(rs!.z - rw!.z)
+            if rSpread >= lSpread { s = rs!; e = re!; w = rw! } else { s = ls!; e = le!; w = lw! }
+        } else if rightOk { s = rs!; e = re!; w = rw! }
+          else if leftOk  { s = ls!; e = le!; w = lw! }
+          else {
+            rowBadFrameStreak += 1
+            if rowBadFrameStreak >= weightedRepBadFrameLimit { rowSmoothedElbowAngle = nil }
+            return false
+        }
+        rowBadFrameStreak = 0
 
-        switch squatRepPhase {
-        case .idleAtTop:
-            if avgElbowAngle <= pullThreshold {
-                squatRepPhase = .descending
+        let raw = angleDegrees(a: s, b: e, c: w)
+        let smoothed: Float = if let prev = rowSmoothedElbowAngle {
+            rowEMAAlpha * raw + (1 - rowEMAAlpha) * prev
+        } else { raw }
+        rowSmoothedElbowAngle = smoothed
+
+        switch rowRepPhase {
+        case .extended:
+            if smoothed <= rowFlexedThreshold {
+                rowRepPhase = .flexed
+                rowRepCycleStartTime = now
+                beginAnkleStabilityCycle(overlay: overlay)
             }
             return false
-        case .descending:
-            if avgElbowAngle <= peakFlexion {
-                squatRepPhase = .bottomReached
+
+        case .flexed:
+            guard smoothed >= rowExtendedThreshold else { return false }
+            let dur = now.timeIntervalSince(rowRepCycleStartTime ?? now)
+            if let last = lastRepValidationTime, now.timeIntervalSince(last) < rowMinRepInterval {
+                rowRepPhase = .extended; rowRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                return false
             }
-            return false
-        case .bottomReached:
-            if avgElbowAngle >= extendThreshold {
-                squatRepPhase = .ascending
+            if dur < rowMinRepCycleDuration {
+                rowRepPhase = .extended; rowRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                return false
             }
-            return false
-        case .ascending:
-            // Rep complete — reset to idle
-            squatRepPhase = .idleAtTop
-            if let last = lastRepValidationTime,
-               now.timeIntervalSince(last) < minTimeBetweenReps { return false }
+            if dur > rowMaxRepCycleDuration {
+                rowRepPhase = .extended; rowRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                return false
+            }
+            if ankleDriftExceedsTolerance() {
+                rowRepPhase = .extended; rowRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                return false
+            }
+            // Rep counted.
+            lastRepValidationTime = now
+            rowRepPhase = .extended
+            rowRepCycleStartTime = nil
+            resetCurrentRepCycleAnkleStability()
             return true
         }
     }
@@ -2326,40 +2457,80 @@ class OnDevicePoseManager: NSObject, ObservableObject {
 
     // MARK: Deadlift — Rep Validation
 
-    /// Deadlift rep detection via hip vertical position hysteresis.
-    /// At the bottom (setup), hips are low; at lockout, hips are high.
-    /// Tracks hip height relative to the standing calibration to detect rep cycles.
-    private func validateDeadliftRep(skeleton: Skeleton3D?, now: Date) -> Bool {
+    /// Deadlift rep detection — bodyweight-style algorithm on the 3D hip angle.
+    ///
+    /// At setup the user is hinged with bar on the floor (hip angle ≈ 80–100°). At lockout they
+    /// are standing tall (≈ 170°). A rep is the round trip hinged → lockedOut → hinged.
+    ///
+    /// The previous validator used hip vertical position relative to standing calibration —
+    /// brittle when the standing calibration drifts and prone to false reps when the user
+    /// walks toward / away from the camera or sets the bar down between reps.
+    private func validateDeadliftRep(skeleton: Skeleton3D?, overlay: [String: CGPoint]?, now: Date) -> Bool {
         guard let skeleton = skeleton else { return false }
-        let depth = calculateHipDepth3D(skeleton)
 
-        // Hip-depth hysteresis: same pattern as barbell squat but with deadlift-appropriate thresholds.
-        // "depth" is normalized 0-1 where higher = deeper/lower hips.
-        // Deadlift: start at top (low depth), descend to pick up bar (high depth), pull back up.
-        let startThreshold: Float = 0.25   // Hips descend past this to start a rep
-        let bottomThreshold: Float = 0.40  // Hips below this = reached the bar
-        let lockoutThreshold: Float = 0.15 // Hips above this = lockout complete
+        // Pick the better-visible side and compute hip angle (shoulder→hip→knee).
+        let ls = skeleton.position("leftShoulder"),  lh = skeleton.position("leftHip"),  lk = skeleton.position("leftKnee")
+        let rs = skeleton.position("rightShoulder"), rh = skeleton.position("rightHip"), rk = skeleton.position("rightKnee")
+        let leftOk  = ls != nil && lh != nil && lk != nil
+        let rightOk = rs != nil && rh != nil && rk != nil
 
-        switch squatRepPhase {
-        case .idleAtTop:
-            if depth >= startThreshold {
-                squatRepPhase = .descending
+        let sh: SIMD3<Float>, hp: SIMD3<Float>, kn: SIMD3<Float>
+        if leftOk, rightOk {
+            let lSpread = abs(ls!.x - lk!.x) + abs(ls!.y - lk!.y) + abs(ls!.z - lk!.z)
+            let rSpread = abs(rs!.x - rk!.x) + abs(rs!.y - rk!.y) + abs(rs!.z - rk!.z)
+            if rSpread >= lSpread { sh = rs!; hp = rh!; kn = rk! } else { sh = ls!; hp = lh!; kn = lk! }
+        } else if rightOk { sh = rs!; hp = rh!; kn = rk! }
+          else if leftOk  { sh = ls!; hp = lh!; kn = lk! }
+          else {
+            deadliftBadFrameStreak += 1
+            if deadliftBadFrameStreak >= weightedRepBadFrameLimit { deadliftSmoothedHipAngle = nil }
+            return false
+        }
+        deadliftBadFrameStreak = 0
+
+        let raw = angleDegrees(a: sh, b: hp, c: kn)
+        let smoothed: Float = if let prev = deadliftSmoothedHipAngle {
+            deadliftEMAAlpha * raw + (1 - deadliftEMAAlpha) * prev
+        } else { raw }
+        deadliftSmoothedHipAngle = smoothed
+
+        switch deadliftRepPhase {
+        case .hinged:
+            if smoothed >= deadliftLockoutThreshold {
+                deadliftRepPhase = .lockedOut
+                deadliftRepCycleStartTime = now
+                beginAnkleStabilityCycle(overlay: overlay)
             }
             return false
-        case .descending:
-            if depth >= bottomThreshold {
-                squatRepPhase = .bottomReached
+
+        case .lockedOut:
+            guard smoothed <= deadliftHingeThreshold else { return false }
+            let dur = now.timeIntervalSince(deadliftRepCycleStartTime ?? now)
+            if let last = lastRepValidationTime, now.timeIntervalSince(last) < deadliftMinRepInterval {
+                deadliftRepPhase = .hinged; deadliftRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                return false
             }
-            return false
-        case .bottomReached:
-            if depth <= lockoutThreshold {
-                squatRepPhase = .ascending
+            if dur < deadliftMinRepCycleDuration {
+                deadliftRepPhase = .hinged; deadliftRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                return false
             }
-            return false
-        case .ascending:
-            squatRepPhase = .idleAtTop
-            if let last = lastRepValidationTime,
-               now.timeIntervalSince(last) < minTimeBetweenReps { return false }
+            if dur > deadliftMaxRepCycleDuration {
+                deadliftRepPhase = .hinged; deadliftRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                return false
+            }
+            if ankleDriftExceedsTolerance() {
+                deadliftRepPhase = .hinged; deadliftRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                return false
+            }
+            // Rep counted.
+            lastRepValidationTime = now
+            deadliftRepPhase = .hinged
+            deadliftRepCycleStartTime = nil
+            resetCurrentRepCycleAnkleStability()
             return true
         }
     }
@@ -2601,38 +2772,75 @@ class OnDevicePoseManager: NSObject, ObservableObject {
 
     // MARK: RDL — Rep Validation
 
-    /// RDL rep detection via hip-depth hysteresis, similar to conventional deadlift
-    /// but starting from standing (bar at hip level) rather than from the floor.
-    /// The user hinges down (hips push back, torso lowers) then returns to standing.
-    private func validateRomanianDeadliftRep(skeleton: Skeleton3D?, now: Date) -> Bool {
+    /// RDL rep detection — bodyweight-style algorithm on the 3D hip angle.
+    ///
+    /// User starts standing (~170°), hinges down to ~90–110°, returns to standing. Mirror image
+    /// of the conventional deadlift (which starts hinged) — same shape, swapped rest state.
+    private func validateRomanianDeadliftRep(skeleton: Skeleton3D?, overlay: [String: CGPoint]?, now: Date) -> Bool {
         guard let skeleton = skeleton else { return false }
-        let depth = calculateHipDepth3D(skeleton)
 
-        // RDL starts at the top. The hip descent is shallower than conventional deadlift.
-        let startThreshold: Float = 0.18   // Hips begin hinging
-        let bottomThreshold: Float = 0.30  // Reached the stretch position
-        let returnThreshold: Float = 0.12  // Returned to standing = rep complete
+        let ls = skeleton.position("leftShoulder"),  lh = skeleton.position("leftHip"),  lk = skeleton.position("leftKnee")
+        let rs = skeleton.position("rightShoulder"), rh = skeleton.position("rightHip"), rk = skeleton.position("rightKnee")
+        let leftOk  = ls != nil && lh != nil && lk != nil
+        let rightOk = rs != nil && rh != nil && rk != nil
 
-        switch squatRepPhase {
-        case .idleAtTop:
-            if depth >= startThreshold {
-                squatRepPhase = .descending
+        let sh: SIMD3<Float>, hp: SIMD3<Float>, kn: SIMD3<Float>
+        if leftOk, rightOk {
+            let lSpread = abs(ls!.x - lk!.x) + abs(ls!.y - lk!.y) + abs(ls!.z - lk!.z)
+            let rSpread = abs(rs!.x - rk!.x) + abs(rs!.y - rk!.y) + abs(rs!.z - rk!.z)
+            if rSpread >= lSpread { sh = rs!; hp = rh!; kn = rk! } else { sh = ls!; hp = lh!; kn = lk! }
+        } else if rightOk { sh = rs!; hp = rh!; kn = rk! }
+          else if leftOk  { sh = ls!; hp = lh!; kn = lk! }
+          else {
+            rdlBadFrameStreak += 1
+            if rdlBadFrameStreak >= weightedRepBadFrameLimit { rdlSmoothedHipAngle = nil }
+            return false
+        }
+        rdlBadFrameStreak = 0
+
+        let raw = angleDegrees(a: sh, b: hp, c: kn)
+        let smoothed: Float = if let prev = rdlSmoothedHipAngle {
+            rdlEMAAlpha * raw + (1 - rdlEMAAlpha) * prev
+        } else { raw }
+        rdlSmoothedHipAngle = smoothed
+
+        switch rdlRepPhase {
+        case .standing:
+            if smoothed <= rdlHingeThreshold {
+                rdlRepPhase = .hinged
+                rdlRepCycleStartTime = now
+                beginAnkleStabilityCycle(overlay: overlay)
             }
             return false
-        case .descending:
-            if depth >= bottomThreshold {
-                squatRepPhase = .bottomReached
+
+        case .hinged:
+            guard smoothed >= rdlStandingThreshold else { return false }
+            let dur = now.timeIntervalSince(rdlRepCycleStartTime ?? now)
+            if let last = lastRepValidationTime, now.timeIntervalSince(last) < rdlMinRepInterval {
+                rdlRepPhase = .standing; rdlRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                return false
             }
-            return false
-        case .bottomReached:
-            if depth <= returnThreshold {
-                squatRepPhase = .ascending
+            if dur < rdlMinRepCycleDuration {
+                rdlRepPhase = .standing; rdlRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                return false
             }
-            return false
-        case .ascending:
-            squatRepPhase = .idleAtTop
-            if let last = lastRepValidationTime,
-               now.timeIntervalSince(last) < minTimeBetweenReps { return false }
+            if dur > rdlMaxRepCycleDuration {
+                rdlRepPhase = .standing; rdlRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                return false
+            }
+            if ankleDriftExceedsTolerance() {
+                rdlRepPhase = .standing; rdlRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                return false
+            }
+            // Rep counted.
+            lastRepValidationTime = now
+            rdlRepPhase = .standing
+            rdlRepCycleStartTime = nil
+            resetCurrentRepCycleAnkleStability()
             return true
         }
     }
@@ -2858,6 +3066,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         activeBodyweightRepProfile = SquatRepProfileTable.profile(for: .chest_side)
         squatExtensionFrameStateInternal = .neither
         resetBodyweightSquatRepCycleState()
+        resetRowRepCycleState()
+        resetDeadliftRepCycleState()
+        resetRdlRepCycleState()
         DispatchQueue.main.async {
             self.currentCameraHeightCategory = .unknown
             self.currentCameraViewCategory = .unknown
@@ -2918,6 +3129,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         activeBodyweightRepProfile = SquatRepProfileTable.profile(for: .chest_side)
         squatExtensionFrameStateInternal = .neither
         resetBodyweightSquatRepCycleState()
+        resetRowRepCycleState()
+        resetDeadliftRepCycleState()
+        resetRdlRepCycleState()
         DispatchQueue.main.async {
             self.currentCameraHeightCategory = .unknown
             self.currentCameraViewCategory = .unknown
@@ -2996,6 +3210,56 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
     }
 
+    /// Per-exercise validator opts in to the ankle gate; the analysis-queue sampler is exercise-
+    /// agnostic but only writes during the active rep cycle (gated by `isInActiveRepCycle`).
+    private func sampleAnkleStability(landmarks: [String: CGPoint]) {
+        guard isInActiveRepCycle else { return }
+        guard let la = landmarks["leftAnkle"], let ra = landmarks["rightAnkle"] else { return }
+        let ankleY = Float((la.y + ra.y) / 2)
+        currentRepCycleAnkleYMin = min(currentRepCycleAnkleYMin, ankleY)
+        currentRepCycleAnkleYMax = max(currentRepCycleAnkleYMax, ankleY)
+    }
+
+    /// True when the active rep state machine is in its mid-cycle phase. Read by `sampleAnkleStability`.
+    /// Each per-exercise validator owns its own state machine but they all advance through this
+    /// shared concept of "cycle started but not yet completed".
+    private var isInActiveRepCycle: Bool {
+        switch trackedExerciseType {
+        case .bodyweight, .barbell:
+            return bwRepPhase == .down
+        case .row:
+            return rowRepPhase == .flexed
+        case .deadlift:
+            return deadliftRepPhase == .lockedOut
+        case .romanianDeadlift:
+            return rdlRepPhase == .hinged
+        case .benchPress, .closeGripBenchPress:
+            return reachedBottomThisCycleBenchPress
+        }
+    }
+
+    /// Captures the starting ankle Y when a rep cycle begins. Call from each validator's
+    /// rest→active transition, then `barbellAnkleDriftExceedsTolerance()` checks at completion.
+    private func beginAnkleStabilityCycle(overlay: [String: CGPoint]?) {
+        resetCurrentRepCycleAnkleStability()
+        guard let ov = overlay,
+              let la = ov["leftAnkle"], let ra = ov["rightAnkle"] else { return }
+        let ankleY = Float((la.y + ra.y) / 2)
+        currentRepCycleAnkleYMin = ankleY
+        currentRepCycleAnkleYMax = ankleY
+    }
+
+    private func resetCurrentRepCycleAnkleStability() {
+        currentRepCycleAnkleYMin = .greatestFiniteMagnitude
+        currentRepCycleAnkleYMax = -.greatestFiniteMagnitude
+    }
+
+    private func ankleDriftExceedsTolerance() -> Bool {
+        guard currentRepCycleAnkleYMin != .greatestFiniteMagnitude,
+              currentRepCycleAnkleYMax != -.greatestFiniteMagnitude else { return false }
+        return (currentRepCycleAnkleYMax - currentRepCycleAnkleYMin) > ankleStabilityTolerance
+    }
+
     private func bodyweightOverlayLegSpanY(_ overlay: [String: CGPoint]) -> Float? {
         guard let lh = overlay["leftHip"], let rh = overlay["rightHip"],
               let la = overlay["leftAnkle"], let ra = overlay["rightAnkle"] else { return nil }
@@ -3019,6 +3283,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         bwBadFrameStreak = 0
         bwRawKneeAngle = nil
         squatRepCycleHipKneeParallelMet = false
+        resetCurrentRepCycleAnkleStability()
     }
 
     // MARK: - Bodyweight squat rep detection (knee angle)
@@ -3078,6 +3343,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             if smoothed <= profile.downAngleThreshold {
                 bwRepPhase = .down
                 bwRepCycleStartTime = now
+                if trackedExerciseType == .barbell {
+                    beginAnkleStabilityCycle(overlay: overlay)
+                }
                 repLog("UP→DOWN  angle=\(smoothed)")
             }
             return false
@@ -3098,6 +3366,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rejectBodyweightRep(reason: .maxCycleDuration, note: "dur=\(dur)")
                 return false
             }
+            if trackedExerciseType == .barbell, ankleDriftExceedsTolerance() {
+                let drift = currentRepCycleAnkleYMax - currentRepCycleAnkleYMin
+                rejectBodyweightRep(reason: .ankleDrift, note: "drift=\(drift)")
+                resetCurrentRepCycleAnkleStability()
+                return false
+            }
 
             // Rep counted.
             lastCountedRepHipKneeDepthQualityMet = squatRepCycleHipKneeParallelMet
@@ -3105,6 +3379,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             bwRepPhase = .up
             bwRepCycleStartTime = nil
             squatRepCycleHipKneeParallelMet = false
+            if trackedExerciseType == .barbell { resetCurrentRepCycleAnkleStability() }
             repLog("DOWN→UP  REP COUNTED  angle=\(smoothed) dur=\(dur)")
             return true
         }
@@ -3152,12 +3427,46 @@ class OnDevicePoseManager: NSObject, ObservableObject {
 
     /// Abandon in-flight rep: bodyweight resets shoulder rep cycle + accumulation; barbell/bench use hip-depth machine.
     private func abandonSquatRepCycle() {
-        if trackedExerciseType == .bodyweight {
+        switch trackedExerciseType {
+        case .bodyweight:
             abortInProgressBodyweightRepAccumulation()
             resetBodyweightSquatRepCycleState()
-        } else {
+        case .barbell:
+            // `.barbell` runs the bodyweight knee-angle algorithm: clear that state machine.
+            resetBodyweightSquatRepCycleState()
+        case .row:
+            resetRowRepCycleState()
+        case .deadlift:
+            resetDeadliftRepCycleState()
+        case .romanianDeadlift:
+            resetRdlRepCycleState()
+        case .benchPress, .closeGripBenchPress:
             resetSquatRepDepthMachineOnly()
         }
+    }
+
+    private func resetRowRepCycleState() {
+        rowRepPhase = .extended
+        rowSmoothedElbowAngle = nil
+        rowRepCycleStartTime = nil
+        rowBadFrameStreak = 0
+        resetCurrentRepCycleAnkleStability()
+    }
+
+    private func resetDeadliftRepCycleState() {
+        deadliftRepPhase = .hinged
+        deadliftSmoothedHipAngle = nil
+        deadliftRepCycleStartTime = nil
+        deadliftBadFrameStreak = 0
+        resetCurrentRepCycleAnkleStability()
+    }
+
+    private func resetRdlRepCycleState() {
+        rdlRepPhase = .standing
+        rdlSmoothedHipAngle = nil
+        rdlRepCycleStartTime = nil
+        rdlBadFrameStreak = 0
+        resetCurrentRepCycleAnkleStability()
     }
 
     /// Full reset for new set / rep counting reset (includes abandoning partial bodyweight rep).
@@ -3181,18 +3490,22 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             if formAnalysis.overallScore < requiredScore {
                 return false
             }
-            return validateCloseGripBenchPressRep(formAnalysis: formAnalysis, now: now)
-        case .bodyweight:
+            return validateCloseGripBenchPressRep(formAnalysis: formAnalysis, overlay: overlay, now: now)
+        case .bodyweight, .barbell:
+            // Barbell back squat reuses the bodyweight knee-angle algorithm: same biomechanics,
+            // and the 3D world-coordinate angle is camera-angle invariant. The validator applies
+            // a stationary-feet gate for `.barbell` to reject false reps from approaching/leaving
+            // the camera.
             guard let sk = skeleton, let ov = overlay else { return false }
             return validateBodyweightSquatRep(overlay: ov, skeleton: sk, now: now)
-        case .barbell, .benchPress:
+        case .benchPress:
             return validateSquatRepHipDepthLegacy(skeleton: skeleton, now: now)
         case .row:
-            return validateRowRep(skeleton: skeleton, now: now)
+            return validateRowRep(skeleton: skeleton, overlay: overlay, now: now)
         case .deadlift:
-            return validateDeadliftRep(skeleton: skeleton, now: now)
+            return validateDeadliftRep(skeleton: skeleton, overlay: overlay, now: now)
         case .romanianDeadlift:
-            return validateRomanianDeadliftRep(skeleton: skeleton, now: now)
+            return validateRomanianDeadliftRep(skeleton: skeleton, overlay: overlay, now: now)
         }
     }
 
@@ -3291,27 +3604,24 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// - Tripod view: Standard Y axis with adjusted thresholds
     ///
     /// Also tracks tempo: measures eccentric (top→bottom) and concentric (bottom→top) phases.
-    private func validateCloseGripBenchPressRep(formAnalysis: FormAnalysis, now: Date) -> Bool {
+    private func validateCloseGripBenchPressRep(formAnalysis: FormAnalysis, overlay: [String: CGPoint]?, now: Date) -> Bool {
         let depthValue = formAnalysis.depth
-        
-        let bottomThreshold: Float
-        let topThreshold: Float
-        
+
         // 3D path: depth is elbow-angle based (0 = lockout, 1 = chest), camera-invariant
-        bottomThreshold = 0.65
-        topThreshold = 0.25
-        
+        let bottomThreshold: Float = 0.65
+        let topThreshold: Float = 0.25
+
         let wristY = depthValue
-        
+
         if benchPressEccentricStartTime == nil {
             if wristY <= topThreshold {
                 benchPressEccentricStartTime = CACurrentMediaTime()
             }
         }
-        
+
         let atBottom = wristY >= bottomThreshold
         let atTop = wristY <= topThreshold
-        
+
         if atBottom {
             consecutiveFramesAtBottomBenchPress += 1
             consecutiveFramesAtTopBenchPress = 0
@@ -3322,13 +3632,24 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     sumEccentricMs += (CACurrentMediaTime() - eccentricStart) * 1000
                 }
                 benchPressBottomTime = CACurrentMediaTime()
+                // Stationary-feet gate: feet are planted on the floor during a real bench press;
+                // the user walking toward / away from the camera shifts the ankle Y significantly.
+                beginAnkleStabilityCycle(overlay: overlay)
             }
             return false
         }
-        
+
         if atTop && reachedBottomThisCycleBenchPress {
             consecutiveFramesAtTopBenchPress += 1
             if consecutiveFramesAtTopBenchPress >= consistentFramesForRepTransition {
+                if ankleDriftExceedsTolerance() {
+                    reachedBottomThisCycleBenchPress = false
+                    benchPressBottomWristY = nil
+                    consecutiveFramesAtBottomBenchPress = 0
+                    consecutiveFramesAtTopBenchPress = 0
+                    resetCurrentRepCycleAnkleStability()
+                    return false
+                }
                 if let bt = benchPressBottomTime {
                     sumConcentricMs += (CACurrentMediaTime() - bt) * 1000
                     tempoRepSamples += 1
@@ -3339,11 +3660,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 benchPressEccentricStartTime = CACurrentMediaTime()
                 consecutiveFramesAtBottomBenchPress = 0
                 consecutiveFramesAtTopBenchPress = 0
+                resetCurrentRepCycleAnkleStability()
                 return true
             }
             return false
         }
-        
+
         consecutiveFramesAtBottomBenchPress = 0
         consecutiveFramesAtTopBenchPress = 0
         return false

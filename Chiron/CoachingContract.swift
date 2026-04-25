@@ -209,7 +209,7 @@ enum CoachingContract {
             code: .rowRoundedBack,
             displayName: "Rounded Back",
             severity: .high,
-            cue: "Lift your chest and keep your spine flat",
+            cue: "Brace your core and keep your spine flat — don't let your back round",
             shortCue: "Flatten your back"
         ),
         .rowKneeInternalRotation: IssueDefinition(
@@ -231,7 +231,7 @@ enum CoachingContract {
             code: .deadliftRoundedBack,
             displayName: "Rounded Back",
             severity: .high,
-            cue: "Keep your chest up and lock in that flat back",
+            cue: "Brace hard and lock in a flat back from setup to lockout",
             shortCue: "Flatten your back"
         ),
         .deadliftHipShootUp: IssueDefinition(
@@ -260,7 +260,7 @@ enum CoachingContract {
             code: .rdlRoundedBack,
             displayName: "Rounded Back",
             severity: .high,
-            cue: "Keep your chest proud and spine flat as you hinge",
+            cue: "Brace your core and keep your spine flat all the way down",
             shortCue: "Flatten your back"
         ),
         .rdlExcessiveKneeBend: IssueDefinition(

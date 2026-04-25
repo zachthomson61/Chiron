@@ -7,11 +7,11 @@
 //  mounted once at app root so every workout flow (Track tab, predetermined
 //  workouts, etc.) fires into the same surface.
 //
-//  Audio is split from the visual side: the Track-tab coaching pipeline
-//  weaves the celebration into the set-end spoken line when `isPR` is set,
-//  so calling `celebrate(info:)` there passes `speak: false`. Flows that
-//  don't route through the coaching manager (predetermined workouts) pass
-//  `speak: true` to have the center speak the celebration directly.
+//  Confetti drop is synced to the spoken announcement: callers either fire
+//  `fireConfetti()` from a `SpeechManager.speak` `onStart` callback (Track tab,
+//  where the LLM weaves the PR into its set-end line), or use
+//  `celebrateWithSpeech(info:)` (predetermined workouts) which speaks the
+//  literal celebration line and drops confetti when the audio actually starts.
 //
 
 import Foundation
@@ -27,21 +27,31 @@ final class PRCelebrationCenter: ObservableObject {
 
     private init() {}
 
-    /// Trigger a celebration. Visual burst is always fired; spoken line is
-    /// only delivered when `speak` is true (use false when the coaching
-    /// manager will voice the PR itself, to avoid overlapping speech).
-    ///
-    /// - Parameters:
-    ///   - info: PR details used to phrase the spoken line.
-    ///   - speak: whether this center should also voice a celebration.
-    func celebrate(info: PersonalRecord.Info, speak: Bool) {
+    /// Drop the confetti now. Call this from a `SpeechManager.speak` `onStart`
+    /// closure so the visual lands together with the audio announcement.
+    func fireConfetti() {
         isShowingConfetti = true
-        guard speak else { return }
+    }
+
+    /// Speak the celebration line and drop confetti when the audio actually starts.
+    /// Use from flows that don't already deliver a set-end coaching line (e.g. predetermined
+    /// workouts) — the Track tab uses `fireConfetti()` from inside its LLM speech `onStart` instead.
+    ///
+    /// A 5s safety fallback drops the confetti even if speech never fires (disabled / failed).
+    func celebrateWithSpeech(info: PersonalRecord.Info) {
+        var fired = false
+        let fireOnce: () -> Void = { [weak self] in
+            guard let self, !fired else { return }
+            fired = true
+            self.isShowingConfetti = true
+        }
         SpeechManager.shared.speak(
             Self.spokenLine(for: info),
             priority: .high,
-            context: .encouragement
+            context: .encouragement,
+            onStart: fireOnce
         )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { fireOnce() }
     }
 
     /// Deterministic celebration phrasing. Kept literal — no similes, matches

@@ -302,7 +302,7 @@ struct PoseVisualizationOverlay: View {
         GeometryReader { _ in
             ZStack {
                 if let landmarks = poseManager.currentNormalizedLandmarks, !landmarks.isEmpty {
-                    PoseLandmarkSkeletonView(landmarks: landmarks)
+                    PoseLandmarkSkeletonView(landmarks: landmarks, barbellLine: poseManager.currentBarbellLine)
                 }
             }
         }
@@ -311,15 +311,17 @@ struct PoseVisualizationOverlay: View {
 }
 
 /// Renders `poseSkeletonEdges` and joint dots using `PoseOverlayCoordinateMapping` (Canvas uses `canvasSize`, not an external `GeometryReader` size).
+/// When a `barbellLine` is provided (barbell exercises with both wrists visible), draws it as an orange segment.
 struct PoseLandmarkSkeletonView: View {
     let landmarks: [String: CGPoint]
-    
+    let barbellLine: BarbellLine?
+
     var body: some View {
         Canvas { context, canvasSize in
             func viewPoint(_ p: CGPoint) -> CGPoint {
                 PoseOverlayCoordinateMapping.viewPoint(normalized: p, canvasSize: canvasSize)
             }
-            
+
             for (a, b) in poseSkeletonEdges {
                 guard let pa = landmarks[a], let pb = landmarks[b] else { continue }
                 var path = Path()
@@ -327,13 +329,20 @@ struct PoseLandmarkSkeletonView: View {
                 path.addLine(to: viewPoint(pb))
                 context.stroke(path, with: .color(.green), lineWidth: 3)
             }
-            
+
             for (_, point) in landmarks {
                 let center = viewPoint(point)
                 let r: CGFloat = 6
                 let rect = CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)
                 context.fill(Path(ellipseIn: rect), with: .color(.cyan))
                 context.stroke(Path(ellipseIn: rect), with: .color(.white), lineWidth: 1.5)
+            }
+
+            if let bar = barbellLine {
+                var barPath = Path()
+                barPath.move(to: viewPoint(bar.start))
+                barPath.addLine(to: viewPoint(bar.end))
+                context.stroke(barPath, with: .color(.orange), lineWidth: 5)
             }
         }
         .allowsHitTesting(false)

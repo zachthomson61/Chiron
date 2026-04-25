@@ -92,6 +92,7 @@ enum SquatRepRejectReason: String, Sendable {
     case minCycleDuration
     case maxCycleDuration
     case badVisibility
+    case ankleDrift
 }
 
 // MARK: - Knee-angle rep phases (bodyweight)

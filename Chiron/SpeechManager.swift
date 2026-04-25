@@ -32,7 +32,11 @@ class SpeechManager: NSObject, ObservableObject {
     private var recognitionTask: SFSpeechRecognitionTask?
     
     // Enhanced queue system with priority handling
-    private var speakQueue: [(text: String, priority: SpeechPriority)] = []
+    private var speakQueue: [(text: String, priority: SpeechPriority, onStart: (() -> Void)?)] = []
+    /// Closure to invoke when the active utterance actually begins playback. Set when an
+    /// utterance moves from the queue to active playback; cleared on first invocation or finish.
+    /// Used by the PR celebration flow to sync confetti with the spoken announcement.
+    private var pendingOnStart: (() -> Void)?
     private let queueLock = NSLock() // Thread-safe queue operations
     
     // Track current speech context to prevent inappropriate interruptions
@@ -89,27 +93,31 @@ class SpeechManager: NSObject, ObservableObject {
     }
     
     // MARK: - Public Speech APIs
-    func speak(_ text: String, priority: SpeechPriority = .normal, context: SpeechContext = .feedback) {
+    /// - Parameter onStart: optional closure invoked on the main queue the moment the utterance
+    ///   actually begins playback (after queueing delays, audio-session setup, etc.). Use this to
+    ///   sync visual events (e.g. PR confetti) with the audio announcement.
+    func speak(_ text: String, priority: SpeechPriority = .normal, context: SpeechContext = .feedback, onStart: (() -> Void)? = nil) {
         guard speechEnabled else {
             return
         }
-        
-        
+
+
         queueLock.lock()
         defer { queueLock.unlock() }
-        
+
         // Handle priority-based interruption logic
         let shouldInterrupt = shouldInterruptCurrentSpeech(newPriority: priority, newContext: context)
         if shouldInterrupt {
             speakQueue.removeAll { $0.priority.rawValue < priority.rawValue }
             stopSpeaking()
         }
-        
+
         if (isSpeaking || audioPlayer != nil || (synthesizer?.isSpeaking ?? false)) && !shouldInterrupt {
-            speakQueue.append((text, priority))
+            speakQueue.append((text, priority, onStart))
             return
         }
-        
+
+        pendingOnStart = onStart
         startSpeaking(text, priority: priority, context: context)
     }
     
@@ -548,6 +556,15 @@ class SpeechManager: NSObject, ObservableObject {
         return false
     }
     
+    /// One-shot consumer for `pendingOnStart`. Called from the audio-player success path and the
+    /// AVSpeechSynthesizer `didStart` delegate so the closure fires exactly once when the active
+    /// utterance actually begins.
+    private func firePendingOnStart() {
+        guard let cb = pendingOnStart else { return }
+        pendingOnStart = nil
+        DispatchQueue.main.async { cb() }
+    }
+
     private func playNextFromQueueIfAvailable() {        queueLock.lock(); defer { queueLock.unlock() }
         guard speechEnabled else { speakQueue.removeAll(); return }
         guard !speakQueue.isEmpty else { return }
@@ -555,6 +572,7 @@ class SpeechManager: NSObject, ObservableObject {
         let next = speakQueue.removeFirst()
         let delay: TimeInterval = 0.4
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            self.pendingOnStart = next.onStart
             if !self.isAudioSessionActive {
                 self.setupAudioSession()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -759,7 +777,9 @@ class SpeechManager: NSObject, ObservableObject {
                 fallbackToSystemVoice("Audio playback failed")
                 return
             }
-            
+            // Audio is now playing — invoke the onStart hook (e.g., to sync PR confetti).
+            firePendingOnStart()
+
         } catch {
             audioPlayer?.delegate = nil
             audioPlayer = nil
@@ -1066,10 +1086,11 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
         }
     }
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
-        DispatchQueue.main.async { 
+        DispatchQueue.main.async {
             // Only update if this is still the current synthesizer
             guard self.synthesizer === synthesizer else { return }
-            self.isSpeaking = true 
+            self.isSpeaking = true
+            self.firePendingOnStart()
         }
     }
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
