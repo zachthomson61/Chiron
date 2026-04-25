@@ -118,6 +118,12 @@ struct RootTabView: View {
             // finishes, flipping `isShowingConfetti` back to false.
             ConfettiView(isActive: $prCelebration.isShowingConfetti)
                 .allowsHitTesting(false)
+
+            // Badge unlock celebration — sits above the rest of the UI like
+            // the PR confetti so any flow that awards a badge (TrackView's
+            // endSet, the onboarding hand-off) animates into the same surface
+            // without needing per-screen plumbing.
+            BadgeUnlockOverlay()
         }
     }
 }

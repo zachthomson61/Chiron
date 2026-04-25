@@ -8,9 +8,6 @@ struct ContentView: View {
         if userProfile != nil {
             RootTabView()
                 .modelContainer(appState.modelContainer)
-                #if DEBUG
-                .overlay(debugResetButton, alignment: .topTrailing)
-                #endif
         } else {
             OnboardingRootView(store: UserDefaultsUserProfileStore()) { profile in
                 userProfile = profile
@@ -26,27 +23,12 @@ struct ContentView: View {
     private func applyOnboardingProfile(_ profile: ChironUserProfile) {
         UserPreferencesManager.shared.primaryGoal = profile.topGoal.asPrimaryGoal
         OpenAICoachingManager.shared.refreshProfile()
+        // Onboarding completion unlocks the "Profile Complete" badge — fired
+        // here so the celebration lands on the very first screen the user
+        // sees after finishing the flow.
+        BadgeCenter.shared.markProfileComplete()
     }
 
-    #if DEBUG
-    private var debugResetButton: some View {
-        Button(action: resetOnboarding) {
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(.red)
-                .padding(12)
-                .background(Color.black.opacity(0.6))
-                .clipShape(Circle())
-        }
-        .padding(12)
-    }
-
-    private func resetOnboarding() {
-        UserDefaultsUserProfileStore().clear()
-        AccountStore.shared.clear()
-        userProfile = nil
-    }
-    #endif
 }
 
 #Preview {

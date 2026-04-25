@@ -83,6 +83,10 @@ struct TrackView: View {
     @State private var trackWorkoutLogId: String?
     /// Per-exercise set counter so saved logs get sequential setNumbers.
     @State private var setNumbersByExercise: [String: Int] = [:]
+    /// Wall-clock start of the current set. Captured in `beginSet` and read in
+    /// `endSet` so the badge evaluator can credit Heavy Hour minutes without
+    /// relying on workoutLog.endTime (Track sessions don't write one).
+    @State private var currentSetStart: Date?
 
     @ObservedObject private var cameraManager = SharedCameraSessionManager.shared
     /// Rep count is published here; `cameraManager` alone does not trigger redraws when reps change.
@@ -699,6 +703,7 @@ struct TrackView: View {
         }
         cameraManager.poseManager.resetRepCount()
         cameraManager.poseManager.startManualSet()
+        currentSetStart = Date()
         // Start debug logging for this set (auto-exported as CSV when the set ends).
         SquatRepDebugLogger.shared.reset()
         poseManager.debugLoggerEnabled = true
@@ -789,6 +794,23 @@ struct TrackView: View {
                     if let pr = prInfo {
                         PRCelebrationCenter.shared.celebrate(info: pr, speak: false)
                     }
+
+                    // Badge evaluation: read the in-memory form metrics for
+                    // this set (Form Quality / Set Closer / Tempo Master),
+                    // then trigger the history pass for streak / mastery /
+                    // volume rules. The center handles dedupe — already-earned
+                    // badges short-circuit silently.
+                    let setDuration: TimeInterval? = currentSetStart.map { Date().timeIntervalSince($0) }
+                    BadgeCenter.shared.evaluateAfterSet(
+                        exerciseName: exerciseName,
+                        isBodyweight: isBodyweight,
+                        reps: repsForSet,
+                        formAnalysis: formAnalysis,
+                        aggregatedMetrics: metrics,
+                        setDurationSeconds: setDuration,
+                        userId: userId
+                    )
+                    currentSetStart = nil
 
                     if let analysis = formAnalysis {
                         let exerciseType = TrackedExerciseType.from(exerciseName: exerciseName)

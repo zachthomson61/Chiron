@@ -18,6 +18,7 @@ struct ProfileViewConstants {
 
 struct ProfileView: View {
     @StateObject private var account = AccountStore.shared
+    @ObservedObject private var badges = BadgeCenter.shared
     @State private var onboardingProfile: ChironUserProfile?
     @State private var totalWorkouts: Int = 0
     @State private var totalLbsLifted: Int = 0
@@ -57,7 +58,7 @@ struct ProfileView: View {
                         TrainingProfileCard(profile: trainingProfileBinding)
                     }
 
-                    AchievementsSection(achievements: achievements)
+                    BadgeAchievementsSection(earnedBadges: badges.earnedBadges)
                 }
                 .padding(.horizontal, ProfileViewConstants.horizontalPadding)
                 .padding(.bottom, 32)
@@ -154,16 +155,6 @@ struct ProfileView: View {
         return "\(totalLbsLifted)"
     }
 
-    /// Mock achievements until the achievement system is built. Pulled out of
-    /// `UserProfile.mock()` so the profile view doesn't depend on the legacy
-    /// display-layer struct.
-    private var achievements: [Achievement] {
-        [
-            Achievement(value: "500", label: "CALORIES", badgeColor: Color(red: 1.0, green: 0.8, blue: 0.9)),
-            Achievement(value: "1000", label: "CALORIES", badgeColor: Color(red: 1.0, green: 0.8, blue: 0.9))
-        ]
-    }
-
     // MARK: - Editable training profile
 
     /// Bridges `TrainingProfileCard`'s binding back to the persistent store
@@ -196,6 +187,11 @@ struct ProfileView: View {
             DispatchQueue.main.async {
                 self.totalWorkouts = workouts
                 self.totalLbsLifted = Int(lbs)
+                // Re-evaluate consistency / mastery / volume badges against
+                // the freshly loaded history so the gallery picks up anything
+                // that crossed a threshold while the user was outside the app
+                // (or before the badge system was installed).
+                BadgeCenter.shared.recomputeFromHistory(setLogs: logs)
             }
         }
     }
@@ -409,11 +405,16 @@ struct CompleteProfileCard: View {
     }
 }
 
-// MARK: - Achievements Section
+// MARK: - Badge Achievements Section
 
-struct AchievementsSection: View {
-    let achievements: [Achievement]
-    @State private var showAllAchievements = false
+/// Profile-page surface for the new badge system. Shows the earned badges in
+/// a horizontal scroller and offers a "View All" link into a full gallery
+/// (locked + unlocked, grouped by category). When the user has no badges yet,
+/// surfaces a hint that points them at the Track tab so the empty state never
+/// reads as "broken".
+struct BadgeAchievementsSection: View {
+    let earnedBadges: [Badge]
+    @State private var showGallery = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -421,77 +422,209 @@ struct AchievementsSection: View {
                 Text("Achievements")
                     .font(.headline)
                     .foregroundColor(.textPrimary)
-
+                if !earnedBadges.isEmpty {
+                    Text("\(earnedBadges.count) of \(BadgeCatalog.all.count)")
+                        .font(.subheadline)
+                        .foregroundColor(.textSecondary)
+                }
                 Spacer()
-
-                Button(action: {
-                    showAllAchievements = true
-                }) {
+                Button {
+                    showGallery = true
+                } label: {
                     Text("View All")
                         .font(.subheadline)
                         .foregroundColor(.primaryPurple)
                 }
             }
 
-            if achievements.isEmpty {
-                Text("No achievements yet")
-                    .font(.subheadline)
-                    .foregroundColor(.textSecondary)
-                    .padding(.vertical, 8)
+            if earnedBadges.isEmpty {
+                BadgeEmptyHintView { showGallery = true }
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 16) {
-                        ForEach(achievements) { achievement in
-                            AchievementBadgeView(achievement: achievement)
+                    HStack(alignment: .top, spacing: 18) {
+                        ForEach(earnedBadges) { badge in
+                            BadgeTile(badge: badge, isLocked: false)
                         }
                     }
                     .padding(.horizontal, 4)
+                    .padding(.vertical, 4)
                 }
             }
+        }
+        .sheet(isPresented: $showGallery) {
+            BadgeGallerySheet(isPresented: $showGallery)
         }
     }
 }
 
-// MARK: - Achievement Badge View
+// MARK: - Badge Tile
 
-struct AchievementBadgeView: View {
-    let achievement: Achievement
+/// Vertical stack of artwork + title. Used in both the profile scroller and
+/// the full gallery; locked tiles render the same layout with desaturated art
+/// so the user can see what's coming next.
+struct BadgeTile: View {
+    let badge: Badge
+    let isLocked: Bool
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(achievement.badgeColor)
-                .frame(width: ProfileViewConstants.badgeSize, height: ProfileViewConstants.badgeSize)
-
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            Color.white.opacity(0.1),
-                            Color.clear
-                        ],
-                        center: .topLeading,
-                        startRadius: 0,
-                        endRadius: ProfileViewConstants.badgeSize / 2
-                    )
-                )
-
-            VStack(spacing: 2) {
-                Text(achievement.value)
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(.textPrimary)
-
-                Text(achievement.label)
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundColor(.textPrimary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.black.opacity(0.7))
-            )
+        VStack(spacing: 8) {
+            BadgeArtworkView(badge: badge, size: 78, isLocked: isLocked)
+            Text(badge.title)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(isLocked ? .textSecondary : .textPrimary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .frame(maxWidth: 96)
         }
+    }
+}
+
+// MARK: - Empty Hint
+
+private struct BadgeEmptyHintView: View {
+    let onTapViewAll: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "rosette")
+                .font(.title2)
+                .foregroundStyle(Color.primaryPurple)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("No achievements yet")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.textPrimary)
+                Text("Complete a set in the Track tab to earn your first badge.")
+                    .font(.footnote)
+                    .foregroundColor(.textSecondary)
+            }
+            Spacer(minLength: 0)
+            Button("Browse", action: onTapViewAll)
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(.primaryPurple)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: ProfileViewConstants.cardCornerRadius)
+                .fill(Color(white: 0.15))
+        )
+    }
+}
+
+// MARK: - Badge Gallery Sheet
+
+/// Full-screen catalogue grouped by category. Earned badges render in color;
+/// locked badges render desaturated alongside their tagline so the user can
+/// read the unlock criteria without having to remember each rule.
+struct BadgeGallerySheet: View {
+    @Binding var isPresented: Bool
+    @ObservedObject private var center = BadgeCenter.shared
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12)
+    ]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    earnedSummary
+                    ForEach(BadgeCategory.allCases) { category in
+                        categorySection(for: category)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 20)
+            }
+            .background(Color.background.ignoresSafeArea())
+            .navigationTitle("Achievements")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        isPresented = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.body.weight(.semibold))
+                            .foregroundColor(.textPrimary)
+                    }
+                    .accessibilityLabel("Dismiss")
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private var earnedSummary: some View {
+        let earned = center.earnedBadgeIDs.count
+        let total = BadgeCatalog.all.count
+        let progress = total == 0 ? 0 : Double(earned) / Double(total)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("\(earned) of \(total) earned")
+                    .font(.headline)
+                    .foregroundColor(.textPrimary)
+                Spacer()
+                Text("\(Int(progress * 100))%")
+                    .font(.headline)
+                    .foregroundColor(.primaryPurple)
+            }
+            ProgressView(value: progress)
+                .tint(.primaryPurple)
+        }
+    }
+
+    @ViewBuilder
+    private func categorySection(for category: BadgeCategory) -> some View {
+        let badges = BadgeCatalog.all.filter { $0.category == category }
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(category.gradient)
+                    .frame(width: 10, height: 10)
+                Text(category.displayName)
+                    .font(.title3.weight(.semibold))
+                    .foregroundColor(.textPrimary)
+                Spacer()
+                Text(progressLabel(for: badges))
+                    .font(.subheadline)
+                    .foregroundColor(.textSecondary)
+            }
+            LazyVGrid(columns: columns, spacing: 18) {
+                ForEach(badges) { badge in
+                    BadgeGalleryCell(badge: badge, isEarned: center.isEarned(badge))
+                }
+            }
+        }
+    }
+
+    private func progressLabel(for badges: [Badge]) -> String {
+        let earned = badges.filter { center.isEarned($0) }.count
+        return "\(earned)/\(badges.count)"
+    }
+}
+
+private struct BadgeGalleryCell: View {
+    let badge: Badge
+    let isEarned: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            BadgeArtworkView(badge: badge, size: 78, isLocked: !isEarned)
+            Text(badge.title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(isEarned ? .textPrimary : .textSecondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+            Text(badge.tagline)
+                .font(.caption)
+                .foregroundColor(.textSecondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 }
 
