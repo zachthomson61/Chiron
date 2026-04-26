@@ -109,7 +109,7 @@ struct RootTabView: View {
             }
 
             #if os(iOS)
-            UIImpactFeedbackGenerator(style: .light).impactOccurred() // Light haptic on tab switch
+            Haptics.impact(.light) // Light haptic on tab switch
             #endif
         }
 

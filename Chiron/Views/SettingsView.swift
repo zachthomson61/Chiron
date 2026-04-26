@@ -1,51 +1,126 @@
 import SwiftUI
 
-/// Settings view with coaching style selection and preferences.
+/// App-level preferences that aren't surfaced anywhere else in the user profile:
+/// audio, haptics, camera coaching, and weight units. Account, name/email, coach
+/// persona, intensity, and bodyweight live on `ProfileView` itself, so this screen
+/// deliberately doesn't repeat them.
 struct SettingsView: View {
-    @StateObject private var viewModel = WorkoutViewModel()
-    @StateObject private var preferencesManager = UserPreferencesManager.shared
-    @State private var selectedCoachingStyle: String = "Supportive"
-    
-    let coachingStyles = ["Supportive", "Direct", "Encouraging", "Technical", "Motivational"]
-    
+    @StateObject private var speech = SpeechManager.shared
+    @StateObject private var haptics = HapticsManager.shared
+    @StateObject private var cameraCoaching = CameraCoachingPreferencesManager.shared
+    @State private var preferredUnits: UnitSystem = .imperial
+    @State private var profileMissing = false
+
+    private let profileStore = UserDefaultsUserProfileStore()
+
     var body: some View {
         Form {
-            Section(header: Text("Coaching")) {
-                Picker("Coaching Style", selection: $selectedCoachingStyle) {
-                    ForEach(coachingStyles, id: \.self) { style in
-                        Text(style).tag(style)
-                    }
-                }
-                .onChange(of: selectedCoachingStyle) { oldValue, newValue in
-                    viewModel.coachingStyle = newValue
-                    // TODO: Persist coaching style preference
-                }
-                
-                Text("Choose how you want to receive feedback during workouts")
-                    .font(.neueMontrealRegular(size: 12))
-                    .foregroundColor(.textSecondary)
-            }
-            
-            Section(header: Text("Account")) {
-                Text("Name")
-                Text("Email")
-            }
-            
-            Section(header: Text("Preferences")) {
-                Toggle("Haptics", isOn: .constant(true))
-            }
-            
-            Section(header: Text("Training")) {
-                NavigationLink("Training Log") {
-                    Text("Training Log")
-                }
-            }
+            audioSection
+            hapticsSection
+            cameraCoachingSection
+            unitsSection
+            aboutSection
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            selectedCoachingStyle = viewModel.coachingStyle
+        .onAppear(perform: loadPreferredUnits)
+    }
+
+    // MARK: - Audio & Voice
+
+    private var audioSection: some View {
+        Section {
+            Toggle("Spoken Cues", isOn: $speech.speechEnabled)
+        } header: {
+            Text("Audio & Voice")
+        } footer: {
+            Text("When off, the coach stays silent — including PR call-outs, set wrap-ups, and rest reminders. Sound effects from local audio still play.")
         }
+    }
+
+    // MARK: - Haptics
+
+    private var hapticsSection: some View {
+        Section {
+            Toggle("Haptic Feedback", isOn: $haptics.isEnabled)
+        } header: {
+            Text("Haptics")
+        } footer: {
+            Text("Disables tab switches, weight scroller snaps, set start/end, and badge unlock taps.")
+        }
+    }
+
+    // MARK: - Camera Coaching
+
+    private var cameraCoachingSection: some View {
+        Section {
+            Toggle("Camera Coaching", isOn: $cameraCoaching.masterEnabled)
+        } header: {
+            Text("Camera Coaching")
+        } footer: {
+            Text("Master switch for on-device form analysis during sets. When off, no exercise will run rep counting or form cues, regardless of per-exercise settings.")
+        }
+    }
+
+    // MARK: - Units
+
+    private var unitsSection: some View {
+        Section {
+            Picker("Weight Units", selection: $preferredUnits) {
+                ForEach(UnitSystem.allCases) { system in
+                    Text(system.displayName).tag(system)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(profileMissing)
+            .onChange(of: preferredUnits) { _, newValue in
+                persistPreferredUnits(newValue)
+            }
+        } header: {
+            Text("Units")
+        } footer: {
+            Text(profileMissing
+                 ? "Finish onboarding to choose your display units."
+                 : "Affects how weights are shown across the app. Stored values aren't converted — only the display.")
+        }
+    }
+
+    // MARK: - About
+
+    private var aboutSection: some View {
+        Section(header: Text("About")) {
+            HStack {
+                Text("Version")
+                Spacer()
+                Text(appVersionString)
+                    .foregroundColor(.textSecondary)
+            }
+        }
+    }
+
+    // MARK: - Persistence
+
+    private func loadPreferredUnits() {
+        guard let profile = profileStore.load() else {
+            profileMissing = true
+            return
+        }
+        profileMissing = false
+        preferredUnits = profile.preferredUnits
+    }
+
+    private func persistPreferredUnits(_ newValue: UnitSystem) {
+        guard var profile = profileStore.load() else { return }
+        guard profile.preferredUnits != newValue else { return }
+        profile.preferredUnits = newValue
+        try? profileStore.save(profile)
+    }
+
+    private var appVersionString: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String ?? ""
+        return build.isEmpty ? short : "\(short) (\(build))"
     }
 }
 
@@ -55,4 +130,3 @@ struct SettingsView: View {
     }
     .preferredColorScheme(.dark)
 }
-

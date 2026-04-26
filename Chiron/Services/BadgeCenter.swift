@@ -436,7 +436,7 @@ final class BadgeCenter: ObservableObject {
         persistEarned()
         unlockQueue.append(badge)
         #if canImport(UIKit)
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        Haptics.notification(.success)
         #endif
     }
 

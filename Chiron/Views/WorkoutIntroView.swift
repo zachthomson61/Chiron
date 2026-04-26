@@ -1579,16 +1579,12 @@ struct WorkoutIntroView: View {
     
     /// Trigger haptic feedback for exercise start
     private func triggerStartHaptic() {
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.prepare()
-        generator.impactOccurred()
+        Haptics.impact(.medium)
     }
-    
+
     /// Trigger haptic feedback for exercise end
     private func triggerEndHaptic() {
-        let generator = UIImpactFeedbackGenerator(style: .heavy)
-        generator.prepare()
-        generator.impactOccurred()
+        Haptics.impact(.heavy)
     }
     
     /// Generate and play a beep tone programmatically

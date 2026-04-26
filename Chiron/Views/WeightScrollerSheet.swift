@@ -87,7 +87,7 @@ struct WeightScrollerSheet: View {
                     // Fire a light haptic on every snap — the wheel picker's
                     // built-in taptic is subtle, so we reinforce it explicitly.
                     if newValue != lastHapticValue {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        Haptics.impact(.light)
                         lastHapticValue = newValue
                     }
                 }

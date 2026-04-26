@@ -495,7 +495,7 @@ struct IntensitySlider: View {
                         let step = max(1, min(5, Int(dragValue.rounded())))
                         if step != lastHapticStep {
                             lastHapticStep = step
-                            UISelectionFeedbackGenerator().selectionChanged()
+                            Haptics.selection()
                         }
                     }
                     .onEnded { _ in

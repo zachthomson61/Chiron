@@ -24,7 +24,20 @@ class SpeechManager: NSObject, ObservableObject {
     // Published state
     @Published var isSpeaking = false
     @Published var isListening = false
-    @Published var speechEnabled = true
+    @Published var speechEnabled: Bool = SpeechManager.loadSpeechEnabled() {
+        didSet {
+            UserDefaults.standard.set(speechEnabled, forKey: Self.speechEnabledKey)
+        }
+    }
+
+    private static let speechEnabledKey = "chiron.spoken_cues_enabled.v1"
+
+    private static func loadSpeechEnabled() -> Bool {
+        if UserDefaults.standard.object(forKey: speechEnabledKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: speechEnabledKey)
+    }
     
     // Speech recognition plumbing (disabled for now)
     private var audioEngine: AVAudioEngine?
