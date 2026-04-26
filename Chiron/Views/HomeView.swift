@@ -31,6 +31,7 @@ struct HomeView: View {
                 let shouldShowGoalHint = !goalIsSet && !UserDefaults.standard.bool(forKey: "has_shown_goal_hint")
                 
                 ScrollView {
+                    VStack(spacing: 0) {
                     VStack(spacing: HomeScreenSpacing.sectionSpacing) {
                         // HEADER
                         VStack(alignment: .leading, spacing: HomeScreenSpacing.headerStackSpacing) {
@@ -101,17 +102,17 @@ struct HomeView: View {
                         // Self-loading — fetches all set logs once on appear
                         // and computes rankings client-side.
                         RecentProgressSection()
-
-                        // FLEX SPACER (shrinks/grows to balance)
-                        Spacer()
-                            .frame(height: max(0, min(40, h - contentHeight)))
-                            .fixedSize()
-
                     }
                     .padding(.horizontal, 20)
                     .background(
                         ViewHeightReader(height: $contentHeight)
                     )
+
+                        // FLEX SPACER (shrinks/grows to balance)
+                        Spacer()
+                            .frame(height: max(0, min(40, h - contentHeight)))
+                            .fixedSize()
+                    }
                 }
                 .scrollIndicators(.hidden)
                 .scrollBounceBehavior(.basedOnSize)
@@ -155,21 +156,28 @@ private extension HomeView {
 }
 
 
-// Helper to measure the VStack height
+// Reads the rendered height of its parent and writes it to the binding.
+// Uses `.onChange` rather than a `PreferenceKey` because the title's
+// continuously-repeating animation re-runs the layout pass each frame,
+// and preference writes inside that pass trip SwiftUI's "Bound preference
+// tried to update multiple times per frame" warning. `.onChange` updates
+// state via the normal mutation pipeline, which is debounced.
 struct ViewHeightReader: View {
     @Binding var height: CGFloat
     var body: some View {
         GeometryReader { gp in
             Color.clear
-                .preference(key: HeightKey.self, value: gp.size.height)
+                .onAppear { commit(gp.size.height) }
+                .onChange(of: gp.size.height) { _, newValue in
+                    commit(newValue)
+                }
         }
-        .onPreferenceChange(HeightKey.self) { height = $0 }
     }
-}
 
-private struct HeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+    private func commit(_ newValue: CGFloat) {
+        guard newValue.isFinite, abs(newValue - height) > 0.5 else { return }
+        height = newValue
+    }
 }
 
 private struct MyGoalCard: View {

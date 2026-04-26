@@ -3183,8 +3183,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         skeleton: Skeleton3D,
         confidence: [String: Float]
     ) {
-        let (hCat, hScores) = SquatViewpointClassifier.classifyCameraHeight(overlay: overlay)
-        let (vCat, vScores) = SquatViewpointClassifier.classifyCameraView(overlay: overlay, confidence: confidence)
+        let (hCat, _) = SquatViewpointClassifier.classifyCameraHeight(overlay: overlay)
+        let (vCat, _) = SquatViewpointClassifier.classifyCameraView(overlay: overlay, confidence: confidence)
         let rawBucket = SquatViewpointBucket.bucket(height: hCat, view: vCat)
         _ = viewpointSmoother.push(candidate: rawBucket)
         activeBodyweightRepProfile = SquatRepProfileTable.profile(for: viewpointSmoother.activeBucket)

@@ -7,11 +7,16 @@
 
 import SwiftUI
 import SwiftData
+import FirebaseCore
 
 /// Entry point for the iOS app. Keeps startup work minimal so the first screen appears quickly.
 @main
 struct ChironApp: App {
     @StateObject private var appState = AppState()
+
+    init() {
+        FirebaseApp.configure()
+    }
 
     var body: some Scene {
         WindowGroup {

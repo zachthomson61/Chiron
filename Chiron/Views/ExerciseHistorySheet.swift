@@ -615,7 +615,7 @@ struct ProgressChartSection: View {
         .opacity(lineProgress)
         .chartOverlay { proxy in
             GeometryReader { geo in
-                let plotRect = geo[proxy.plotAreaFrame]
+                let plotRect = proxy.plotFrame.map { geo[$0] } ?? .zero
                 // Custom x-axis date labels — rendered with SwiftUI
                 // Text/VStack so the stacked "Thu / 16" layout is
                 // guaranteed. Each label is positioned at the chart's

@@ -46,15 +46,6 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
-	<key>UIAppFonts</key>
-	<array>
-		<string>NeueMontreal-Regular.otf</string>
-		<string>NeueMontreal-SemiBold.otf</string>
-		<string>NeueMontreal-Bold.otf</string>
-		<string>NeueMontreal-Regular.ttf</string>
-		<string>NeueMontreal-SemiBold.ttf</string>
-		<string>NeueMontreal-Bold.ttf</string>
-	</array>
 	<key>Chiron Voice Key</key>
 	<string>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</string>
 </dict>
