@@ -865,7 +865,7 @@ struct TrackView: View {
         scheduleFramingReminder()
     }
 
-    /// Speak "Ensure your full body is in frame" 2s after a dropdown exercise
+    /// Speak the framing setup instructions 2s after a dropdown exercise
     /// selection. Only fires from this path — onAppear's `restoreLastTrackedExercise`
     /// does not call `didSelectExercise`, so re-entering the tab stays silent.
     /// Cancels any previously scheduled reminder so rapid re-selection or
@@ -874,7 +874,7 @@ struct TrackView: View {
         pendingFramingSpeech?.cancel()
         let work = DispatchWorkItem {
             SpeechManager.shared.speak(
-                "Ensure your full body is in frame.",
+                "Prop your phone about four to six feet away. Step back until you see a green skeleton filter. When you're ready for your set, enter the weight you're lifting and press begin set.",
                 priority: .high,
                 context: .instruction
             )
