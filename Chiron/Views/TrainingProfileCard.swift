@@ -128,23 +128,10 @@ struct TrainingProfileCard: View {
 
     // MARK: Section header
 
-    /// Hint subtitle calls out the editable affordance — the pencil icon
-    /// shown next to weight + coach is the only "tap me" cue, so we explain
-    /// it once at the top instead of stamping a label on every row.
     private var sectionHeader: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Training Profile")
-                .font(.headline)
-                .foregroundColor(.textPrimary)
-
-            HStack(spacing: 5) {
-                Image(systemName: "pencil")
-                    .font(.system(size: 9, weight: .semibold))
-                Text("Tap items marked with a pencil to update them.")
-                    .font(.system(size: 12))
-            }
-            .foregroundColor(.textSecondary)
-        }
+        Text("Training Profile")
+            .font(.headline)
+            .foregroundColor(.textPrimary)
     }
 
     // MARK: Stat tiles
@@ -177,8 +164,8 @@ struct TrainingProfileCard: View {
                     .foregroundColor(.textSecondary)
                 Spacer(minLength: 0)
                 if editable {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 9, weight: .bold))
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 13, weight: .bold))
                         .foregroundColor(.primaryPurple)
                 }
             }
@@ -279,8 +266,8 @@ struct TrainingProfileCard: View {
                             .foregroundColor(.textPrimary)
                     }
                     Spacer()
-                    Image(systemName: "pencil")
-                        .font(.system(size: 12, weight: .semibold))
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.primaryPurple)
                 }
                 .contentShape(Rectangle())
