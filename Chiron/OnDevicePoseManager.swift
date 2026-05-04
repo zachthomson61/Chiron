@@ -271,6 +271,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var bwBadFrameStreak: Int = 0
     private let bwBadFrameLimit: Int = 15
     private var bwLastRejectReason: String?   // transient, for debug CSV
+    private var rdlLastRejectReason: String?  // transient, for debug CSV
     private var bwSelectedSide: String = ""   // "L" or "R"
     private var bwRawKneeAngle: Float?        // unsmoothed, for debug CSV
 
@@ -285,13 +286,32 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var rowRepCycleStartTime: Date?
     private var rowBadFrameStreak: Int = 0
     private let rowEMAAlpha: Float = 0.4
-    /// Enter FLEXED when smoothed angle ≤ this (top of the pull, peak elbow flexion ≈ 70–100°).
-    private let rowFlexedThreshold: Float = 110
+    /// Enter FLEXED when smoothed angle ≤ this (top of the pull).
+    /// True peak elbow flexion is ~70-100°, but front- and floor-mounted views project the
+    /// upper-arm/forearm motion mostly along the camera's depth axis, where MediaPipe's
+    /// monocular 3D depth is least accurate. The smoothed angle in those views compresses
+    /// to ~126-130° at the top of a real pull — so 130° is set as the entry threshold to
+    /// keep reps reachable across view angles. Side views still trigger easily (deep flex).
+    private let rowFlexedThreshold: Float = 130
     /// Return to EXTENDED when smoothed angle ≥ this (arms back near straight ≈ 160–170°).
     private let rowExtendedThreshold: Float = 145
     private let rowMinRepCycleDuration: TimeInterval = 0.5
     private let rowMaxRepCycleDuration: TimeInterval = 5.0
     private let rowMinRepInterval: TimeInterval = 0.5
+    /// Row-specific ankle drift tolerance, looser than the global 0.05 because
+    /// the bent-over bracing position invites foot micro-shifts and front views
+    /// amplify 2D ankle-Y jitter without representing actual walking.
+    private let rowAnkleStabilityTolerance: Float = 0.10
+    /// Shoulder-Y stability gate: a real row keeps the torso planted in roughly the same
+    /// vertical image position throughout the pull. Misfires (standing upright, walking
+    /// into position, hand-to-face) shift the shoulder Y substantially. Across the
+    /// observed test set, real rows stay within 0.021; misfires exceed 0.053. Threshold
+    /// of 0.035 sits in the empirical gap with margin both ways.
+    private let rowShoulderYStabilityTolerance: Float = 0.035
+    /// Tracks the shoulder Y range across the active rep cycle (`.flexed` phase only).
+    private var rowMinShoulderYInFlexed: Float = .greatestFiniteMagnitude
+    private var rowMaxShoulderYInFlexed: Float = -.greatestFiniteMagnitude
+    private var rowLastRejectReason: String?  // transient, for debug CSV
 
     // MARK: - Deadlift rep state (bodyweight-style 2-state hysteresis on hip angle)
     //
@@ -322,14 +342,49 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var rdlSmoothedHipAngle: Float?
     private var rdlRepCycleStartTime: Date?
     private var rdlBadFrameStreak: Int = 0
+    /// Ankle Y baseline sampled while the user is verifiably standing (smoothed ≥ standing
+    /// threshold). Locked in at the transition to `.hinged` so the rep-cycle drift gate
+    /// measures against the user's most-planted foot position, not a transitional one.
+    /// Mirrors how deadlift's `.lockedOut` transition naturally captures the stable upright
+    /// stance.
+    private var rdlStandingAnkleY: Float?
+    /// Lowest (max image Y) wrist position observed while in `.hinged`. Used to reject
+    /// bar pickup/putdown — motions where the bar travels to the floor — vs RDLs where
+    /// the bar tracks the thighs and stops at mid-shin level.
+    private var rdlMaxLowerWristYInHinge: Float = -.greatestFiniteMagnitude
+    /// Deepest (smallest) smoothed hip angle observed while in `.hinged`. Pairs with the
+    /// wrist signal above — a real RDL hinges deeper than a pickup/putdown.
+    private var rdlMinSmoothedHipAngleInHinge: Float = .greatestFiniteMagnitude
     private let rdlEMAAlpha: Float = 0.4
     /// Enter HINGED when smoothed angle ≤ this.
     private let rdlHingeThreshold: Float = 130
     /// Return to STANDING when smoothed angle ≥ this — REP counted on this transition.
-    private let rdlStandingThreshold: Float = 160
+    /// Set well below true upright (170°+) so a front-mounted camera — where the torso lies
+    /// along the depth axis and 3D depth foreshortens "stand-up" peaks to ~155-158° —
+    /// still triggers the rep, especially on back-to-back reps where the lifter doesn't
+    /// fully relockout between cycles.
+    private let rdlStandingThreshold: Float = 150
     private let rdlMinRepCycleDuration: TimeInterval = 0.6
     private let rdlMaxRepCycleDuration: TimeInterval = 5.0
     private let rdlMinRepInterval: TimeInterval = 0.6
+    /// RDL-specific ankle drift tolerance, looser than the global 0.05 because
+    /// the hinge invites micro-balance shifts and front/floor-mount views
+    /// amplify 2D ankle-Y jitter without representing actual walking.
+    private let rdlAnkleStabilityTolerance: Float = 0.10
+    /// Bar-floor-reach gate.
+    /// Pickup/putdown carries the bar to the floor (lowest wrist drops well below the standing
+    /// ankle line, AND the hinge is shallower than a real RDL because the lifter bends the knees
+    /// and squats slightly to reach the bar). Real RDLs keep the wrists at mid-shin level (small
+    /// wrist-ankle delta) and hinge deeper at the bottom. Reject only when BOTH signals fire so
+    /// neither a deep pickup nor a wide-grip real rep alone can flip the decision.
+    /// `wristDelta`: floor-mounted oblique cameras compress real-rep wristDeltas up to ~0.19
+    /// (vs ~0.14 in chest-mounted views), so this threshold trades view-portability for wider
+    /// real-rep coverage. The `minHingeAngle` companion catches the cases that overlap.
+    /// `minHingeAngle`: real RDLs across the test set bottom out at 54-84°; pickup/putdown bottoms
+    /// at 91-127° because the lifter bends the knees instead of folding the hips. The 88° split
+    /// sits in the empirical gap with ~4° margin on each side.
+    private let rdlBarFloorReachWristDelta: Float = 0.16
+    private let rdlBarFloorReachMinHingeAngle: Float = 88
 
     private let weightedRepBadFrameLimit: Int = 15
 
@@ -621,6 +676,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         var debugRepCounted = false
         var debugCommitValid: Bool?
         bwLastRejectReason = nil // Clear transient reject reason from previous frame
+        rdlLastRejectReason = nil
+        rowLastRejectReason = nil
 
         // Rep counting should not advance while we're in setup mode (e.g. test overlays).
         // Set start may be explicit (Track `startManualSet`) or rep-driven (`checkForNextSetStart` after reps while `.waiting`).
@@ -649,39 +706,86 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
 
         // Log debug frame (zero overhead when disabled).
-        if SquatRepDebugLogger.shared.isEnabled, trackedExerciseType == .bodyweight {
-            let profile = activeBodyweightRepProfile
+        if SquatRepDebugLogger.shared.isEnabled {
             var frame = SquatRepDebugFrame(
                 timestamp: CACurrentMediaTime(),
                 frameIndex: SquatRepDebugLogger.shared.nextFrameIndex
             )
-            // Knee angle
-            frame.kneeAngleRaw = bwRawKneeAngle
-            frame.kneeAngleSmoothed = bwSmoothedKneeAngle
-            frame.selectedSide = bwSelectedSide
-            // State machine
-            frame.phase = bwRepPhase.rawValue
-            // 2D overlay
+            frame.exerciseType = "\(trackedExerciseType)"
+            frame.viewBucket = viewpointSmoother.activeBucket.rawValue
+
+            // 2D overlay landmarks (useful for any exercise)
+            frame.overlayShoulderY = Float(((landmarks["leftShoulder"]?.y ?? 0) + (landmarks["rightShoulder"]?.y ?? 0)) / 2)
             frame.overlayHipY = Float(((landmarks["leftHip"]?.y ?? 0) + (landmarks["rightHip"]?.y ?? 0)) / 2)
             frame.overlayKneeY = Float(((landmarks["leftKnee"]?.y ?? 0) + (landmarks["rightKnee"]?.y ?? 0)) / 2)
             frame.overlayAnkleY = Float(((landmarks["leftAnkle"]?.y ?? 0) + (landmarks["rightAnkle"]?.y ?? 0)) / 2)
             frame.overlayLegSpan = bodyweightOverlayLegSpanY(landmarks)
-            // Depth
-            frame.hipDepth3D = tempoDepth
-            // Calibration
-            frame.standingHipHeight = standingHipHeight
-            frame.standingLegLength = standingLegLength
-            // Thresholds
-            frame.downAngleThreshold = profile.downAngleThreshold
-            frame.upAngleThreshold = profile.upAngleThreshold
-            // Rep accumulation
-            frame.peakDepthThisRep = bodyweightCurrentRepPeakDepth
-            frame.repFrameCount = bodyweightRepFrameCount
-            frame.kneeWindowSamples = bodyweightKneeWindowSampleCount
-            // Events
+            if let lw = landmarks["leftWrist"]  { frame.overlayLeftWristY  = Float(lw.y) }
+            if let rw = landmarks["rightWrist"] { frame.overlayRightWristY = Float(rw.y) }
+            frame.leftWristConfidence  = adapted.perJointConfidence["leftWrist"]
+            frame.rightWristConfidence = adapted.perJointConfidence["rightWrist"]
+
+            // Stationary-feet gate snapshot (empty when not in active cycle).
+            if currentRepCycleAnkleYMin != .greatestFiniteMagnitude {
+                frame.ankleStabilityMinY = currentRepCycleAnkleYMin
+                frame.ankleStabilityMaxY = currentRepCycleAnkleYMax
+            }
+
+            // Per-exercise primary signal + thresholds.
+            switch trackedExerciseType {
+            case .bodyweight:
+                let profile = activeBodyweightRepProfile
+                frame.primaryAngleRaw = bwRawKneeAngle
+                frame.primaryAngleSmoothed = bwSmoothedKneeAngle
+                frame.selectedSide = bwSelectedSide
+                frame.phase = bwRepPhase.rawValue
+                frame.thresholdEnter = profile.downAngleThreshold
+                frame.thresholdExit = profile.upAngleThreshold
+                frame.hipDepth3D = tempoDepth
+                frame.standingHipHeight = standingHipHeight
+                frame.standingLegLength = standingLegLength
+                frame.peakDepthThisRep = bodyweightCurrentRepPeakDepth
+                frame.repFrameCount = bodyweightRepFrameCount
+                frame.kneeWindowSamples = bodyweightKneeWindowSampleCount
+                frame.rejectReason = bwLastRejectReason
+            case .barbell:
+                let profile = activeBodyweightRepProfile
+                frame.primaryAngleRaw = bwRawKneeAngle
+                frame.primaryAngleSmoothed = bwSmoothedKneeAngle
+                frame.selectedSide = bwSelectedSide
+                frame.phase = bwRepPhase.rawValue
+                frame.thresholdEnter = profile.downAngleThreshold
+                frame.thresholdExit = profile.upAngleThreshold
+                frame.hipDepth3D = tempoDepth
+                frame.rejectReason = bwLastRejectReason
+            case .deadlift:
+                frame.primaryAngleSmoothed = deadliftSmoothedHipAngle
+                frame.phase = deadliftRepPhase.rawValue
+                frame.thresholdEnter = deadliftLockoutThreshold
+                frame.thresholdExit = deadliftHingeThreshold
+            case .romanianDeadlift:
+                frame.primaryAngleSmoothed = rdlSmoothedHipAngle
+                frame.phase = rdlRepPhase.rawValue
+                frame.thresholdEnter = rdlHingeThreshold
+                frame.thresholdExit = rdlStandingThreshold
+                frame.rejectReason = rdlLastRejectReason
+            case .row:
+                frame.primaryAngleSmoothed = rowSmoothedElbowAngle
+                frame.phase = rowRepPhase.rawValue
+                frame.thresholdEnter = rowFlexedThreshold
+                frame.thresholdExit = rowExtendedThreshold
+                frame.rejectReason = rowLastRejectReason
+            case .benchPress, .closeGripBenchPress:
+                frame.benchDepth = formAnalysis.depth
+                frame.phase = reachedBottomThisCycleBenchPress ? "atBottom" : "atTop"
+                // Bench thresholds live inside `validateBenchPressRep` (0.65 / 0.25);
+                // surface them so the CSV is self-describing.
+                frame.thresholdEnter = 0.65
+                frame.thresholdExit = 0.25
+            }
+
             frame.repCounted = debugRepCounted
             frame.repCommitValid = debugCommitValid
-            frame.rejectReason = bwLastRejectReason
             SquatRepDebugLogger.shared.log(frame)
         }
     }
@@ -695,7 +799,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         case .barbell:
             return analyzeBarbellSquatForm(points)
         case .benchPress:
-            return analyzeBodyweightSquatForm(points)
+            return analyzeBenchPressForm(points)
         case .closeGripBenchPress:
             return analyzeCloseGripBenchPressForm(points)
         case .row:
@@ -1102,16 +1206,138 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         if romScore < 0.6 {
             summaryParts.append("incomplete lockout or depth")
         }
-        
+
         if summaryParts.isEmpty {
             return "Solid close-grip bench press form"
         }
-        
+
         return summaryParts.joined(separator: ", ")
     }
-    
+
+    // MARK: - 2D Regular Barbell Bench Press Form Analysis
+    //
+    // Distinct from close-grip bench: regular bench targets ~1.5x shoulder-width grip
+    // (vs ~0.8-1.0x for close grip) and tolerates more elbow flare. Reuses the wrist-Y
+    // depth signal and shared ROM / tempo helpers; only the grip and elbow ranges differ.
+
+    private func analyzeBenchPressForm(_ points: [String: CGPoint]) -> FormAnalysis {
+        let gripWidthScore = calculateBenchGripWidthScore(points)
+        let elbowScore = calculateBenchElbowFlareScore(points)
+        let romScore = calculateBenchPressROMScore(points)
+        let eccentricScore = calculateBenchPressEccentricScore()
+        let concentricScore = calculateBenchPressConcentricScore()
+
+        let overallScore = (gripWidthScore * 0.20) +
+                           (elbowScore * 0.20) +
+                           (romScore * 0.30) +
+                           (eccentricScore * 0.15) +
+                           (concentricScore * 0.15)
+
+        var issues: [IssueCode] = []
+        // Only fire `gripTooWide` when the grip is genuinely too wide. A low score from a
+        // narrow grip is just close-grip territory — different style, not unsafe.
+        if gripWidthScore < CoachingContract.Threshold.gripTooWide,
+           let ratio = benchGripWidthRatio2D(points), ratio > 1.85 {
+            issues.append(.gripTooWide)
+        }
+        if elbowScore < CoachingContract.Threshold.elbowsFlaring { issues.append(.elbowsFlaring) }
+        if romScore < CoachingContract.Threshold.incompleteRom { issues.append(.incompleteRom) }
+        issues.append(contentsOf: detectTempoIssues())
+
+        let summary = generateBenchPressSummary(
+            gripScore: gripWidthScore,
+            elbowScore: elbowScore,
+            romScore: romScore,
+            overallScore: overallScore
+        )
+        let depth = calculateBenchPressDepth(points)
+
+        return FormAnalysis(
+            depth: depth,
+            backAngle: 0.0,
+            kneeAlignment: 0.0,
+            overallScore: overallScore,
+            issues: issues,
+            summary: summary,
+            repCount: repCount,
+            avgEccentricMs: tempoRepSamples > 0 ? Float(sumEccentricMs / Double(tempoRepSamples)) : nil,
+            avgPauseMs: tempoRepSamples > 0 ? Float(sumPauseMs / Double(tempoRepSamples)) : nil,
+            avgConcentricMs: tempoRepSamples > 0 ? Float(sumConcentricMs / Double(tempoRepSamples)) : nil,
+            avgBottomDepth: nil,
+            deepRepRatio: nil
+        )
+    }
+
+    /// Wrist-to-shoulder grip ratio with view-angle correction. Returns nil if landmarks unavailable.
+    private func benchGripWidthRatio2D(_ points: [String: CGPoint]) -> Float? {
+        guard let leftWrist = points["leftWrist"],
+              let rightWrist = points["rightWrist"],
+              let leftShoulder = points["leftShoulder"],
+              let rightShoulder = points["rightShoulder"] else { return nil }
+        let gripWidth = abs(leftWrist.x - rightWrist.x)
+        let shoulderWidth = abs(leftShoulder.x - rightShoulder.x)
+        guard shoulderWidth > 0 else { return nil }
+        let raw = Float(gripWidth / shoulderWidth)
+        switch benchPressViewType {
+        case .rack:   return raw * 1.1
+        case .floor:  return raw * 0.95
+        case .tripod: return raw
+        }
+    }
+
+    /// Regular-bench grip width score: ideal band [1.3, 1.8]x shoulder width, graceful falloff
+    /// to either side. Below ~1.0 = close-grip territory; above ~2.0 = shoulder-strain risk.
+    private func calculateBenchGripWidthScore(_ points: [String: CGPoint]) -> Float {
+        guard let ratio = benchGripWidthRatio2D(points) else { return 0.5 }
+        if ratio >= 1.3 && ratio <= 1.8 { return 1.0 }
+        if ratio < 1.3 {
+            return max(0.4, 1.0 - (1.3 - ratio) * 1.2)
+        }
+        return max(0.3, 1.0 - (ratio - 1.8) * 1.4)
+    }
+
+    /// Regular-bench elbow flare score: tolerates more flare than close-grip. 1.0 inside ≤0.85
+    /// of shoulder width; drops sharply past ~1.05 (rotator cuff strain territory).
+    private func calculateBenchElbowFlareScore(_ points: [String: CGPoint]) -> Float {
+        guard let leftElbow = points["leftElbow"],
+              let rightElbow = points["rightElbow"],
+              let leftShoulder = points["leftShoulder"],
+              let rightShoulder = points["rightShoulder"],
+              let leftHip = points["leftHip"],
+              let rightHip = points["rightHip"] else { return 0.5 }
+        let torsoMidlineX = (leftShoulder.x + rightShoulder.x + leftHip.x + rightHip.x) / 4.0
+        let shoulderWidth = abs(leftShoulder.x - rightShoulder.x)
+        guard shoulderWidth > 0 else { return 0.5 }
+        let leftOffset = abs(leftElbow.x - torsoMidlineX)
+        let rightOffset = abs(rightElbow.x - torsoMidlineX)
+        let avgOffset = (leftOffset + rightOffset) / 2.0
+        let raw = Float(avgOffset / shoulderWidth)
+        let flare: Float
+        switch benchPressViewType {
+        case .rack:   flare = raw * 1.15
+        case .floor:  flare = raw * 0.9
+        case .tripod: flare = raw
+        }
+        if flare <= 0.85 { return 1.0 }
+        if flare <= 1.05 { return max(0.7, 1.0 - (flare - 0.85) * 1.5) }
+        return max(0.4, 0.85 - (flare - 1.05) * 0.9)
+    }
+
+    /// Generate summary for regular barbell bench press form analysis.
+    private func generateBenchPressSummary(gripScore: Float, elbowScore: Float, romScore: Float, overallScore: Float) -> String {
+        var parts: [String] = []
+        if gripScore >= 0.8  { parts.append("solid grip width") }
+        if elbowScore >= 0.8 { parts.append("elbows in a safe position") }
+        if romScore >= 0.8   { parts.append("full range of motion") }
+        if gripScore < 0.6   { parts.append("grip width is off") }
+        if elbowScore < 0.6  { parts.append("elbows flaring out") }
+        if romScore < 0.6    { parts.append("incomplete lockout or chest touch") }
+        if parts.isEmpty { return "Solid bench press form" }
+        return parts.joined(separator: ", ")
+    }
+
     // MARK: - 3D Form Analysis
-    
+
     /// Dispatches to exercise-specific 3D form analysis.
     /// Bodyweight: computes frame metrics, updates rep accumulation, then aggregates from rep history or fallback.
     private func formAnalysisFrom3D(skeleton: Skeleton3D) -> FormAnalysis {
@@ -1126,8 +1352,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 fallback: FrameMetrics(depth: depth, backAngle: backAngle, kneeAlignment: kneeAlignment),
                 viewpointProfile: activeBodyweightRepProfile
             )
-        case .barbell, .benchPress:
+        case .barbell:
             return analyzeSquatForm3D(skeleton)
+        case .benchPress:
+            return analyzeBenchPressForm3D(skeleton)
         case .closeGripBenchPress:
             return analyzeCloseGripBenchPressForm3D(skeleton)
         case .row:
@@ -1698,7 +1926,95 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         let avg = (leftAngle + rightAngle) / 2.0
         return max(0, min(1, (170 - avg) / 90))
     }
-    
+
+    // MARK: - 3D Regular Barbell Bench Press Form Analysis
+
+    private func analyzeBenchPressForm3D(_ skeleton: Skeleton3D) -> FormAnalysis {
+        let gripWidthScore = calculateBenchGripWidthScore3D(skeleton)
+        let elbowPositionScore = calculateBenchElbowFlareScore3D(skeleton)
+        let romScore = calculateBenchPressROMScore3D(skeleton)
+        let eccentricScore = calculateBenchPressEccentricScore()
+        let concentricScore = calculateBenchPressConcentricScore()
+
+        let overallScore = (gripWidthScore * 0.20) +
+                           (elbowPositionScore * 0.20) +
+                           (romScore * 0.30) +
+                           (eccentricScore * 0.15) +
+                           (concentricScore * 0.15)
+
+        var issues: [IssueCode] = []
+        if gripWidthScore < CoachingContract.Threshold.gripTooWide,
+           let ratio = benchGripWidthRatio3D(skeleton), ratio > 1.85 {
+            issues.append(.gripTooWide)
+        }
+        if elbowPositionScore < CoachingContract.Threshold.elbowsFlaring { issues.append(.elbowsFlaring) }
+        if romScore < CoachingContract.Threshold.incompleteRom { issues.append(.incompleteRom) }
+        issues.append(contentsOf: detectTempoIssues())
+
+        let summary = generateBenchPressSummary(
+            gripScore: gripWidthScore,
+            elbowScore: elbowPositionScore,
+            romScore: romScore,
+            overallScore: overallScore
+        )
+        let depth = calculateBenchPressDepth3D(skeleton)
+
+        return FormAnalysis(
+            depth: depth,
+            backAngle: 0.0,
+            kneeAlignment: 0.0,
+            overallScore: overallScore,
+            issues: issues,
+            summary: summary,
+            repCount: repCount,
+            avgEccentricMs: tempoRepSamples > 0 ? Float(sumEccentricMs / Double(tempoRepSamples)) : nil,
+            avgPauseMs: tempoRepSamples > 0 ? Float(sumPauseMs / Double(tempoRepSamples)) : nil,
+            avgConcentricMs: tempoRepSamples > 0 ? Float(sumConcentricMs / Double(tempoRepSamples)) : nil,
+            avgBottomDepth: nil,
+            deepRepRatio: nil
+        )
+    }
+
+    /// 3D wrist-to-shoulder grip ratio (camera-invariant). Returns nil if landmarks unavailable.
+    private func benchGripWidthRatio3D(_ skeleton: Skeleton3D) -> Float? {
+        guard let lw = skeleton.position("leftWrist"),
+              let rw = skeleton.position("rightWrist"),
+              let ls = skeleton.position("leftShoulder"),
+              let rs = skeleton.position("rightShoulder") else { return nil }
+        let gripWidth = length(lw - rw)
+        let shoulderWidth = length(ls - rs)
+        guard shoulderWidth > .ulpOfOne else { return nil }
+        return gripWidth / shoulderWidth
+    }
+
+    /// 3D regular-bench grip width: ideal band [1.3, 1.8]x shoulder width.
+    private func calculateBenchGripWidthScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let ratio = benchGripWidthRatio3D(skeleton) else { return 0.5 }
+        if ratio >= 1.3 && ratio <= 1.8 { return 1.0 }
+        if ratio < 1.3 {
+            return max(0.4, 1.0 - (1.3 - ratio) * 1.2)
+        }
+        return max(0.3, 1.0 - (ratio - 1.8) * 1.4)
+    }
+
+    /// 3D regular-bench elbow flare: lateral elbow offset / shoulder width, more permissive than close-grip.
+    private func calculateBenchElbowFlareScore3D(_ skeleton: Skeleton3D) -> Float {
+        guard let le = skeleton.position("leftElbow"),
+              let re = skeleton.position("rightElbow"),
+              let ls = skeleton.position("leftShoulder"),
+              let rs = skeleton.position("rightShoulder"),
+              let lh = skeleton.position("leftHip"),
+              let rh = skeleton.position("rightHip") else { return 0.5 }
+        let center = (ls + rs + lh + rh) / 4.0
+        let shoulderWidth = length(ls - rs)
+        guard shoulderWidth > .ulpOfOne else { return 0.5 }
+        let avgOffset = (abs(le.x - center.x) + abs(re.x - center.x)) / 2.0
+        let flare = avgOffset / shoulderWidth
+        if flare <= 0.85 { return 1.0 }
+        if flare <= 1.05 { return max(0.7, 1.0 - (flare - 0.85) * 1.5) }
+        return max(0.4, 0.85 - (flare - 1.05) * 0.9)
+    }
+
     private func calculateDepth(_ points: [String: CGPoint]) -> Float {
         // Simplified depth calculation based on hip position
         guard let leftHip = points["leftHip"], let rightHip = points["rightHip"] else {
@@ -2058,31 +2374,65 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rowRepPhase = .flexed
                 rowRepCycleStartTime = now
                 beginAnkleStabilityCycle(overlay: overlay)
+                rowMinShoulderYInFlexed = .greatestFiniteMagnitude
+                rowMaxShoulderYInFlexed = -.greatestFiniteMagnitude
+                if let ov = overlay,
+                   let ls = ov["leftShoulder"], let rs = ov["rightShoulder"] {
+                    let shY = Float((ls.y + rs.y) / 2)
+                    rowMinShoulderYInFlexed = shY
+                    rowMaxShoulderYInFlexed = shY
+                }
             }
             return false
 
         case .flexed:
+            // Sample shoulder Y on every frame in the active cycle (parallel to ankle gate).
+            if let ov = overlay,
+               let ls = ov["leftShoulder"], let rs = ov["rightShoulder"] {
+                let shY = Float((ls.y + rs.y) / 2)
+                rowMinShoulderYInFlexed = min(rowMinShoulderYInFlexed, shY)
+                rowMaxShoulderYInFlexed = max(rowMaxShoulderYInFlexed, shY)
+            }
+
             guard smoothed >= rowExtendedThreshold else { return false }
             let dur = now.timeIntervalSince(rowRepCycleStartTime ?? now)
             if let last = lastRepValidationTime, now.timeIntervalSince(last) < rowMinRepInterval {
+                rowLastRejectReason = String(format: "minInterval dt=%.2fs", now.timeIntervalSince(last))
                 rowRepPhase = .extended; rowRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 return false
             }
             if dur < rowMinRepCycleDuration {
+                rowLastRejectReason = String(format: "tooShort dur=%.2fs", dur)
                 rowRepPhase = .extended; rowRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 return false
             }
             if dur > rowMaxRepCycleDuration {
+                rowLastRejectReason = String(format: "tooLong dur=%.2fs", dur)
                 rowRepPhase = .extended; rowRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 return false
             }
-            if ankleDriftExceedsTolerance() {
+            if ankleDriftExceedsTolerance(tolerance: rowAnkleStabilityTolerance) {
+                let driftRange = currentRepCycleAnkleYMax - currentRepCycleAnkleYMin
+                rowLastRejectReason = String(format: "ankleDrift range=%.4f tol=%.4f", driftRange, rowAnkleStabilityTolerance)
                 rowRepPhase = .extended; rowRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 return false
+            }
+            // Shoulder-Y stability gate: a real row keeps the torso planted in roughly the
+            // same vertical image position throughout the pull. Misfires (standing upright
+            // into position, walking, hand-to-face, partial setup) shift the shoulder Y
+            // substantially. This is the row analog of the ankle stability gate.
+            if rowMinShoulderYInFlexed != .greatestFiniteMagnitude {
+                let shoulderRange = rowMaxShoulderYInFlexed - rowMinShoulderYInFlexed
+                if shoulderRange > rowShoulderYStabilityTolerance {
+                    rowLastRejectReason = String(format: "shoulderShift range=%.4f tol=%.4f", shoulderRange, rowShoulderYStabilityTolerance)
+                    rowRepPhase = .extended; rowRepCycleStartTime = nil
+                    resetCurrentRepCycleAnkleStability()
+                    return false
+                }
             }
             // Rep counted.
             lastRepValidationTime = now
@@ -2806,43 +3156,105 @@ class OnDevicePoseManager: NSObject, ObservableObject {
 
         switch rdlRepPhase {
         case .standing:
+            // Continuously refresh the ankle baseline while the user is verifiably standing,
+            // so the rep cycle starts measuring drift from a planted-feet reference point.
+            if smoothed >= rdlStandingThreshold,
+               let ov = overlay,
+               let la = ov["leftAnkle"], let ra = ov["rightAnkle"] {
+                rdlStandingAnkleY = Float((la.y + ra.y) / 2)
+            }
             if smoothed <= rdlHingeThreshold {
                 rdlRepPhase = .hinged
                 rdlRepCycleStartTime = now
-                beginAnkleStabilityCycle(overlay: overlay)
+                rdlMaxLowerWristYInHinge = -.greatestFiniteMagnitude
+                rdlMinSmoothedHipAngleInHinge = .greatestFiniteMagnitude
+                if let stableY = rdlStandingAnkleY {
+                    currentRepCycleAnkleYMin = stableY
+                    currentRepCycleAnkleYMax = stableY
+                } else {
+                    beginAnkleStabilityCycle(overlay: overlay)
+                }
             }
             return false
 
         case .hinged:
+            // Track the lowest (largest-Y) wrist and the deepest (smallest-angle) hinge seen this
+            // cycle so the bar-floor-reach gate below can reject pickups/putdowns. The wrist signal
+            // uses the lower of the two wrists — only one needs to be visible/tracked.
+            if let ov = overlay {
+                var lowestWristY: Float = -.greatestFiniteMagnitude
+                if let lw = ov["leftWrist"]  { lowestWristY = max(lowestWristY, Float(lw.y)) }
+                if let rw = ov["rightWrist"] { lowestWristY = max(lowestWristY, Float(rw.y)) }
+                if lowestWristY != -.greatestFiniteMagnitude {
+                    rdlMaxLowerWristYInHinge = max(rdlMaxLowerWristYInHinge, lowestWristY)
+                }
+            }
+            rdlMinSmoothedHipAngleInHinge = min(rdlMinSmoothedHipAngleInHinge, smoothed)
+
             guard smoothed >= rdlStandingThreshold else { return false }
             let dur = now.timeIntervalSince(rdlRepCycleStartTime ?? now)
             if let last = lastRepValidationTime, now.timeIntervalSince(last) < rdlMinRepInterval {
+                rdlLastRejectReason = String(format: "minInterval dt=%.2fs", now.timeIntervalSince(last))
+                resetRdlBarFloorReachTrackers()
                 rdlRepPhase = .standing; rdlRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 return false
             }
             if dur < rdlMinRepCycleDuration {
+                rdlLastRejectReason = String(format: "tooShort dur=%.2fs", dur)
+                resetRdlBarFloorReachTrackers()
                 rdlRepPhase = .standing; rdlRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 return false
             }
             if dur > rdlMaxRepCycleDuration {
+                rdlLastRejectReason = String(format: "tooLong dur=%.2fs", dur)
+                resetRdlBarFloorReachTrackers()
                 rdlRepPhase = .standing; rdlRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 return false
             }
-            if ankleDriftExceedsTolerance() {
+            if ankleDriftExceedsTolerance(tolerance: rdlAnkleStabilityTolerance) {
+                let driftRange = currentRepCycleAnkleYMax - currentRepCycleAnkleYMin
+                rdlLastRejectReason = String(format: "ankleDrift range=%.4f tol=%.4f", driftRange, rdlAnkleStabilityTolerance)
+                resetRdlBarFloorReachTrackers()
                 rdlRepPhase = .standing; rdlRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 return false
+            }
+            // Bar-floor-reach gate: pickup/putdown drops the wrists to floor level AND keeps the
+            // hinge shallow (lifter bends knees to reach the bar instead of folding the hips).
+            // Reject only when both signals fire — a real RDL hits at most one (deep hinge with
+            // shin-level wrists, or shallow rep with shin-level wrists), never both.
+            if let standingAnkle = rdlStandingAnkleY,
+               rdlMaxLowerWristYInHinge != -.greatestFiniteMagnitude,
+               rdlMinSmoothedHipAngleInHinge != .greatestFiniteMagnitude {
+                let wristDelta = rdlMaxLowerWristYInHinge - standingAnkle
+                let minHingeAngle = rdlMinSmoothedHipAngleInHinge
+                if wristDelta > rdlBarFloorReachWristDelta && minHingeAngle > rdlBarFloorReachMinHingeAngle {
+                    rdlLastRejectReason = String(
+                        format: "barAtFloor wristDelta=%.3f minAngle=%.1f",
+                        wristDelta, minHingeAngle
+                    )
+                    resetRdlBarFloorReachTrackers()
+                    rdlRepPhase = .standing; rdlRepCycleStartTime = nil
+                    resetCurrentRepCycleAnkleStability()
+                    return false
+                }
             }
             // Rep counted.
             lastRepValidationTime = now
+            resetRdlBarFloorReachTrackers()
             rdlRepPhase = .standing
             rdlRepCycleStartTime = nil
             resetCurrentRepCycleAnkleStability()
             return true
         }
+    }
+
+    private func resetRdlBarFloorReachTrackers() {
+        rdlMaxLowerWristYInHinge = -.greatestFiniteMagnitude
+        rdlMinSmoothedHipAngleInHinge = .greatestFiniteMagnitude
     }
 
     // MARK: - Bodyweight-Specific Calculations
@@ -3059,7 +3471,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         jointSmoother.reset()
         overlayLandmarkSmoother.reset()
         
-        if trackedExerciseType == .closeGripBenchPress {
+        if trackedExerciseType == .closeGripBenchPress || trackedExerciseType == .benchPress {
             initializeBenchPressRepTracking()
         }
         viewpointSmoother.reset(keepBucket: .chest_side)
@@ -3122,7 +3534,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         benchPressBottomWristY = nil
         currentAnalysisSource = .pose3D
 
-        if trackedExerciseType == .closeGripBenchPress {
+        if trackedExerciseType == .closeGripBenchPress || trackedExerciseType == .benchPress {
             initializeBenchPressRepTracking()
         }
         viewpointSmoother.reset(keepBucket: .chest_side)
@@ -3254,10 +3666,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         currentRepCycleAnkleYMax = -.greatestFiniteMagnitude
     }
 
-    private func ankleDriftExceedsTolerance() -> Bool {
+    private func ankleDriftExceedsTolerance(tolerance: Float? = nil) -> Bool {
         guard currentRepCycleAnkleYMin != .greatestFiniteMagnitude,
               currentRepCycleAnkleYMax != -.greatestFiniteMagnitude else { return false }
-        return (currentRepCycleAnkleYMax - currentRepCycleAnkleYMin) > ankleStabilityTolerance
+        let tol = tolerance ?? ankleStabilityTolerance
+        return (currentRepCycleAnkleYMax - currentRepCycleAnkleYMin) > tol
     }
 
     private func bodyweightOverlayLegSpanY(_ overlay: [String: CGPoint]) -> Float? {
@@ -3295,6 +3708,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     //   4. Two-state machine (UP / DOWN) with hysteresis:
     //        UP  → DOWN when smoothed angle ≤ downAngleThreshold  (user squats)
     //        DOWN → UP  when smoothed angle ≥ upAngleThreshold    (user stands — rep counted)
+    //      The up-threshold is set well below true standing extension (170°) so a
+    //      front-mounted camera — where the femur lies along the depth axis and 3D
+    //      depth foreshortens "lockout" to ~155-158° — still triggers the rep.
     //   5. Timing gates reject impossibly fast or slow cycles.
     //
     private func validateBodyweightSquatRep(overlay: [String: CGPoint], skeleton: Skeleton3D, now: Date) -> Bool {
@@ -3425,7 +3841,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         squatRepCycleHipKneeParallelMet = false
     }
 
-    /// Abandon in-flight rep: bodyweight resets shoulder rep cycle + accumulation; barbell/bench use hip-depth machine.
+    /// Abandon in-flight rep: each exercise type clears its own rep state machine.
     private func abandonSquatRepCycle() {
         switch trackedExerciseType {
         case .bodyweight:
@@ -3441,8 +3857,20 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         case .romanianDeadlift:
             resetRdlRepCycleState()
         case .benchPress, .closeGripBenchPress:
-            resetSquatRepDepthMachineOnly()
+            resetBenchPressRepCycleState()
         }
+    }
+
+    /// Clears the bench-press rep state machine. Used for both regular and close-grip bench
+    /// when an in-flight rep cycle needs to be abandoned (set end, rep count reset, etc.).
+    private func resetBenchPressRepCycleState() {
+        reachedBottomThisCycleBenchPress = false
+        consecutiveFramesAtBottomBenchPress = 0
+        consecutiveFramesAtTopBenchPress = 0
+        benchPressBottomTime = nil
+        benchPressBottomWristY = nil
+        benchPressEccentricStartTime = nil
+        resetCurrentRepCycleAnkleStability()
     }
 
     private func resetRowRepCycleState() {
@@ -3450,6 +3878,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         rowSmoothedElbowAngle = nil
         rowRepCycleStartTime = nil
         rowBadFrameStreak = 0
+        rowMinShoulderYInFlexed = .greatestFiniteMagnitude
+        rowMaxShoulderYInFlexed = -.greatestFiniteMagnitude
         resetCurrentRepCycleAnkleStability()
     }
 
@@ -3466,6 +3896,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         rdlSmoothedHipAngle = nil
         rdlRepCycleStartTime = nil
         rdlBadFrameStreak = 0
+        resetRdlBarFloorReachTrackers()
         resetCurrentRepCycleAnkleStability()
     }
 
@@ -3481,7 +3912,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         now: Date
     ) -> Bool {
         switch trackedExerciseType {
-        case .closeGripBenchPress:
+        case .benchPress, .closeGripBenchPress:
             if let last = lastRepValidationTime,
                now.timeIntervalSince(last) < minTimeBetweenReps {
                 return false
@@ -3490,7 +3921,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             if formAnalysis.overallScore < requiredScore {
                 return false
             }
-            return validateCloseGripBenchPressRep(formAnalysis: formAnalysis, overlay: overlay, now: now)
+            return validateBenchPressRep(formAnalysis: formAnalysis, overlay: overlay, now: now)
         case .bodyweight, .barbell:
             // Barbell back squat reuses the bodyweight knee-angle algorithm: same biomechanics,
             // and the 3D world-coordinate angle is camera-angle invariant. The validator applies
@@ -3498,8 +3929,6 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             // the camera.
             guard let sk = skeleton, let ov = overlay else { return false }
             return validateBodyweightSquatRep(overlay: ov, skeleton: sk, now: now)
-        case .benchPress:
-            return validateSquatRepHipDepthLegacy(skeleton: skeleton, now: now)
         case .row:
             return validateRowRep(skeleton: skeleton, overlay: overlay, now: now)
         case .deadlift:
@@ -3509,7 +3938,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
     }
 
-    /// Hip-depth hysteresis (barbell / benchPress squat only): idleAtTop → descending → bottomReached → ascending → count at top.
+    /// Hip-depth hysteresis squat rep validator. Currently unused — kept for reference
+    /// while the bodyweight knee-angle validator handles `.bodyweight` and `.barbell`.
     private func validateSquatRepHipDepthLegacy(skeleton: Skeleton3D?, now: Date) -> Bool {
         guard let skeleton = skeleton else { return false }
         let depth = calculateHipDepth3D(skeleton)
@@ -3590,21 +4020,18 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     }
 
     
-    /// Validates close-grip bench press rep using state machine pattern detection.
+    /// Validates a bench-press rep (regular or close-grip) using elbow-angle depth.
     ///
-    /// Movement Pattern: Top (lockout) → Bottom (chest touch) → Top (lockout)
+    /// Movement pattern: Top (lockout) → Bottom (chest touch) → Top (lockout). Both bench
+    /// variants use the same press mechanics, so the same state machine works for both;
+    /// only the form-scoring thresholds differ between the two analyzers.
     ///
-    /// Uses wrist Y position from form analysis depth field:
-    /// - Higher Y = bar closer to chest (bottom position)
-    /// - Lower Y = bar at lockout (top position)
-    ///
-    /// View-specific thresholds account for camera angle differences:
-    /// - Rack view: Standard Y axis (Y increases as bar goes down)
-    /// - Floor view: Inverted Y axis (Y decreases as bar goes down)
-    /// - Tripod view: Standard Y axis with adjusted thresholds
+    /// Depth is read from `formAnalysis.depth`, which the bench analyzers populate from
+    /// the elbow extension angle (lockout ~170° → 0.0, chest touch ~80° → 1.0). This is
+    /// camera-invariant in 3D; the 2D path uses wrist Y as a proxy.
     ///
     /// Also tracks tempo: measures eccentric (top→bottom) and concentric (bottom→top) phases.
-    private func validateCloseGripBenchPressRep(formAnalysis: FormAnalysis, overlay: [String: CGPoint]?, now: Date) -> Bool {
+    private func validateBenchPressRep(formAnalysis: FormAnalysis, overlay: [String: CGPoint]?, now: Date) -> Bool {
         let depthValue = formAnalysis.depth
 
         // 3D path: depth is elbow-angle based (0 = lockout, 1 = chest), camera-invariant

@@ -145,7 +145,7 @@ enum SquatRepProfileTable {
 
     private static let defaultProfile = SquatRepDetectionProfile(
         downAngleThreshold: 100,
-        upAngleThreshold: 160,
+        upAngleThreshold: 150,
         kneeAngleEMAAlpha: 0.25,
         minRepInterval: 0.35,
         minRepCycleDuration: 0.45,

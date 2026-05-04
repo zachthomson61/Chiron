@@ -89,11 +89,11 @@ struct SquatRepNumericPanelView: View {
 
         VStack(alignment: .leading, spacing: 2) {
             debugRow("Phase", f?.phase ?? "-")
-            debugRow("Knee angle raw", fmtOpt(f?.kneeAngleRaw))
-            debugRow("Knee angle EMA", fmtOpt(f?.kneeAngleSmoothed))
+            debugRow("Knee angle raw", fmtOpt(f?.primaryAngleRaw))
+            debugRow("Knee angle EMA", fmtOpt(f?.primaryAngleSmoothed))
             debugRow("Side", f?.selectedSide ?? "-")
-            debugRow("Down thresh", fmtOpt(f?.downAngleThreshold))
-            debugRow("Up thresh", fmtOpt(f?.upAngleThreshold))
+            debugRow("Down thresh", fmtOpt(f?.thresholdEnter))
+            debugRow("Up thresh", fmtOpt(f?.thresholdExit))
 
             Divider().background(Color.gray)
 
@@ -154,7 +154,7 @@ struct SquatRepMiniChartView: View {
     private func chartContent(frames: [SquatRepDebugFrame], size: CGSize) -> some View {
         let w = size.width
         let h = size.height
-        let angles = frames.compactMap { $0.kneeAngleSmoothed }
+        let angles = frames.compactMap { $0.primaryAngleSmoothed }
         let hasData = frames.count >= 2 && angles.count >= 2
 
         if hasData {
@@ -175,7 +175,7 @@ struct SquatRepMiniChartView: View {
                 }
 
                 // Down threshold line
-                if let thresh = frames.last?.downAngleThreshold {
+                if let thresh = frames.last?.thresholdEnter {
                     let y = CGFloat((plotMax - thresh) / plotRange) * h
                     Path { p in
                         p.move(to: CGPoint(x: 0, y: y))
@@ -185,7 +185,7 @@ struct SquatRepMiniChartView: View {
                 }
 
                 // Up threshold line
-                if let thresh = frames.last?.upAngleThreshold {
+                if let thresh = frames.last?.thresholdExit {
                     let y = CGFloat((plotMax - thresh) / plotRange) * h
                     Path { p in
                         p.move(to: CGPoint(x: 0, y: y))
@@ -197,7 +197,7 @@ struct SquatRepMiniChartView: View {
                 // Knee angle line
                 Path { path in
                     for (i, frame) in frames.enumerated() {
-                        if let angle = frame.kneeAngleSmoothed {
+                        if let angle = frame.primaryAngleSmoothed {
                             let x = CGFloat(i) / CGFloat(max(1, frames.count - 1)) * w
                             let y = CGFloat((plotMax - angle) / plotRange) * h
                             if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
@@ -238,10 +238,18 @@ struct SquatRepMiniChartView: View {
 // MARK: - Share Sheet (UIKit wrapper)
 
 struct SquatRepShareSheet: UIViewControllerRepresentable {
-    let url: URL
+    let urls: [URL]
+
+    init(urls: [URL]) {
+        self.urls = urls
+    }
+
+    init(url: URL) {
+        self.urls = [url]
+    }
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        UIActivityViewController(activityItems: urls, applicationActivities: nil)
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}

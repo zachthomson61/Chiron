@@ -52,7 +52,7 @@ struct TrackView: View {
     @State private var infoSheetDetent: PresentationDetent = PresentationDetent.large
     /// Share sheet for debug CSV export after a set ends.
     @State private var showDebugCSVShare: Bool = false
-    @State private var debugCSVURL: URL?
+    @State private var debugShareURLs: [URL] = []
     /// Snapshot of the view state captured when the info sheet opens so we can restore pose
     /// tracking / rep counting to the exact mode that was running before the sheet paused the camera.
     @State private var trackViewStateBeforeInfoSheet: TrackViewState?
@@ -429,8 +429,8 @@ struct TrackView: View {
             }
         }
         .sheet(isPresented: $showDebugCSVShare) {
-            if let url = debugCSVURL {
-                SquatRepShareSheet(url: url)
+            if !debugShareURLs.isEmpty {
+                SquatRepShareSheet(urls: debugShareURLs)
             }
         }
         .sheet(isPresented: $showWeightScroller) {
@@ -707,6 +707,9 @@ struct TrackView: View {
         // Start debug logging for this set (auto-exported as CSV when the set ends).
         SquatRepDebugLogger.shared.reset()
         poseManager.debugLoggerEnabled = true
+        // Screen recording captures the full on-screen experience (camera + overlay) so
+        // the CSV trace can be replayed alongside the video. iOS prompts the first time.
+        ScreenRecorder.shared.start()
         // Suppress rep counting for 1 second so the user can step back from the camera
         // after pressing the button. Without this delay, the pose detector may see a
         // partial/close-up pose and erroneously count a rep during the transition.
@@ -733,7 +736,7 @@ struct TrackView: View {
 
         // Stop debug logging and export CSV for analysis.
         poseManager.debugLoggerEnabled = false
-        // exportDebugCSV()  // Disabled to prevent debug CSV share sheet after set completion
+        exportDebugCSV()
 
         // If no reps were completed, treat the set as if it never happened:
         // skip analysis, audio feedback, and session bookkeeping.
@@ -912,21 +915,47 @@ struct TrackView: View {
         }
     }
 
-    // MARK: - Debug CSV Export
+    // MARK: - Debug CSV + Screen Recording Export
 
+    /// Builds the per-set debug bundle: CSV first (synchronous), then awaits the screen
+    /// recorder's finalize callback before presenting the share sheet so both files land
+    /// together. If the screen recording is unavailable or failed, the CSV still ships.
+    /// Both files share a basename of `<exercise>_<yyyy-MM-dd_HHmmss>` so they sort together
+    /// and self-identify in any inbox.
     private func exportDebugCSV() {
         let logger = SquatRepDebugLogger.shared
-        guard !logger.allFrames.isEmpty else { return }
-        let csv = logger.exportCSV()
-        let fileName = "squat_debug_\(Int(Date().timeIntervalSince1970)).csv"
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-        do {
-            try csv.data(using: .utf8)?.write(to: url)
-            debugCSVURL = url
-            showDebugCSVShare = true
-        } catch {
-            // Silently fail — debug export is best-effort.
+        var urls: [URL] = []
+        let basename = makeDebugBasename()
+
+        if !logger.allFrames.isEmpty {
+            let csv = logger.exportCSV()
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(basename).csv")
+            if let data = csv.data(using: .utf8), (try? data.write(to: url)) != nil {
+                urls.append(url)
+            }
         }
+
+        ScreenRecorder.shared.stop(basename: basename) { videoURL in
+            if let v = videoURL { urls.append(v) }
+            guard !urls.isEmpty else { return }
+            debugShareURLs = urls
+            showDebugCSVShare = true
+        }
+    }
+
+    /// `<exercise_slug>_<yyyy-MM-dd_HHmmss>` — slug lowercases the exercise name, swaps spaces
+    /// for underscores, and drops anything that isn't a letter/number/underscore/hyphen so the
+    /// filename is safe across AirDrop/Files/Mail.
+    private func makeDebugBasename() -> String {
+        let slug: String = {
+            guard let raw = selectedExercise?.name, !raw.isEmpty else { return "set" }
+            let underscored = raw.lowercased().replacingOccurrences(of: " ", with: "_")
+            let filtered = underscored.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
+            return filtered.isEmpty ? "set" : filtered
+        }()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
+        return "\(slug)_\(formatter.string(from: Date()))"
     }
 
     // MARK: - Persistence
@@ -1214,10 +1243,10 @@ struct TrackFormScoreTrackingView: View {
                 .fill(Color.black.opacity(0.4))
 
             Circle()
-                .stroke(Color.gray.opacity(0.3), lineWidth: 6)
+                .stroke(Color.white.opacity(0.08), lineWidth: 6)
 
             Circle()
-                .stroke(Color.primaryPurple.opacity(0.75), style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                .stroke(Color.accentGradient, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                 .scaleEffect(trackingPulseScale)
                 .opacity(trackingPulseScale == 1.0 ? 0.8 : 1.0)
                 .onAppear {
