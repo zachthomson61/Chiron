@@ -78,7 +78,7 @@ struct RecentProgressSection: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.05))
+        .background(Color.surface)
         .cornerRadius(16)
     }
 }
@@ -137,7 +137,7 @@ struct RecentProgressCard: View {
             .padding(.trailing, 4)
         }
         .padding(.vertical, 16)
-        .background(Color.white.opacity(0.05))
+        .background(Color.surface)
         .cornerRadius(16)
         .overlay(
             RoundedRectangle(cornerRadius: 16)

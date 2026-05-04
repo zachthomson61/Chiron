@@ -64,7 +64,7 @@ struct ProfileView: View {
                 .padding(.bottom, 32)
             }
         }
-        .background(Color.background)
+        .dottedTabBackground(corners: [.bottomTrailing])
         .ignoresSafeArea(.container, edges: .top)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -288,10 +288,7 @@ struct CoverImageView: View {
     private var geometricPatternBackground: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(red: 0.15, green: 0.15, blue: 0.18),
-                    Color(red: 0.12, green: 0.12, blue: 0.15)
-                ],
+                colors: [Color.surfaceElevated, Color.surface],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -400,7 +397,7 @@ struct CompleteProfileCard: View {
         .padding()
         .background(
             RoundedRectangle(cornerRadius: ProfileViewConstants.cardCornerRadius)
-                .fill(Color(white: 0.15))
+                .fill(Color.surface)
         )
     }
 }
@@ -505,7 +502,7 @@ private struct BadgeEmptyHintView: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: ProfileViewConstants.cardCornerRadius)
-                .fill(Color(white: 0.15))
+                .fill(Color.surface)
         )
     }
 }

@@ -117,7 +117,7 @@ struct HomeView: View {
                 .scrollIndicators(.hidden)
                 .scrollBounceBehavior(.basedOnSize)
                 .scrollDisabled(contentHeight <= h)
-                .background(Color.background)
+                .dottedTabBackground()
             }
             .safeAreaInset(edge: .top) { 
                 Color.clear.frame(height: HomeScreenSpacing.topInset) 
@@ -230,23 +230,13 @@ private struct MyGoalCard: View {
             .padding(.horizontal, 24)
             .background(
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.primaryPurple.opacity(0.85),
-                                Color.secondaryPurple.opacity(0.65),
-                                Color.primaryPurple.opacity(0.6)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .fill(Color.accentGradient)
                     .overlay(
                         RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                            .stroke(Color.stroke, lineWidth: 1)
                     )
             )
-            .shadow(color: Color.secondaryPurple.opacity(0.45), radius: 28, y: 14)
+            .shadow(color: Color.primaryPurple.opacity(0.45), radius: 28, y: 14)
             // Base shadow provides the glow; avoid extra blur layers to keep render fast.
         }
         .buttonStyle(.plain)

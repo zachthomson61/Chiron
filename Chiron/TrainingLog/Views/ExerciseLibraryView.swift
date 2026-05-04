@@ -254,7 +254,7 @@ struct ExerciseLibraryView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(Color.white.opacity(0.1))
+                .background(Color.surface)
                 .cornerRadius(12)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 16)
@@ -276,7 +276,7 @@ struct ExerciseLibraryView: View {
                                     .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
                                     .padding(.horizontal, 20)
                                     .padding(.vertical, 10)
-                                    .background(isSelected ? Color.primaryPurple.opacity(0.3) : Color.white.opacity(0.06))
+                                    .background(isSelected ? Color.primaryPurple.opacity(0.3) : Color.surface)
                                     .cornerRadius(20)
                             }
                             .buttonStyle(.plain)
@@ -303,7 +303,7 @@ struct ExerciseLibraryView: View {
                                     .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
                                     .padding(.horizontal, 20)
                                     .padding(.vertical, 10)
-                                    .background(isSelected ? Color.primaryPurple.opacity(0.3) : Color.white.opacity(0.06))
+                                    .background(isSelected ? Color.primaryPurple.opacity(0.3) : Color.surface)
                                     .cornerRadius(20)
                             }
                             .buttonStyle(.plain)
@@ -343,7 +343,7 @@ struct ExerciseLibraryView: View {
                 .padding(.bottom, 20)
             }
         }
-        .background(Color.background)
+        .dottedTabBackground(corners: [.bottomTrailing])
         .preferredColorScheme(.dark)
         .task {
             try? ExerciseSeeder.seedIfNeeded(context: ctx)
@@ -380,12 +380,12 @@ struct ExerciseLibraryView: View {
             ExerciseThumbnail(imageName: exercise.imageName)
         }
         .padding(20)
-        .background(Color.white.opacity(0.06))
+        .background(Color.surface)
         .cornerRadius(16)
         .overlay {
             if isSelected {
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.primaryPurple.opacity(0.5), lineWidth: 2)
+                    .stroke(Color.accentGradient, lineWidth: 1.5)
             }
         }
         .contentShape(Rectangle())
@@ -826,13 +826,13 @@ private struct Pill: View {
     private func colorForDifficulty(_ difficulty: Difficulty) -> (Color, Color) {
         switch difficulty {
         case .beginner:
-            return (Color.beginnerGreen.opacity(0.18), Color.beginnerGreen)
+            return (Color.beginnerGreen.opacity(0.24), Color.beginnerGreen)
         case .advanced:
-            return (Color.brandAccentPurple.opacity(0.18), Color.brandAccentPurple)
+            return (Color.brandAccentPurple.opacity(0.24), Color.brandAccentPurple)
         case .intermediate:
-            return (Color.intermediateYellow.opacity(0.18), Color.intermediateYellow)
+            return (Color.intermediateYellow.opacity(0.24), Color.intermediateYellow)
         case .expert:
-            return (Color.expertRed.opacity(0.18), Color.expertRed)
+            return (Color.expertRed.opacity(0.24), Color.expertRed)
         }
     }
 }
