@@ -290,11 +290,20 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// True peak elbow flexion is ~70-100°, but front- and floor-mounted views project the
     /// upper-arm/forearm motion mostly along the camera's depth axis, where MediaPipe's
     /// monocular 3D depth is least accurate. The smoothed angle in those views compresses
-    /// to ~126-130° at the top of a real pull — so 130° is set as the entry threshold to
-    /// keep reps reachable across view angles. Side views still trigger easily (deep flex).
-    private let rowFlexedThreshold: Float = 130
+    /// substantially: high-rep front-mounted field tests show partial-ROM reps with the
+    /// smoothed angle bottoming at 135-141° and only briefly grazing below 138°. Setting
+    /// the threshold at 142° gives the cycle a long-enough window (≥0.5s) to clear the
+    /// rowMinRepCycleDuration gate even on those shallow reps, while side views still
+    /// trigger easily (deep flex). False-positive setup motions are caught by the
+    /// shoulder-Y stability and ankle-drift gates downstream.
+    private let rowFlexedThreshold: Float = 142
     /// Return to EXTENDED when smoothed angle ≥ this (arms back near straight ≈ 160–170°).
-    private let rowExtendedThreshold: Float = 145
+    /// Sized in tandem with the flexed threshold: a real rep's bottom can have a small
+    /// mid-cycle bounce (one observed test peaked at 145.1° between two 135° dips), and
+    /// the exit threshold has to clear that bounce so a single rep doesn't split into
+    /// two counted reps. 150° keeps an ~8° hysteresis gap and stays well below the
+    /// 162-178° peaks seen between actual reps.
+    private let rowExtendedThreshold: Float = 150
     private let rowMinRepCycleDuration: TimeInterval = 0.5
     private let rowMaxRepCycleDuration: TimeInterval = 5.0
     private let rowMinRepInterval: TimeInterval = 0.5
@@ -311,6 +320,24 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// Tracks the shoulder Y range across the active rep cycle (`.flexed` phase only).
     private var rowMinShoulderYInFlexed: Float = .greatestFiniteMagnitude
     private var rowMaxShoulderYInFlexed: Float = -.greatestFiniteMagnitude
+    /// Tracks the deepest smoothed elbow angle observed during the active flexed cycle.
+    /// Used by the shallow-brief-motion gate to distinguish a real pull from a pickup
+    /// or putdown motion that briefly grazes the flexed threshold.
+    private var rowMinSmoothedElbowAngleInFlexed: Float = .greatestFiniteMagnitude
+    /// Shallow-brief-motion gate.
+    /// Picking up the bar or setting it back down briefly bends the elbows enough to
+    /// graze the flexed threshold (137-140° in observed tests), and the cycle finishes
+    /// quickly because the user isn't actually pulling — they're just transitioning into
+    /// or out of stance. A real pull either descends deeper than `rowShallowBriefMinAngle`
+    /// (genuine contraction) OR lasts longer than `rowShallowBriefMaxDuration` (sustained
+    /// pull, even if shallow). A cycle that fails BOTH criteria is rejected.
+    /// Empirical split across observed row tests:
+    ///   real reps (Floor Oblique): minA 94-107°, dur 1.0-1.3s
+    ///   real reps (Mount Front, partial ROM): minA 114-137°, dur 0.70-1.27s
+    ///   pickup/putdown false positives: minA 137-140°, dur 0.53-0.60s
+    /// 130° / 0.65s sits in the empirical gap with margin on both sides.
+    private let rowShallowBriefMaxDuration: TimeInterval = 0.65
+    private let rowShallowBriefMinAngle: Float = 130
     private var rowLastRejectReason: String?  // transient, for debug CSV
 
     // MARK: - Deadlift rep state (bodyweight-style 2-state hysteresis on hip angle)
@@ -403,11 +430,15 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// `wristDelta`: floor-mounted oblique cameras compress real-rep wristDeltas up to ~0.19
     /// (vs ~0.14 in chest-mounted views), so this threshold trades view-portability for wider
     /// real-rep coverage. The `minHingeAngle` companion catches the cases that overlap.
-    /// `minHingeAngle`: real RDLs across the test set bottom out at 54-84°; pickup/putdown bottoms
-    /// at 91-127° because the lifter bends the knees instead of folding the hips. The 88° split
-    /// sits in the empirical gap with ~4° margin on each side.
+    /// `minHingeAngle`: extended high-rep oblique-view tests show real RDLs can bottom as
+    /// shallow as 90-93° (warm-up reps, fatigue, and oblique-camera depth compression all
+    /// reduce the apparent hinge depth), while pickup/putdown bottoms cluster at 101-127°
+    /// because the lifter bends the knees and squats slightly to reach the bar. 97° splits
+    /// the empirical gap with ~4° margin to real reps and ~4° margin to pickups. Both
+    /// signals must still fire together (AND) — a deep wrist-Δ with a deep hinge is a real
+    /// rep, not a pickup.
     private let rdlBarFloorReachWristDelta: Float = 0.16
-    private let rdlBarFloorReachMinHingeAngle: Float = 88
+    private let rdlBarFloorReachMinHingeAngle: Float = 97
     /// Bottom-dwell rejection.
     /// Real RDLs bounce off the bottom — time from min-angle-reached to clear ascent is < 0.7s.
     /// Pickup/positioning hinges pause at the deep position (checking grip, breathing, settling)
@@ -427,6 +458,17 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// Real reps see 0.001-0.005 ankle Y drift over the post-rep second; walking misfires hit
     /// 0.025-0.07. The 0.015 threshold sits in the empirical gap.
     private let rdlPostRepAnkleDriftMax: Float = 0.015
+    /// Hinge depth at or below which the post-rep stability check is skipped. The post-rep
+    /// gate exists to catch pickup/putdown motions that mimic a rep on every in-cycle signal,
+    /// and those motions have shallow hinges (knees-bent reach for the bar — minAngle ≥ 91°
+    /// across all observed pickups). When the hinge dips this far below pickup territory, the
+    /// rep is already proven real on its own merits, and the post-rep gate becomes a false-
+    /// positive risk: the LAST rep of a set sees the user move (preparing to set the bar
+    /// down) within the verification window, which trips the drift check on a real rep.
+    /// 85° leaves 6° of margin to the lowest observed pickup hinge (91°) while covering
+    /// every real rep in the test set up to 84° comfortably; reps shallower than 85° still
+    /// run through the post-rep gate as before.
+    private let rdlDeepHingeConfidenceAngle: Float = 85
 
     private let weightedRepBadFrameLimit: Int = 15
 
@@ -2418,6 +2460,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 beginAnkleStabilityCycle(overlay: overlay)
                 rowMinShoulderYInFlexed = .greatestFiniteMagnitude
                 rowMaxShoulderYInFlexed = -.greatestFiniteMagnitude
+                rowMinSmoothedElbowAngleInFlexed = smoothed
                 if let ov = overlay,
                    let ls = ov["leftShoulder"], let rs = ov["rightShoulder"] {
                     let shY = Float((ls.y + rs.y) / 2)
@@ -2435,6 +2478,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rowMinShoulderYInFlexed = min(rowMinShoulderYInFlexed, shY)
                 rowMaxShoulderYInFlexed = max(rowMaxShoulderYInFlexed, shY)
             }
+            // Track the deepest elbow angle reached this cycle for the shallow-brief gate.
+            rowMinSmoothedElbowAngleInFlexed = min(rowMinSmoothedElbowAngleInFlexed, smoothed)
 
             guard smoothed >= rowExtendedThreshold else { return false }
             let dur = now.timeIntervalSince(rowRepCycleStartTime ?? now)
@@ -2442,18 +2487,21 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rowLastRejectReason = String(format: "minInterval dt=%.2fs", now.timeIntervalSince(last))
                 rowRepPhase = .extended; rowRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
+                rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
                 return false
             }
             if dur < rowMinRepCycleDuration {
                 rowLastRejectReason = String(format: "tooShort dur=%.2fs", dur)
                 rowRepPhase = .extended; rowRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
+                rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
                 return false
             }
             if dur > rowMaxRepCycleDuration {
                 rowLastRejectReason = String(format: "tooLong dur=%.2fs", dur)
                 rowRepPhase = .extended; rowRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
+                rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
                 return false
             }
             if ankleDriftExceedsTolerance(tolerance: rowAnkleStabilityTolerance) {
@@ -2461,6 +2509,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rowLastRejectReason = String(format: "ankleDrift range=%.4f tol=%.4f", driftRange, rowAnkleStabilityTolerance)
                 rowRepPhase = .extended; rowRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
+                rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
                 return false
             }
             // Shoulder-Y stability gate: a real row keeps the torso planted in roughly the
@@ -2473,14 +2522,31 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     rowLastRejectReason = String(format: "shoulderShift range=%.4f tol=%.4f", shoulderRange, rowShoulderYStabilityTolerance)
                     rowRepPhase = .extended; rowRepCycleStartTime = nil
                     resetCurrentRepCycleAnkleStability()
+                    rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
                     return false
                 }
+            }
+            // Shallow-brief-motion gate: bar pickup and putdown briefly graze the flexed
+            // threshold (~137-140°) over a short window (0.5-0.6s) because the user is
+            // transitioning into or out of stance, not actually pulling. A real rep is
+            // either deeper or longer. Reject only when both signals fire.
+            if dur < rowShallowBriefMaxDuration
+               && rowMinSmoothedElbowAngleInFlexed > rowShallowBriefMinAngle {
+                rowLastRejectReason = String(
+                    format: "shallowBrief dur=%.2fs minA=%.1f",
+                    dur, rowMinSmoothedElbowAngleInFlexed
+                )
+                rowRepPhase = .extended; rowRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
+                return false
             }
             // Rep counted.
             lastRepValidationTime = now
             rowRepPhase = .extended
             rowRepCycleStartTime = nil
             resetCurrentRepCycleAnkleStability()
+            rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
             return true
         }
     }
@@ -3359,12 +3425,25 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             // All in-cycle gates passed. Defer the rep credit until post-rep stability is
             // confirmed — the standing case above handles the verification window. Without an
             // ankle baseline, we can't verify drift, so credit immediately.
+            //
+            // Confidence skip: when the hinge depth was clearly real-rep territory (minAngle
+            // ≤ rdlDeepHingeConfidenceAngle), bypass the post-rep window entirely. The
+            // post-rep gate is meant to catch shallow pickup/putdown motions that look like
+            // reps; a deep hinge has already cleared that bar on its own. Otherwise the last
+            // rep of a set gets falsely rejected when the user moves to set the bar down
+            // within the verification window.
+            let deepHingeConfident = rdlMinSmoothedHipAngleInHinge != .greatestFiniteMagnitude
+                && rdlMinSmoothedHipAngleInHinge <= rdlDeepHingeConfidenceAngle
             resetRdlBarFloorReachTrackers()
             rdlRepPhase = .standing
             rdlRepCycleStartTime = nil
             rdlMinUpdateTime = nil
             rdlAscentStartTime = nil
             resetCurrentRepCycleAnkleStability()
+            if deepHingeConfident {
+                lastRepValidationTime = now
+                return true
+            }
             let pendingBaselineY: Float? = {
                 if let ov = overlay, let la = ov["leftAnkle"], let ra = ov["rightAnkle"] {
                     return Float((la.y + ra.y) / 2)
@@ -4012,6 +4091,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         rowBadFrameStreak = 0
         rowMinShoulderYInFlexed = .greatestFiniteMagnitude
         rowMaxShoulderYInFlexed = -.greatestFiniteMagnitude
+        rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
         resetCurrentRepCycleAnkleStability()
     }
 

@@ -715,6 +715,9 @@ struct TrackView: View {
         // partial/close-up pose and erroneously count a rep during the transition.
         cameraManager.suppressRepCounting = true
         cameraManager.trackExplicitSetActive = true
+        // Hold the screen on for the duration of the set so the device doesn't lock
+        // mid-rep — the user's hands are on the bar, not the phone.
+        ScreenKeepAlive.begin()
         trackViewState = .tracking
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak cameraManager] in
             cameraManager?.suppressRepCounting = false
@@ -725,6 +728,7 @@ struct TrackView: View {
         // Do not call `stopPoseAnalysis()` here — it clears `isAnalyzingPose` and freezes the overlay until the next set.
         cameraManager.trackExplicitSetActive = false
         cameraManager.suppressRepCounting = true
+        ScreenKeepAlive.end()
 
         // Retroactive phantom-rep filter: remove the last counted rep if it was
         // validated within 3 seconds of pressing End Set (likely the user reaching
@@ -820,6 +824,7 @@ struct TrackView: View {
                             formAnalysis: analysis,
                             aggregatedMetrics: metrics,
                             exerciseType: exerciseType,
+                            currentWeight: weightForSet,
                             personalRecord: prToCelebrate
                         ) { feedback in
                             // When this set is a PR, drop confetti at the moment the LLM line
@@ -911,6 +916,9 @@ struct TrackView: View {
         pendingFramingSpeech = nil
         if trackViewState == .tracking {
             cameraManager.stopPoseAnalysis()
+            // Balance the `ScreenKeepAlive.begin()` paired with the missing `endSet()`
+            // so the screen-on lock doesn't outlive the view.
+            ScreenKeepAlive.end()
             trackViewState = .armed
         }
     }

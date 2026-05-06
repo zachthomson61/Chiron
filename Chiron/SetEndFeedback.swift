@@ -185,13 +185,22 @@ enum SetEndFeedbackPlanner {
     ///   critiques so the celebration isn't diluted; safety-critical cues
     ///   still surface (a dangerous rep at a PR weight is the most important
     ///   moment to speak up).
+    /// - Parameter weightIncreasedFromPrior: true when the user just put more
+    ///   weight on the bar than the previous set of the same exercise in this
+    ///   session. Adding load is exactly when form starts to break down (the
+    ///   torso creeps upright on rows, the back rounds on deadlifts, depth
+    ///   shortens on squats), so the "stay quiet on repeat sets" rule is
+    ///   reversed: form-only cues that would normally be suppressed get
+    ///   surfaced. Safety-critical cues already surface unconditionally —
+    ///   this only changes the gating on non-safety cues.
     static func plan(
         formAnalysis: FormAnalysis,
         aggregatedMetrics: SetEndAggregatedMetrics,
         exerciseType: TrackedExerciseType,
         previousCueText: String?,
         setIndex: Int = 1,
-        isPersonalRecord: Bool = false
+        isPersonalRecord: Bool = false,
+        weightIncreasedFromPrior: Bool = false
     ) -> Plan {
         let bestThing = stage1BestThing(
             formAnalysis: formAnalysis,
@@ -221,7 +230,8 @@ enum SetEndFeedbackPlanner {
             bestThing: bestThing,
             previousCueText: previousCueText,
             setIndex: setIndex,
-            isPersonalRecord: isPersonalRecord
+            isPersonalRecord: isPersonalRecord,
+            weightIncreasedFromPrior: weightIncreasedFromPrior
         )
 
         return Plan(
@@ -349,7 +359,8 @@ enum SetEndFeedbackPlanner {
         bestThing: String,
         previousCueText: String?,
         setIndex: Int,
-        isPersonalRecord: Bool = false
+        isPersonalRecord: Bool = false,
+        weightIncreasedFromPrior: Bool = false
     ) -> SetEndSuppressionReason? {
         // 0a) PR celebration: a set that just beat the user's prior best gets
         // celebration-only feedback. Form-optimization cues during a PR blunt
@@ -365,8 +376,15 @@ enum SetEndFeedbackPlanner {
         // surface. The user already had set 1 to hear form cues; hammering
         // them on every subsequent set is overcoaching and erodes trust in
         // the signal. Safety cues (spine-under-load etc.) always pass.
+        //
+        // EXCEPTION — weight just went up from the prior set. Adding load is
+        // exactly when form deteriorates (torso creeps upright on rows, back
+        // rounds on deadlifts, depth shortens on squats), so the "quiet on
+        // repeat sets" trade reverses: a form-only cue at heavier weight is
+        // actionable, not noise. Surface it.
         if setIndex >= SetEndFeedbackThreshold.repeatSetSuppressFromIndex,
-           !CoachingContract.isSafetyCritical(candidate) {
+           !CoachingContract.isSafetyCritical(candidate),
+           !weightIncreasedFromPrior {
             return .nonSafetyCueOnRepeatSet
         }
 

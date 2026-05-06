@@ -44,6 +44,13 @@ class OpenAICoachingManager: ObservableObject {
     /// onboarding profile changes (e.g. the user just finished onboarding).
     private var setIndexByExercise: [TrackedExerciseType: Int] = [:]
 
+    /// Most-recent loaded-bar weight per exercise in the current app session.
+    /// When the next set's weight exceeds this, the planner surfaces form cues
+    /// that would otherwise be suppressed on a repeat set, and the LLM prompt
+    /// gets a "weight just went up" block that pushes phrasing toward strict,
+    /// focused form coaching. Bodyweight exercises and unset weights skip this.
+    private var lastWeightByExercise: [TrackedExerciseType: Double] = [:]
+
     /// Cached user profile for profile-aware phrasing. Lazily loaded from the
     /// store and refreshed whenever `refreshProfile()` is called — typically
     /// right after onboarding completes.
@@ -61,6 +68,7 @@ class OpenAICoachingManager: ObservableObject {
     func refreshProfile() {
         cachedProfile = profileStore.load()
         setIndexByExercise.removeAll()
+        lastWeightByExercise.removeAll()
     }
 
     // MARK: - Previous-Set Cue API
@@ -95,6 +103,7 @@ class OpenAICoachingManager: ObservableObject {
         formAnalysis: FormAnalysis,
         aggregatedMetrics: SetEndAggregatedMetrics,
         exerciseType: TrackedExerciseType,
+        currentWeight: Double? = nil,
         personalRecord: PersonalRecord.Info? = nil,
         completion: @escaping (SetEndFeedback) -> Void
     ) {
@@ -118,6 +127,20 @@ class OpenAICoachingManager: ObservableObject {
         // and the Stage 2 repeat-set gate has the right context.
         setIndexByExercise[exerciseType, default: 0] += 1
         let currentSetIndex = setIndexByExercise[exerciseType] ?? 1
+
+        // Compare the bar load to the previous set in this session to detect
+        // a deliberate weight bump. Only counts if both weights are present
+        // and positive — bodyweight sets and unset values fall through.
+        let priorWeight = lastWeightByExercise[exerciseType]
+        let weightIncreased: Bool
+        if let now = currentWeight, now > 0,
+           let prior = priorWeight, prior > 0,
+           now > prior {
+            weightIncreased = true
+        } else {
+            weightIncreased = false
+        }
+
         let profileContext = cachedProfile.map {
             CoachingProfileContext(
                 profile: $0,
@@ -134,7 +157,8 @@ class OpenAICoachingManager: ObservableObject {
             exerciseType: exerciseType,
             previousCueText: getLastCuedText(exerciseType: exerciseType),
             setIndex: currentSetIndex,
-            isPersonalRecord: personalRecord != nil
+            isPersonalRecord: personalRecord != nil,
+            weightIncreasedFromPrior: weightIncreased
         )
 
         // Remember the cue we surfaced (for the next set's repeated-cue check).
@@ -142,11 +166,21 @@ class OpenAICoachingManager: ObservableObject {
             recordLastCued(exerciseType: exerciseType, cue: CoachingContract.cue(for: surfaced))
         }
 
+        // Update the per-exercise weight history for the next set's comparison.
+        // Always record so a subsequent set with the same weight doesn't trip
+        // the increased-weight branch on stale state.
+        if let now = currentWeight, now > 0 {
+            lastWeightByExercise[exerciseType] = now
+        }
+
         phraseAndComplete(
             plan: plan,
             exerciseType: exerciseType,
             profileContext: profileContext,
             personalRecord: personalRecord,
+            weightIncreasedFromPrior: weightIncreased,
+            priorWeight: weightIncreased ? priorWeight : nil,
+            currentWeight: weightIncreased ? currentWeight : nil,
             completion: completion
         )
     }
@@ -175,6 +209,9 @@ class OpenAICoachingManager: ObservableObject {
         exerciseType: TrackedExerciseType,
         profileContext: CoachingProfileContext?,
         personalRecord: PersonalRecord.Info?,
+        weightIncreasedFromPrior: Bool = false,
+        priorWeight: Double? = nil,
+        currentWeight: Double? = nil,
         completion: @escaping (SetEndFeedback) -> Void
     ) {
         let exerciseLabel = Self.exerciseLabel(for: exerciseType)
@@ -238,6 +275,35 @@ class OpenAICoachingManager: ObservableObject {
             personalRecordBlock = ""
         }
 
+        // Weight-progression block: when the bar got heavier than last set,
+        // form deteriorates first — the user feels strong at the new weight
+        // before they realise their hinge has crept up or their back has
+        // started rounding. The cue still comes from NEXT_SET_CUE; this
+        // block only changes how the cue is *delivered* — direct, no
+        // hedging, anchored to the load increase. The PR rule still wins
+        // when both fire (a PR-and-heavier set is a celebration, not a
+        // correction).
+        let weightProgressionBlock: String
+        if weightIncreasedFromPrior, personalRecord == nil, plan.tone == .corrective {
+            let progressionPhrase: String
+            if let prior = priorWeight, let now = currentWeight,
+               prior > 0, now > 0 {
+                progressionPhrase = "from \(Self.formatWeightForSpeech(prior)) to \(Self.formatWeightForSpeech(now))"
+            } else {
+                progressionPhrase = "this set"
+            }
+            weightProgressionBlock = """
+
+
+            WEIGHT PROGRESSION (the athlete just added load \(progressionPhrase)):
+            - Heavier sets are when form starts to break down. Deliver NEXT_SET_CUE directly — no softening, no hedging, no "if you can".
+            - Anchor the cue to the load increase: acknowledge the heavier weight in passing ("at this weight", "now that the bar is heavier"), then state the cue as a clear instruction.
+            - The cue is what to maintain *because* the weight went up, not a generic note.
+            """
+        } else {
+            weightProgressionBlock = ""
+        }
+
         let cueText = plan.nextSetFocus ?? "none"
         let toneLabel = plan.tone.rawValue
         let suppressionDebug = plan.suppressionReason?.rawValue ?? "none"
@@ -257,7 +323,7 @@ class OpenAICoachingManager: ObservableObject {
         - FEEDBACK_TONE: \(toneLabel)
         - BEST_THING: \(plan.bestThing)
         - NEXT_SET_CUE: \(cueText)
-        - SUPPRESSION_REASON (debug, never mention): \(suppressionDebug)\(previousCueBlock)\(personalRecordBlock)\(profileBlock)\(safetyOverride)
+        - SUPPRESSION_REASON (debug, never mention): \(suppressionDebug)\(previousCueBlock)\(personalRecordBlock)\(weightProgressionBlock)\(profileBlock)\(safetyOverride)
 
         RULES:
         1. If PERSONAL RECORD is present, the line MUST open with the phrase "personal record" and include the descriptor exactly as given. Do NOT include any critique, form correction, or optimization suggestion in a PR response, unless SAFETY OVERRIDE is also present (safety always wins).
@@ -493,6 +559,17 @@ class OpenAICoachingManager: ObservableObject {
     }
 
     // MARK: - Helpers
+
+    /// Speech-friendly weight rendering — drops a trailing ".0" so
+    /// "185 pounds" comes out cleanly while half-pound increments stay intact.
+    private static func formatWeightForSpeech(_ weight: Double) -> String {
+        let rounded = (weight * 10).rounded() / 10
+        let unit = "pounds"
+        if rounded == rounded.rounded() {
+            return "\(Int(rounded)) \(unit)"
+        }
+        return String(format: "%.1f \(unit)", rounded)
+    }
 
     private static func exerciseLabel(for type: TrackedExerciseType) -> String {
         switch type {

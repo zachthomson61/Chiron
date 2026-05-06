@@ -13,12 +13,11 @@ import AVFoundation
 
 /// Overview screen for Barbell Bench Press exercise.
 /// 
-/// Displays a collapsing video header, tabbed content (Setup, Dos, Don'ts), and navigation
-/// to camera setup. Matches the visual style and structure of `BodyweightSquatOverview`.
+/// Displays a collapsing video header and tabbed content (Setup, Dos, Don'ts).
+/// Matches the visual style and structure of `BodyweightSquatOverview`.
 struct BarbellBenchPressOverview: View {
     @ObservedObject var viewModel: WorkoutViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var showCameraSetup = false
     @State private var selectedTab = 0
     
     init(viewModel: WorkoutViewModel) {
@@ -84,21 +83,6 @@ struct BarbellBenchPressOverview: View {
                             default:
                                 BarbellBenchPressSetupContent()
                             }
-                            
-                            Button(action: {
-                                showCameraSetup = true
-                                viewModel.startWorkout()
-                            }) {
-                                Text("Continue to Camera Setup")
-                                    .font(.headline)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 48)
-                                    .background(Color.primaryPurple)
-                                    .cornerRadius(24)
-                            }
-                            .padding(.top, 16)
                         }
                         .padding(20)
                     }
@@ -129,9 +113,6 @@ struct BarbellBenchPressOverview: View {
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .preferredColorScheme(.dark)
-        .fullScreenCover(isPresented: $showCameraSetup) {
-            CameraSetupView(exerciseType: .barbellBenchPress, viewModel: viewModel)
-        }
     }
 }
 

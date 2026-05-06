@@ -200,10 +200,10 @@ enum CoachingContract {
         // Barbell row
         .rowMomentumDrive: IssueDefinition(
             code: .rowMomentumDrive,
-            displayName: "Using Momentum",
+            displayName: "Standing Up Between Reps",
             severity: .high,
-            cue: "Stay locked in that hinge and let your back do the pulling",
-            shortCue: "Control the pull"
+            cue: "Keep your back flat and close to parallel with the ground — don't stand up between reps",
+            shortCue: "Stay parallel"
         ),
         .rowRoundedBack: IssueDefinition(
             code: .rowRoundedBack,

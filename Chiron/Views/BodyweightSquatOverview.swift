@@ -5,10 +5,7 @@ import AVFoundation
 struct BodyweightSquatOverview: View {
     @ObservedObject var viewModel: WorkoutViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var showCameraSetup = false
-    @State private var showAlternativeSetup = false
     @State private var selectedTab = 0
-    @State private var showActiveWorkout = false
     
     // Callback to navigate back to exercise selection
     var onFinishExercise: (() -> Void)?
@@ -78,21 +75,6 @@ struct BodyweightSquatOverview: View {
                         default:
                             FlowContent()
                         }
-
-                        Button(action: {
-                            showCameraSetup = true
-                            viewModel.startWorkout()
-                        }) {
-                            Text("Continue to Camera Setup")
-                                .font(.headline)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 48)
-                                .background(Color.primaryPurple)
-                                .cornerRadius(24)
-                        }
-                        .padding(.top, 16)
                     }
                     .padding(20)
                 }
@@ -123,10 +105,6 @@ struct BodyweightSquatOverview: View {
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .preferredColorScheme(.dark)
-        .fullScreenCover(isPresented: $showCameraSetup) {
-            CameraSetupView(exerciseType: .bodyweightSquat, viewModel: viewModel)
-        }
-        // Removed second cover to avoid bouncing between covers
     }
     
 }
