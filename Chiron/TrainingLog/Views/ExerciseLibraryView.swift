@@ -322,11 +322,7 @@ struct ExerciseLibraryView: View {
                     if shouldShowDeadliftCard, let deadlift = deadliftExercise {
                         exerciseRow(for: deadlift)
                     }
-                    
-                    if shouldShowBarbellBenchPressCard, let benchPress = barbellBenchPressExercise {
-                        exerciseRow(for: benchPress)
-                    }
-                    
+
                     if shouldShowRomanianDeadliftCard, let rdl = romanianDeadliftExercise {
                         exerciseRow(for: rdl)
                     }
@@ -350,7 +346,6 @@ struct ExerciseLibraryView: View {
             ensureBodyweightSquatCard()
             ensureBarbellBackSquatCard()
             ensureDeadliftCard()
-            ensureBarbellBenchPressCard()
             ensureRomanianDeadliftCard()
             ensureBarbellRowCard()
         }
