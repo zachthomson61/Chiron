@@ -331,6 +331,13 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private let deadliftMinRepCycleDuration: TimeInterval = 0.7
     private let deadliftMaxRepCycleDuration: TimeInterval = 6.0
     private let deadliftMinRepInterval: TimeInterval = 0.7
+    /// Deadlift-specific ankle drift tolerance, tighter than the global 0.05.
+    /// Setup motions before the first real rep — stepping into position over the bar,
+    /// shuffling stance, repositioning — produce ankle drift in the 0.04-0.05 range,
+    /// just under the global tolerance, so they sneak through as reps. Real deadlift
+    /// reps across the test set show drift ≤ 0.008 because the feet are planted once
+    /// the user is set up. The 0.015 threshold sits in the empirical gap.
+    private let deadliftAnkleStabilityTolerance: Float = 0.015
 
     // MARK: - Romanian deadlift rep state
     //
@@ -355,6 +362,22 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// Deepest (smallest) smoothed hip angle observed while in `.hinged`. Pairs with the
     /// wrist signal above — a real RDL hinges deeper than a pickup/putdown.
     private var rdlMinSmoothedHipAngleInHinge: Float = .greatestFiniteMagnitude
+    /// Timestamp of the last frame that deepened `rdlMinSmoothedHipAngleInHinge`. Combined with
+    /// `rdlAscentStartTime` to measure how long the user dwelled at the bottom — pickups pause,
+    /// real reps don't.
+    private var rdlMinUpdateTime: Date?
+    /// Timestamp of the first frame in this hinge cycle where smoothed angle rose more than
+    /// `rdlBottomAscentMargin` above the running min. Set once per cycle.
+    private var rdlAscentStartTime: Date?
+    /// Captures a rep candidate that has passed all in-cycle gates but is awaiting post-rep
+    /// stability verification. Real reps leave the user planted; walking/putdown misfires see
+    /// the ankles drift within the next second.
+    private struct RdlPendingRep {
+        let candidateTime: Date
+        var minAnkleY: Float
+        var maxAnkleY: Float
+    }
+    private var rdlPendingRep: RdlPendingRep?
     private let rdlEMAAlpha: Float = 0.4
     /// Enter HINGED when smoothed angle ≤ this.
     private let rdlHingeThreshold: Float = 130
@@ -385,6 +408,25 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// sits in the empirical gap with ~4° margin on each side.
     private let rdlBarFloorReachWristDelta: Float = 0.16
     private let rdlBarFloorReachMinHingeAngle: Float = 88
+    /// Bottom-dwell rejection.
+    /// Real RDLs bounce off the bottom — time from min-angle-reached to clear ascent is < 0.7s.
+    /// Pickup/positioning hinges pause at the deep position (checking grip, breathing, settling)
+    /// for 1+ seconds before standing back up. Catching this dwell rejects pickup motions even
+    /// when bar-floor-reach signals are compressed by oblique camera views.
+    private let rdlMaxBottomDwell: TimeInterval = 0.8
+    /// Angle increase above the running min that counts as the start of ascent, ending the
+    /// bottom-dwell window. Set above EMA noise to avoid false ascent triggers at the bottom.
+    private let rdlBottomAscentMargin: Float = 5.0
+    /// Post-rep ankle stability window.
+    /// Pickup/walking-away misfires can produce a hinge cycle that looks like a real rep on every
+    /// in-cycle signal, but the user's body drifts (walking, putting the bar down) within the next
+    /// second. Defer rep credit by this duration and watch ankle Y; if it drifts more than the
+    /// tolerance, discard the rep. If the user dives into the next hinge cycle within the window,
+    /// credit the prior rep immediately (fast cadence) and start the new cycle.
+    private let rdlPostRepStabilityWindow: TimeInterval = 1.0
+    /// Real reps see 0.001-0.005 ankle Y drift over the post-rep second; walking misfires hit
+    /// 0.025-0.07. The 0.015 threshold sits in the empirical gap.
+    private let rdlPostRepAnkleDriftMax: Float = 0.015
 
     private let weightedRepBadFrameLimit: Int = 15
 
@@ -2871,7 +2913,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 resetCurrentRepCycleAnkleStability()
                 return false
             }
-            if ankleDriftExceedsTolerance() {
+            if ankleDriftExceedsTolerance(tolerance: deadliftAnkleStabilityTolerance) {
                 deadliftRepPhase = .hinged; deadliftRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 return false
@@ -3156,6 +3198,53 @@ class OnDevicePoseManager: NSObject, ObservableObject {
 
         switch rdlRepPhase {
         case .standing:
+            // Post-rep verification: a candidate rep is awaiting confirmation that the user
+            // remains planted. Sample ankle Y on each frame; if the user dives into the next
+            // hinge before the window elapses, credit the prior rep immediately and start the
+            // new cycle. After the window elapses, accept the rep if drift stayed within
+            // tolerance, otherwise discard.
+            if var pending = rdlPendingRep {
+                if let ov = overlay, let la = ov["leftAnkle"], let ra = ov["rightAnkle"] {
+                    let ankleY = Float((la.y + ra.y) / 2)
+                    pending.minAnkleY = min(pending.minAnkleY, ankleY)
+                    pending.maxAnkleY = max(pending.maxAnkleY, ankleY)
+                    rdlPendingRep = pending
+                }
+                if smoothed <= rdlHingeThreshold {
+                    let priorTime = pending.candidateTime
+                    rdlPendingRep = nil
+                    lastRepValidationTime = priorTime
+                    rdlRepPhase = .hinged
+                    rdlRepCycleStartTime = now
+                    rdlMaxLowerWristYInHinge = -.greatestFiniteMagnitude
+                    rdlMinSmoothedHipAngleInHinge = .greatestFiniteMagnitude
+                    rdlMinUpdateTime = now
+                    rdlAscentStartTime = nil
+                    if let stableY = rdlStandingAnkleY {
+                        currentRepCycleAnkleYMin = stableY
+                        currentRepCycleAnkleYMax = stableY
+                    } else {
+                        beginAnkleStabilityCycle(overlay: overlay)
+                    }
+                    return true
+                }
+                let elapsed = now.timeIntervalSince(pending.candidateTime)
+                if elapsed >= rdlPostRepStabilityWindow {
+                    let drift = pending.maxAnkleY - pending.minAnkleY
+                    rdlPendingRep = nil
+                    if drift > rdlPostRepAnkleDriftMax {
+                        rdlLastRejectReason = String(
+                            format: "postRepDrift=%.4f tol=%.4f",
+                            drift, rdlPostRepAnkleDriftMax
+                        )
+                        return false
+                    }
+                    lastRepValidationTime = now
+                    return true
+                }
+                return false
+            }
+
             // Continuously refresh the ankle baseline while the user is verifiably standing,
             // so the rep cycle starts measuring drift from a planted-feet reference point.
             if smoothed >= rdlStandingThreshold,
@@ -3168,6 +3257,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rdlRepCycleStartTime = now
                 rdlMaxLowerWristYInHinge = -.greatestFiniteMagnitude
                 rdlMinSmoothedHipAngleInHinge = .greatestFiniteMagnitude
+                rdlMinUpdateTime = now
+                rdlAscentStartTime = nil
                 if let stableY = rdlStandingAnkleY {
                     currentRepCycleAnkleYMin = stableY
                     currentRepCycleAnkleYMax = stableY
@@ -3189,7 +3280,14 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     rdlMaxLowerWristYInHinge = max(rdlMaxLowerWristYInHinge, lowestWristY)
                 }
             }
+            let prevMin = rdlMinSmoothedHipAngleInHinge
             rdlMinSmoothedHipAngleInHinge = min(rdlMinSmoothedHipAngleInHinge, smoothed)
+            if rdlMinSmoothedHipAngleInHinge < prevMin {
+                rdlMinUpdateTime = now
+            } else if rdlAscentStartTime == nil &&
+                      smoothed > rdlMinSmoothedHipAngleInHinge + rdlBottomAscentMargin {
+                rdlAscentStartTime = now
+            }
 
             guard smoothed >= rdlStandingThreshold else { return false }
             let dur = now.timeIntervalSince(rdlRepCycleStartTime ?? now)
@@ -3219,8 +3317,23 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rdlLastRejectReason = String(format: "ankleDrift range=%.4f tol=%.4f", driftRange, rdlAnkleStabilityTolerance)
                 resetRdlBarFloorReachTrackers()
                 rdlRepPhase = .standing; rdlRepCycleStartTime = nil
+                rdlMinUpdateTime = nil; rdlAscentStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 return false
+            }
+            // Bottom-dwell gate: pickup/positioning hinges pause at the deep position before
+            // standing back up; real reps bounce off the bottom. Measure the gap between
+            // last-min-update and start-of-ascent — long gaps mean the user dwelled.
+            if let minTime = rdlMinUpdateTime, let ascentTime = rdlAscentStartTime {
+                let dwell = ascentTime.timeIntervalSince(minTime)
+                if dwell > rdlMaxBottomDwell {
+                    rdlLastRejectReason = String(format: "bottomDwell=%.2fs", dwell)
+                    resetRdlBarFloorReachTrackers()
+                    rdlRepPhase = .standing; rdlRepCycleStartTime = nil
+                    rdlMinUpdateTime = nil; rdlAscentStartTime = nil
+                    resetCurrentRepCycleAnkleStability()
+                    return false
+                }
             }
             // Bar-floor-reach gate: pickup/putdown drops the wrists to floor level AND keeps the
             // hinge shallow (lifter bends knees to reach the bar instead of folding the hips).
@@ -3238,17 +3351,36 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     )
                     resetRdlBarFloorReachTrackers()
                     rdlRepPhase = .standing; rdlRepCycleStartTime = nil
+                    rdlMinUpdateTime = nil; rdlAscentStartTime = nil
                     resetCurrentRepCycleAnkleStability()
                     return false
                 }
             }
-            // Rep counted.
-            lastRepValidationTime = now
+            // All in-cycle gates passed. Defer the rep credit until post-rep stability is
+            // confirmed — the standing case above handles the verification window. Without an
+            // ankle baseline, we can't verify drift, so credit immediately.
             resetRdlBarFloorReachTrackers()
             rdlRepPhase = .standing
             rdlRepCycleStartTime = nil
+            rdlMinUpdateTime = nil
+            rdlAscentStartTime = nil
             resetCurrentRepCycleAnkleStability()
-            return true
+            let pendingBaselineY: Float? = {
+                if let ov = overlay, let la = ov["leftAnkle"], let ra = ov["rightAnkle"] {
+                    return Float((la.y + ra.y) / 2)
+                }
+                return rdlStandingAnkleY
+            }()
+            guard let baselineY = pendingBaselineY else {
+                lastRepValidationTime = now
+                return true
+            }
+            rdlPendingRep = RdlPendingRep(
+                candidateTime: now,
+                minAnkleY: baselineY,
+                maxAnkleY: baselineY
+            )
+            return false
         }
     }
 
@@ -3896,6 +4028,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         rdlSmoothedHipAngle = nil
         rdlRepCycleStartTime = nil
         rdlBadFrameStreak = 0
+        rdlMinUpdateTime = nil
+        rdlAscentStartTime = nil
+        rdlPendingRep = nil
         resetRdlBarFloorReachTrackers()
         resetCurrentRepCycleAnkleStability()
     }
