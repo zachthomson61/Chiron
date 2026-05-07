@@ -1,0 +1,15 @@
+# Dependencies — restored via `npm install`.
+node_modules/
+
+# Wrangler runtime cache (local dev state, KV simulator data, etc.).
+.wrangler/
+
+# Local environment overrides — never commit secrets, but in case any env file
+# sneaks in (e.g. `.dev.vars` for local Wrangler runs), keep it out.
+.dev.vars
+.env
+.env.local
+
+# Editor / OS noise
+.DS_Store
+*.log

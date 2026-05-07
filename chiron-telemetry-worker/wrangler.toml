@@ -1,0 +1,11 @@
+name = "chiron-telemetry"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+[vars]
+R2_BUCKET_NAME = "chiron-telemetry"
+R2_ACCOUNT_ID = "34d2d5ab5372ad7a39ca7f4ff934c10c"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "9bd5b214ce0544bdad22a8211933b3b2"
