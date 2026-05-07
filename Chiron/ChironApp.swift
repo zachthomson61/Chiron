@@ -8,10 +8,12 @@
 import SwiftUI
 import SwiftData
 import FirebaseCore
+import UIKit
 
 /// Entry point for the iOS app. Keeps startup work minimal so the first screen appears quickly.
 @main
 struct ChironApp: App {
+    @UIApplicationDelegateAdaptor(ChironAppDelegate.self) private var appDelegate
     @StateObject private var appState = AppState()
 
     init() {
@@ -23,6 +25,34 @@ struct ChironApp: App {
             ContentView()
                 .environmentObject(appState)
         }
+    }
+}
+
+/// Hosts UIApplication callbacks that SwiftUI's lifecycle doesn't expose:
+/// the launch-time telemetry resume/cleanup pass and the background
+/// URLSession completion-handler bridge. Kept minimal — anything that can
+/// live in `AppState` should live there.
+final class ChironAppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        // Re-enqueue any orphaned files from a prior crash, and prune
+        // Uploaded/* older than 7 days.
+        TelemetryUploader.shared.resumePendingUploads()
+        TelemetryUploader.shared.cleanupOldUploaded()
+        return true
+    }
+
+    /// iOS calls this when a background URLSession has events to deliver
+    /// after the app was relaunched. Forwarding the completion handler lets
+    /// the system know when we're done so it can suspend us again.
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        TelemetryUploader.shared.setBackgroundEventsCompletion(completionHandler)
     }
 }
 

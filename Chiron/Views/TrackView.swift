@@ -710,6 +710,10 @@ struct TrackView: View {
         // Screen recording captures the full on-screen experience (camera + overlay) so
         // the CSV trace can be replayed alongside the video. iOS prompts the first time.
         ScreenRecorder.shared.start()
+        // Open a telemetry session if the user has opted in (no-op otherwise).
+        // Coordinator owns CSV writer and parks a video recorder for the
+        // ScreenRecorder.stop callback in `exportDebugCSV` to attach.
+        TelemetryCoordinator.shared.startSession(exerciseType: exerciseType)
         // Suppress rep counting for 1 second so the user can step back from the camera
         // after pressing the button. Without this delay, the pose detector may see a
         // partial/close-up pose and erroneously count a rep during the transition.
@@ -737,6 +741,11 @@ struct TrackView: View {
 
         cameraManager.endTrackSetKeepingPoseActive()
         trackViewState = .armed
+
+        // Close the telemetry session. CSV is finalized + queued; the video
+        // recorder is parked, awaiting the mp4 from `exportDebugCSV`'s
+        // ScreenRecorder.stop callback below.
+        TelemetryCoordinator.shared.endSession()
 
         // Stop debug logging and export CSV for analysis.
         poseManager.debugLoggerEnabled = false
@@ -944,6 +953,9 @@ struct TrackView: View {
         }
 
         ScreenRecorder.shared.stop(basename: basename) { videoURL in
+            // Hand the temp mp4 to telemetry first so it can transcode +
+            // queue without depending on the manual share-sheet flow below.
+            TelemetryCoordinator.shared.attachRecordedVideo(at: videoURL)
             if let v = videoURL { urls.append(v) }
             guard !urls.isEmpty else { return }
             debugShareURLs = urls

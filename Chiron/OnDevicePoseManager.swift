@@ -872,6 +872,17 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             frame.repCommitValid = debugCommitValid
             SquatRepDebugLogger.shared.log(frame)
         }
+
+        // Telemetry observation hook. No-op when consent is off (gated inside
+        // TelemetryCoordinator). Strictly observational — reads existing local
+        // values, doesn't touch rep-detection or form-analysis state.
+        TelemetryCoordinator.shared.recordFrame(timestampMs: timestampMs, formAnalysis: formAnalysis)
+        if debugRepCounted {
+            TelemetryCoordinator.shared.recordRepEvent(repIndex: repCount)
+        }
+        if let rejectReason = bwLastRejectReason ?? rdlLastRejectReason ?? rowLastRejectReason {
+            TelemetryCoordinator.shared.recordRepRejection(reason: rejectReason)
+        }
     }
 
     // MARK: - Form Analysis (2D overlay)
