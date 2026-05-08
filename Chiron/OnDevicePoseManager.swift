@@ -324,6 +324,16 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// Used by the shallow-brief-motion gate to distinguish a real pull from a pickup
     /// or putdown motion that briefly grazes the flexed threshold.
     private var rowMinSmoothedElbowAngleInFlexed: Float = .greatestFiniteMagnitude
+    /// Subject-tracking gate. When the lifter exits frame between sets and a different
+    /// person crosses the background, MediaPipe can latch onto that person and their
+    /// elbow angle may oscillate near the row thresholds, producing a phantom rep.
+    /// In that case neither wrist is tracked well: across the observed misfire the
+    /// max of (left, right) wrist visibility never exceeded 0.78 across the entire
+    /// cycle. Real reps consistently see at least one frame where the better wrist
+    /// is ≥ 0.96 (lowest observed across 50+ real reps spanning floor/mount and
+    /// front/oblique view buckets). 0.85 sits cleanly in that gap.
+    private let rowMinBetterWristConfPeak: Float = 0.85
+    private var rowMaxBetterWristConfInFlexed: Float = 0
     /// Shallow-brief-motion gate.
     /// Picking up the bar or setting it back down briefly bends the elbows enough to
     /// graze the flexed threshold (137-140° in observed tests), and the cycle finishes
@@ -769,7 +779,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         if !SharedCameraSessionManager.shared.isInSetupMode,
            !SharedCameraSessionManager.shared.suppressRepCounting {
             let now = Date()
-            if validateRep(skeleton: smoothed, overlay: landmarks, formAnalysis: formAnalysis, now: now) {
+            if validateRep(skeleton: smoothed, overlay: landmarks, confidence: adapted.perJointConfidence, formAnalysis: formAnalysis, now: now) {
                 debugRepCounted = true
                 if trackedExerciseType == .bodyweight {
                     let preValid = bodyweightRepHistory.count
@@ -2434,7 +2444,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     ///   4. Two-state machine .extended ↔ .flexed with hysteresis.
     ///   5. Timing gates reject impossibly fast / slow cycles.
     ///   6. Stationary-feet gate rejects "walking into / out of position" false reps.
-    private func validateRowRep(skeleton: Skeleton3D?, overlay: [String: CGPoint]?, now: Date) -> Bool {
+    private func validateRowRep(
+        skeleton: Skeleton3D?,
+        overlay: [String: CGPoint]?,
+        confidence: [String: Float],
+        now: Date
+    ) -> Bool {
         guard let skeleton = skeleton else { return false }
 
         let ls = skeleton.position("leftShoulder"),  le = skeleton.position("leftElbow"),  lw = skeleton.position("leftWrist")
@@ -2472,6 +2487,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rowMinShoulderYInFlexed = .greatestFiniteMagnitude
                 rowMaxShoulderYInFlexed = -.greatestFiniteMagnitude
                 rowMinSmoothedElbowAngleInFlexed = smoothed
+                rowMaxBetterWristConfInFlexed = max(confidence["leftWrist"] ?? 0, confidence["rightWrist"] ?? 0)
                 if let ov = overlay,
                    let ls = ov["leftShoulder"], let rs = ov["rightShoulder"] {
                     let shY = Float((ls.y + rs.y) / 2)
@@ -2491,6 +2507,9 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             }
             // Track the deepest elbow angle reached this cycle for the shallow-brief gate.
             rowMinSmoothedElbowAngleInFlexed = min(rowMinSmoothedElbowAngleInFlexed, smoothed)
+            // Track the best-tracked wrist confidence at any frame in this cycle.
+            let betterWristConfThisFrame = max(confidence["leftWrist"] ?? 0, confidence["rightWrist"] ?? 0)
+            rowMaxBetterWristConfInFlexed = max(rowMaxBetterWristConfInFlexed, betterWristConfThisFrame)
 
             guard smoothed >= rowExtendedThreshold else { return false }
             let dur = now.timeIntervalSince(rowRepCycleStartTime ?? now)
@@ -2499,6 +2518,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rowRepPhase = .extended; rowRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
+                rowMaxBetterWristConfInFlexed = 0
                 return false
             }
             if dur < rowMinRepCycleDuration {
@@ -2506,6 +2526,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rowRepPhase = .extended; rowRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
+                rowMaxBetterWristConfInFlexed = 0
                 return false
             }
             if dur > rowMaxRepCycleDuration {
@@ -2513,6 +2534,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rowRepPhase = .extended; rowRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
+                rowMaxBetterWristConfInFlexed = 0
                 return false
             }
             if ankleDriftExceedsTolerance(tolerance: rowAnkleStabilityTolerance) {
@@ -2521,6 +2543,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rowRepPhase = .extended; rowRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
+                rowMaxBetterWristConfInFlexed = 0
                 return false
             }
             // Shoulder-Y stability gate: a real row keeps the torso planted in roughly the
@@ -2534,6 +2557,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     rowRepPhase = .extended; rowRepCycleStartTime = nil
                     resetCurrentRepCycleAnkleStability()
                     rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
+                    rowMaxBetterWristConfInFlexed = 0
                     return false
                 }
             }
@@ -2550,6 +2574,23 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rowRepPhase = .extended; rowRepCycleStartTime = nil
                 resetCurrentRepCycleAnkleStability()
                 rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
+                rowMaxBetterWristConfInFlexed = 0
+                return false
+            }
+            // Subject-tracking gate: if neither wrist was tracked confidently at any
+            // frame in this cycle, the pose model likely latched onto a non-lifter in
+            // frame (e.g., someone walking through the background between sets). The
+            // elbow angle from a mistracked subject can oscillate near the row
+            // thresholds and produce a phantom rep.
+            if rowMaxBetterWristConfInFlexed < rowMinBetterWristConfPeak {
+                rowLastRejectReason = String(
+                    format: "lowWristConf peak=%.2f thr=%.2f",
+                    rowMaxBetterWristConfInFlexed, rowMinBetterWristConfPeak
+                )
+                rowRepPhase = .extended; rowRepCycleStartTime = nil
+                resetCurrentRepCycleAnkleStability()
+                rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
+                rowMaxBetterWristConfInFlexed = 0
                 return false
             }
             // Rep counted.
@@ -2558,6 +2599,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             rowRepCycleStartTime = nil
             resetCurrentRepCycleAnkleStability()
             rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
+            rowMaxBetterWristConfInFlexed = 0
             return true
         }
     }
@@ -4103,6 +4145,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         rowMinShoulderYInFlexed = .greatestFiniteMagnitude
         rowMaxShoulderYInFlexed = -.greatestFiniteMagnitude
         rowMinSmoothedElbowAngleInFlexed = .greatestFiniteMagnitude
+        rowMaxBetterWristConfInFlexed = 0
         resetCurrentRepCycleAnkleStability()
     }
 
@@ -4134,6 +4177,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private func validateRep(
         skeleton: Skeleton3D?,
         overlay: [String: CGPoint]?,
+        confidence: [String: Float],
         formAnalysis: FormAnalysis,
         now: Date
     ) -> Bool {
@@ -4156,7 +4200,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             guard let sk = skeleton, let ov = overlay else { return false }
             return validateBodyweightSquatRep(overlay: ov, skeleton: sk, now: now)
         case .row:
-            return validateRowRep(skeleton: skeleton, overlay: overlay, now: now)
+            return validateRowRep(skeleton: skeleton, overlay: overlay, confidence: confidence, now: now)
         case .deadlift:
             return validateDeadliftRep(skeleton: skeleton, overlay: overlay, now: now)
         case .romanianDeadlift:
