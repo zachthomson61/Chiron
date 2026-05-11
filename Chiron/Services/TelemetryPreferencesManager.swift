@@ -36,16 +36,21 @@ final class TelemetryPreferencesManager: ObservableObject {
         didSet { UserDefaults.standard.set(shareDataToImproveChiron, forKey: Self.shareKey) }
     }
 
-    /// When true, the upload queue is allowed on cellular. When false (default),
-    /// uploads are gated to Wi-Fi via `URLSessionConfiguration.allowsCellularAccess`
+    /// When true, the upload queue is allowed on cellular. When false, uploads
+    /// are gated to Wi-Fi via `URLSessionConfiguration.allowsCellularAccess`
     /// plus an `NWPathMonitor` pre-enqueue check. Independent of the master flag —
     /// only consulted when `shareDataToImproveChiron` is true.
+    ///
+    /// **Default is currently `true`** — solo-developer testing phase, gym
+    /// sessions are typically off Wi-Fi and the developer wants the uploads to
+    /// land regardless. Flip back to `false` before TestFlight (same migration
+    /// as `shareDataToImproveChiron`) and add a Settings UI toggle.
     @Published var allowCellularUploads: Bool {
         didSet { UserDefaults.standard.set(allowCellularUploads, forKey: Self.cellularKey) }
     }
 
     private init() {
-        // Default share flag to `true` when never set — solo testing phase.
+        // Default both flags to `true` when never set — solo testing phase.
         // Once present in UserDefaults, honor whatever was last written.
         if UserDefaults.standard.object(forKey: Self.shareKey) == nil {
             self.shareDataToImproveChiron = true
@@ -53,6 +58,11 @@ final class TelemetryPreferencesManager: ObservableObject {
         } else {
             self.shareDataToImproveChiron = UserDefaults.standard.bool(forKey: Self.shareKey)
         }
-        self.allowCellularUploads = UserDefaults.standard.bool(forKey: Self.cellularKey)
+        if UserDefaults.standard.object(forKey: Self.cellularKey) == nil {
+            self.allowCellularUploads = true
+            UserDefaults.standard.set(true, forKey: Self.cellularKey)
+        } else {
+            self.allowCellularUploads = UserDefaults.standard.bool(forKey: Self.cellularKey)
+        }
     }
 }

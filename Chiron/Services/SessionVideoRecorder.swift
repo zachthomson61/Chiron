@@ -130,22 +130,18 @@ final class SessionVideoRecorder {
             DispatchQueue.main.async { completion(fallback) }
             return
         }
-        session.outputURL = destURL
-        session.outputFileType = .mp4
         session.shouldOptimizeForNetworkUse = true
 
-        session.exportAsynchronously { [weak self] in
-            DispatchQueue.main.async {
-                switch session.status {
-                case .completed:
-                    completion(destURL)
-                case .failed, .cancelled:
-                    // Best-effort fallback — keep the larger source file rather than nothing.
-                    let fallback = self?.storeWithoutTranscode(sourceURL: sourceURL)
-                    completion(fallback)
-                default:
-                    completion(nil)
-                }
+        // iOS 18 async export — replaces the deprecated
+        // `exportAsynchronously(completionHandler:)` + `.status` polling.
+        Task { [weak self] in
+            do {
+                try await session.export(to: destURL, as: .mp4)
+                await MainActor.run { completion(destURL) }
+            } catch {
+                // Best-effort fallback — keep the larger source file rather than nothing.
+                let fallback = self?.storeWithoutTranscode(sourceURL: sourceURL)
+                await MainActor.run { completion(fallback) }
             }
         }
     }

@@ -47,9 +47,10 @@ actor TelemetryUploader {
     private let maxBackoffSeconds: TimeInterval = 3600
 
     /// Bytes above which uploads defer to Wi-Fi even when cellular is allowed.
-    /// 50 MB caps an extremely long set; under MediumQuality H.264 a
-    /// 15-minute set is ~75 MB so the cap kicks in around there.
-    private static let cellularByteCap: Int64 = 50 * 1024 * 1024
+    /// Set to match the Worker's 200 MB ceiling — solo-dev phase, no testers
+    /// whose data plans we need to defend yet. Tighten back down (50 MB) and
+    /// re-evaluate before TestFlight.
+    private static let cellularByteCap: Int64 = 200 * 1024 * 1024
 
     /// Files in `Uploaded/` older than this age are pruned by `cleanupOldUploaded`.
     private static let uploadedRetentionSeconds: TimeInterval = 7 * 24 * 3600
@@ -87,7 +88,9 @@ actor TelemetryUploader {
         config.isDiscretionary = false
         // Per-task `URLRequest.allowsCellularAccess` overrides this when needed.
         config.allowsCellularAccess = true
-        config.shouldUseExtendedBackgroundIdleMode = true
+        // (Previously set `shouldUseExtendedBackgroundIdleMode = true` — the
+        // property was deprecated and is a no-op as of iOS 18.4. Background
+        // URLSession already gets the appropriate keep-alive treatment.)
 
         let delegate = TelemetryUploadDelegate()
         self.delegate = delegate
@@ -160,17 +163,28 @@ actor TelemetryUploader {
     }
 
     private func enqueueInternal(relativePath: String) async {
-        if activePaths.contains(relativePath) { return }
+        if activePaths.contains(relativePath) {
+            print("[TelemetryUploader] Skipping enqueue (already active): \(relativePath)")
+            return
+        }
         activePaths.insert(relativePath)
+        print("[TelemetryUploader] Enqueued \(relativePath)")
         await processUpload(relativePath: relativePath)
     }
 
     private func resumePendingInternal() async {
         guard let urls = try? TelemetryFilesystem.enumeratePending(),
-              let root = try? TelemetryFilesystem.pendingRoot() else { return }
-        let prefix = root.path + "/"
+              let root = try? TelemetryFilesystem.pendingRoot() else {
+            print("[TelemetryUploader] resumePending: failed to read Pending root")
+            return
+        }
+        print("[TelemetryUploader] resumePending: found \(urls.count) orphan(s) in Pending/")
+        // iOS's enumerator returns symlink-resolved paths (/private/var/...) while
+        // `pendingRoot()` returns the logical form (/var/...). Resolve both so the
+        // prefix-strip works regardless of which form each side hands back.
+        let prefix = root.resolvingSymlinksInPath().path + "/"
         for url in urls {
-            var rel = url.path
+            var rel = url.resolvingSymlinksInPath().path
             if rel.hasPrefix(prefix) {
                 rel = String(rel.dropFirst(prefix.count))
             }
@@ -187,7 +201,10 @@ actor TelemetryUploader {
                 options: [.skipsHiddenFiles]
               ) else { return }
         let cutoff = Date().addingTimeInterval(-Self.uploadedRetentionSeconds)
-        for case let url as URL in enumerator {
+        // Materialize via `allObjects` rather than iterating the enumerator
+        // directly — `DirectoryEnumerator.makeIterator()` is unavailable from
+        // async contexts under Swift 6 strict concurrency.
+        for case let url as URL in enumerator.allObjects {
             let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
             guard values?.isRegularFile == true else { continue }
             if let modDate = values?.contentModificationDate, modDate < cutoff {
@@ -199,11 +216,13 @@ actor TelemetryUploader {
     private func processUpload(relativePath: String) async {
         // 1. Source file exists?
         guard let pendingRoot = try? TelemetryFilesystem.pendingRoot() else {
+            print("[TelemetryUploader] processUpload abort: pendingRoot unreachable for \(relativePath)")
             activePaths.remove(relativePath)
             return
         }
         let pendingURL = pendingRoot.appendingPathComponent(relativePath)
         guard FileManager.default.fileExists(atPath: pendingURL.path) else {
+            print("[TelemetryUploader] processUpload abort: file missing at \(pendingURL.path)")
             activePaths.remove(relativePath)
             return
         }
@@ -238,6 +257,8 @@ actor TelemetryUploader {
             return
         }
 
+        print("[TelemetryUploader] Fetching presigned URL for \(relativePath) (\(fileSize) bytes, isWiFi=\(isWiFi))")
+
         // 5. Fetch presigned URL.
         let presignedURL: URL
         do {
@@ -259,6 +280,7 @@ actor TelemetryUploader {
         putRequest.setValue(contentType(for: relativePath), forHTTPHeaderField: "Content-Type")
         let task = session.uploadTask(with: putRequest, fromFile: pendingURL)
         inFlightTasks[task.taskIdentifier] = InFlightUpload(relativePath: relativePath, fileSize: fileSize)
+        print("[TelemetryUploader] PUT started taskID=\(task.taskIdentifier) for \(relativePath)")
         task.resume()
     }
 

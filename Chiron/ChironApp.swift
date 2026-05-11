@@ -41,6 +41,19 @@ final class ChironAppDelegate: NSObject, UIApplicationDelegate {
         // Uploaded/* older than 7 days.
         TelemetryUploader.shared.resumePendingUploads()
         TelemetryUploader.shared.cleanupOldUploaded()
+
+        // Foreground hook: when the user comes back from background — typically
+        // after walking out of the gym onto Wi-Fi at home — re-enqueue any
+        // Pending/ orphans whose retry timers were lost during suspend. Cold
+        // launch already covers itself above; this catches warm relaunches.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            TelemetryUploader.shared.resumePendingUploads()
+        }
+
         return true
     }
 

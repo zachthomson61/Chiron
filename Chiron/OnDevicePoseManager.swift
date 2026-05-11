@@ -189,7 +189,12 @@ class InactivityDetector {
 
 // MARK: - On-Device Pose Manager
 class OnDevicePoseManager: NSObject, ObservableObject {
-    static let shared = OnDevicePoseManager()
+    // `nonisolated(unsafe)` because the singleton reference itself is
+    // immutable after init and safe to grab from any thread (telemetry's
+    // analysis-thread CSV writer, for instance). Mutations to the published
+    // properties below still happen on main, so the "unsafe" part is
+    // disclaimer, not actual unsafety.
+    nonisolated(unsafe) static let shared = OnDevicePoseManager()
     
     // MARK: - Pose Detection Properties
     @Published var poseDetected = false
