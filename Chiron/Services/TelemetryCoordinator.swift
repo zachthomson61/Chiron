@@ -27,7 +27,7 @@ import UIKit
 
 @MainActor
 final class TelemetryCoordinator: ObservableObject {
-    static let shared = TelemetryCoordinator()
+    nonisolated static let shared = TelemetryCoordinator()
 
     /// Active CSV writer for the current session. Set on `startSession`,
     /// cleared on `endSession`.
@@ -52,7 +52,7 @@ final class TelemetryCoordinator: ObservableObject {
     /// MUST only be assigned on main, in lock-step with `activeCSVWriter`.
     nonisolated(unsafe) private var activeCSVWriterFastPath: SessionCSVWriter?
 
-    private init() {}
+    nonisolated private init() {}
 
     // MARK: - Lifecycle (main thread)
 
@@ -178,9 +178,15 @@ final class TelemetryCoordinator: ObservableObject {
 
     private func enqueueForUpload(fileURL: URL) {
         guard let pendingRoot = try? TelemetryFilesystem.pendingRoot() else { return }
-        let prefix = pendingRoot.path + "/"
-        let path = fileURL.path
-        guard path.hasPrefix(prefix) else { return }
+        // Resolve symlinks on both sides — iOS may hand back either /var/... or
+        // /private/var/... and the prefix-strip must work either way. (Same fix
+        // as in TelemetryUploader.resumePendingInternal.)
+        let prefix = pendingRoot.resolvingSymlinksInPath().path + "/"
+        let path = fileURL.resolvingSymlinksInPath().path
+        guard path.hasPrefix(prefix) else {
+            print("[TelemetryCoordinator] enqueueForUpload: path outside Pending/ — \(path)")
+            return
+        }
         let rel = String(path.dropFirst(prefix.count))
         TelemetryUploader.shared.enqueue(relativePath: rel)
     }
