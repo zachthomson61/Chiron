@@ -49,10 +49,10 @@ struct RootTabView: View {
             }
             .tabItem {
                 Image(systemName: "figure.run")
-                Text("Track")
+                Text("Workout")
             }
             .tag(Tab.track)
-            .accessibilityLabel("Track")
+            .accessibilityLabel("Workout")
 
             // MARK: - Research Tab (Exercise Library)
             NavigationStack {
