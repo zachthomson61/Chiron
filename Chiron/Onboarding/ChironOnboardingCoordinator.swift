@@ -27,6 +27,7 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
     case coachIntensity
     case calculating
     case reveal
+    case helpImproveChiron
     case notificationPrimer
     case ready
 
@@ -196,6 +197,7 @@ final class ChironOnboardingCoordinator {
         case .coachIntensity:           return true
         case .calculating:              return false
         case .reveal:                   return true
+        case .helpImproveChiron:        return true
         case .notificationPrimer:       return true
         case .ready:                    return true
         }

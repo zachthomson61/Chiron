@@ -66,6 +66,8 @@ struct OnboardingRootView: View {
                     CalculatingLoaderView(coordinator: coordinator)
                 case .reveal:
                     PersonalizedRevealView(coordinator: coordinator)
+                case .helpImproveChiron:
+                    HelpImproveChironPrimerView(coordinator: coordinator)
                 case .notificationPrimer:
                     NotificationPrimerView(coordinator: coordinator)
                 case .ready:
