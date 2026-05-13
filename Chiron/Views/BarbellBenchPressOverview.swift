@@ -19,9 +19,13 @@ struct BarbellBenchPressOverview: View {
     @ObservedObject var viewModel: WorkoutViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTab = 0
-    
-    init(viewModel: WorkoutViewModel) {
+    /// When true, a History button appears at the bottom of the overview. Only set
+    /// by the Research-tab Exercise Library router.
+    var showHistoryButton: Bool = false
+
+    init(viewModel: WorkoutViewModel, showHistoryButton: Bool = false) {
         self.viewModel = viewModel
+        self.showHistoryButton = showHistoryButton
     }
     
     var body: some View {
@@ -82,6 +86,13 @@ struct BarbellBenchPressOverview: View {
                                 BarbellBenchPressDontsContent()
                             default:
                                 BarbellBenchPressSetupContent()
+                            }
+
+                            if showHistoryButton {
+                                ExerciseHistoryFooterButton(
+                                    exerciseName: "Barbell Bench Press"
+                                )
+                                .padding(.top, 8)
                             }
                         }
                         .padding(20)

@@ -6,14 +6,18 @@ struct BodyweightSquatOverview: View {
     @ObservedObject var viewModel: WorkoutViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTab = 0
-    
+
     // Callback to navigate back to exercise selection
     var onFinishExercise: (() -> Void)?
-    
+    /// When true, a History button appears at the bottom of the overview. Only set
+    /// by the Research-tab Exercise Library router.
+    var showHistoryButton: Bool = false
+
     // Initialize with optional callback
-    init(viewModel: WorkoutViewModel, onFinishExercise: (() -> Void)? = nil) {
+    init(viewModel: WorkoutViewModel, onFinishExercise: (() -> Void)? = nil, showHistoryButton: Bool = false) {
         self.viewModel = viewModel
         self.onFinishExercise = onFinishExercise
+        self.showHistoryButton = showHistoryButton
     }
     
     var body: some View {
@@ -74,6 +78,14 @@ struct BodyweightSquatOverview: View {
                             DontsContent()
                         default:
                             FlowContent()
+                        }
+
+                        if showHistoryButton {
+                            ExerciseHistoryFooterButton(
+                                exerciseName: "Bodyweight Squat",
+                                isBodyweight: true
+                            )
+                            .padding(.top, 8)
                         }
                     }
                     .padding(20)
@@ -338,6 +350,44 @@ struct LoopingVideoView: UIViewRepresentable {
         override func layoutSubviews() {
             super.layoutSubviews()
             playerLayer.frame = bounds
+        }
+    }
+}
+
+/// Footer button shown at the bottom of Research-tab exercise overviews.
+/// Presents `ExerciseHistorySheet` for the same exercise — mirrors the
+/// History button on the Workout tab.
+struct ExerciseHistoryFooterButton: View {
+    let exerciseName: String
+    var isBodyweight: Bool = false
+
+    @State private var showHistorySheet = false
+
+    var body: some View {
+        Button {
+            showHistorySheet = true
+        } label: {
+            HStack(spacing: 8) {
+                Text("History")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 15, weight: .semibold))
+            }
+            .foregroundColor(.textPrimary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(Color.black.opacity(0.55))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showHistorySheet) {
+            ExerciseHistorySheet(
+                isPresented: $showHistorySheet,
+                exerciseName: exerciseName,
+                isBodyweight: isBodyweight
+            )
+            .presentationDragIndicator(.visible)
         }
     }
 }

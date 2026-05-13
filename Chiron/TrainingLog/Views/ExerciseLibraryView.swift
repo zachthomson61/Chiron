@@ -348,18 +348,18 @@ struct ExerciseLibraryView: View {
     @ViewBuilder
     private func destinationView(for exercise: Exercise) -> some View {
         if exercise.name.caseInsensitiveCompare(bodyweightSquatName) == .orderedSame {
-            BodyweightSquatOverview(viewModel: bodyweightSquatViewModel)
-        } else if exercise.name.caseInsensitiveCompare(barbellBackSquatName) == .orderedSame || 
+            BodyweightSquatOverview(viewModel: bodyweightSquatViewModel, showHistoryButton: true)
+        } else if exercise.name.caseInsensitiveCompare(barbellBackSquatName) == .orderedSame ||
                   exercise.name.caseInsensitiveCompare(backSquatName) == .orderedSame {
-            BarbellBackSquatOverview(viewModel: barbellBackSquatViewModel)
+            BarbellBackSquatOverview(viewModel: barbellBackSquatViewModel, showHistoryButton: true)
         } else if exercise.name.caseInsensitiveCompare(deadliftName) == .orderedSame {
-            DeadliftOverview(viewModel: deadliftViewModel)
+            DeadliftOverview(viewModel: deadliftViewModel, showHistoryButton: true)
         } else if exercise.name.caseInsensitiveCompare(barbellBenchPressName) == .orderedSame {
-            BarbellBenchPressOverview(viewModel: barbellBenchPressViewModel)
+            BarbellBenchPressOverview(viewModel: barbellBenchPressViewModel, showHistoryButton: true)
         } else if exercise.name.caseInsensitiveCompare(romanianDeadliftName) == .orderedSame {
-            RomanianDeadliftOverview(viewModel: romanianDeadliftViewModel)
+            RomanianDeadliftOverview(viewModel: romanianDeadliftViewModel, showHistoryButton: true)
         } else if exercise.name.caseInsensitiveCompare(barbellRowName) == .orderedSame {
-            BarbellRowOverview(viewModel: barbellRowViewModel)
+            BarbellRowOverview(viewModel: barbellRowViewModel, showHistoryButton: true)
         } else {
             ExerciseDetailPlaceholderView(exercise: exercise)
         }

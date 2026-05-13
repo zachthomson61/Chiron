@@ -9,13 +9,17 @@ struct BarbellBackSquatOverview: View {
     @ObservedObject var viewModel: WorkoutViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTab = 0
-    
+
     /// Optional callback to navigate back to exercise selection
     var onFinishExercise: (() -> Void)?
-    
-    init(viewModel: WorkoutViewModel, onFinishExercise: (() -> Void)? = nil) {
+    /// When true, a History button appears at the bottom of the overview. Only set
+    /// by the Research-tab Exercise Library router.
+    var showHistoryButton: Bool = false
+
+    init(viewModel: WorkoutViewModel, onFinishExercise: (() -> Void)? = nil, showHistoryButton: Bool = false) {
         self.viewModel = viewModel
         self.onFinishExercise = onFinishExercise
+        self.showHistoryButton = showHistoryButton
     }
     
     var body: some View {
@@ -76,6 +80,13 @@ struct BarbellBackSquatOverview: View {
                                 BarbellDontsContent()
                             default:
                                 BarbellSetupContent()
+                            }
+
+                            if showHistoryButton {
+                                ExerciseHistoryFooterButton(
+                                    exerciseName: "Barbell Back Squat"
+                                )
+                                .padding(.top, 8)
                             }
                         }
                         .padding(20)
