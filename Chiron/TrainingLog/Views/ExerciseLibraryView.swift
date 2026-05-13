@@ -120,7 +120,8 @@ struct ExerciseLibraryView: View {
     
     var filtered: [Exercise] {
         let query = normalizedQuery
-        let base = query.isEmpty ? exercises : exercises.filter { $0.name.lowercased().contains(query) }
+        let visible = exercises.filter { !isBarbellBenchPress($0) }
+        let base = query.isEmpty ? visible : visible.filter { $0.name.lowercased().contains(query) }
         return base.filter {
             matchesSelectedCategory($0) && matchesSelectedDifficulty($0)
         }
@@ -291,13 +292,14 @@ struct ExerciseLibraryView: View {
                 Text(displayName(for: exercise))
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(Color.textPrimary)
-                    .lineLimit(1)
-                
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Text(exercise.targetsLine)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 
                 Pill(text: exercise.difficulty.rawValue, difficulty: exercise.difficulty)
             }
