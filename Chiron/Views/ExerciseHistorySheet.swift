@@ -279,15 +279,17 @@ struct ProgressChartSection: View {
 
         VStack(alignment: .leading, spacing: 10) {
             if showsOuterChrome {
-                HStack {
-                    Text("Strength")
-                        .font(.neueMontrealBold(size: 24))
-                        .foregroundColor(.textPrimary)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Strength")
+                            .font(.neueMontrealBold(size: 24))
+                            .foregroundColor(.textPrimary)
+                        Spacer()
+                        volumeButton
+                    }
                     if let pct = growthPercent {
                         growthPill(percent: pct)
                     }
-                    Spacer()
-                    volumeButton
                 }
             }
 
