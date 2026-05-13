@@ -13,17 +13,17 @@ struct PersonalizedRevealView: View {
 
     @State private var appeared = false
 
-    /// First-month coached-set estimate derived from the user's experience level.
-    /// Honest heuristic: avg sessions/week × sets/session × 4 weeks.
-    /// - New to lifting: 2 sessions × 10 sets = 20/week → 80
-    /// - Some experience: 3 × 14 = 42/week → 168
-    /// - Experienced: 4 × 18 = 72/week → 288
-    private var coachedSets: Int {
+    /// Weekly minutes lost to bad-form sets, derived from experience level.
+    /// Heuristic: sets/week × 20% junk rate × ~2.5 min/set (work + rest).
+    /// - New to lifting: 20/week × 0.2 × 2.5 ≈ 10 min
+    /// - Some experience: 42/week × 0.2 × 2.5 ≈ 20 min
+    /// - Experienced: 72/week × 0.2 × 2.5 ≈ 35 min
+    private var minutesLost: Int {
         switch coordinator.draft.experienceLevel {
-        case .newToLifting:     return 80
-        case .someExperience:   return 168
-        case .experienced:      return 288
-        case .none:             return 120
+        case .newToLifting:     return 10
+        case .someExperience:   return 20
+        case .experienced:      return 35
+        case .none:             return 15
         }
     }
 
@@ -52,13 +52,19 @@ struct PersonalizedRevealView: View {
                     .foregroundStyle(OnboardingTheme.textSecondary)
                     .opacity(appeared ? 1 : 0)
 
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    OnboardingTypography.heroNumber("~\(coachedSets)")
-
-                    Text("high-quality sets")
-                        .font(.system(size: 20, weight: .medium))
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Stop losing")
+                        .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(OnboardingTheme.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        OnboardingTypography.heroNumber("~\(minutesLost)")
+
+                        Text("min/week")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundStyle(OnboardingTheme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .scaleEffect(appeared ? 1 : 0.85, anchor: .leading)
                 .opacity(appeared ? 1 : 0)
@@ -91,7 +97,7 @@ struct PersonalizedRevealView: View {
     }
 
     private var narrativeText: String {
-        "You won't just work out; you'll train with intent."
+        "The average lifter wastes 1 in 5 sets to bad form. You won't."
     }
 
     private var supportingPoints: some View {
@@ -102,31 +108,30 @@ struct PersonalizedRevealView: View {
                 .foregroundStyle(OnboardingTheme.textSecondary)
 
             revealBullet(
-                icon: "target",
-                title: "Every rep counts",
-                detail: "Form tracked and scored automatically — no wasted effort."
+                emoji: "🎯",
+                title: "No junk volume",
+                detail: "Every rep is form-scored, in real time."
             )
             revealBullet(
-                icon: "bolt.fill",
-                title: "Fix mistakes instantly",
-                detail: "Get real-time cues so you improve while you train."
+                emoji: "⚡",
+                title: "Catch mistakes early",
+                detail: "Cues the moment your form breaks down."
             )
             revealBullet(
-                icon: "lock.fill",
-                title: "Train with confidence",
-                detail: "Private, on-device coaching — no recordings, no uploads."
+                emoji: "🔒",
+                title: "Private training",
+                detail: "On-device only. Nothing uploaded, ever."
             )
         }
         .padding(.top, 4)
     }
 
-    private func revealBullet(icon: String, title: String, detail: String) -> some View {
+    private func revealBullet(emoji: String, title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(OnboardingTheme.accentGradient)
-                .frame(width: 20)
-                .padding(.top, 3)
+            Text(emoji)
+                .font(.system(size: 18))
+                .frame(width: 24, alignment: .leading)
+                .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)

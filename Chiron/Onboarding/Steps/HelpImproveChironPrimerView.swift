@@ -40,7 +40,7 @@ struct HelpImproveChironPrimerView: View {
                 OnboardingTypography.questionTitle("Make Chiron sharper.")
 
                 OnboardingTypography.subtitle(
-                    "Share anonymous form data and short clips of your sets so we can keep tuning the coaching. Optional — change your mind any time."
+                    "Share anonymous form data and short clips of your sets so we can keep tuning the coaching. Optional. Change your mind any time."
                 )
                 .padding(.bottom, 4)
 
@@ -48,12 +48,12 @@ struct HelpImproveChironPrimerView: View {
                     bullet(
                         icon: "figure.strengthtraining.traditional",
                         title: "Per-rep form data",
-                        detail: "Joint angles, rep timing, and form scores — used only to fix coaching edge cases."
+                        detail: "Joint angles, rep timing, and form scores. Used only to fix coaching edge cases."
                     )
                     bullet(
                         icon: "video.fill",
                         title: "Short clips of your sets",
-                        detail: "Screen recordings of the analyzed view — what the camera saw, nothing more."
+                        detail: "Screen recordings of the analyzed view. What the camera saw, nothing more."
                     )
                     bullet(
                         icon: "lock.shield.fill",
