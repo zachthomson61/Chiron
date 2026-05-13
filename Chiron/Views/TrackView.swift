@@ -891,7 +891,7 @@ struct TrackView: View {
         pendingFramingSpeech?.cancel()
         let work = DispatchWorkItem {
             SpeechManager.shared.speak(
-                "Prop your phone about four to six feet away. Step back until you see a green skeleton filter. When you're ready for your set, enter the weight you're lifting and press begin set.",
+                "Prop your phone about four to six feet away. Ensure it's either in front of you or at about a 45 degree angle. Face it towards you, and step back until you see a green skeleton filter. When you're ready for your set, enter the weight you're lifting and press begin set.",
                 priority: .high,
                 context: .instruction
             )
