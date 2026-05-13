@@ -248,9 +248,6 @@ private struct DailyProgressPoint: Identifiable {
     /// - Weighted: sum(weight × reps) across every set that day.
     /// - Bodyweight: total reps across all sets × user's bodyweight.
     let volume: Double
-    /// True when this day set a new top-metric high compared with every
-    /// earlier day.
-    let isPR: Bool
 }
 
 /// Progression chart card. Always draws the Top-Set metric line over time;
@@ -277,18 +274,22 @@ struct ProgressChartSection: View {
     @State private var lineProgress: CGFloat = 0
 
     var body: some View {
+        let points = dailyPoints()
+        let growthPercent = percentIncrease(points: points)
+
         VStack(alignment: .leading, spacing: 10) {
             if showsOuterChrome {
                 HStack {
                     Text("Strength")
                         .font(.neueMontrealBold(size: 24))
                         .foregroundColor(.textPrimary)
+                    if let pct = growthPercent {
+                        growthPill(percent: pct)
+                    }
                     Spacer()
                     volumeButton
                 }
             }
-
-            let points = dailyPoints()
 
             if points.count < 1 {
                 Text("No weighted sets yet — log weight on a set to see your progression.")
@@ -303,6 +304,9 @@ struct ProgressChartSection: View {
                 // just above the chart so the graph has a clean top edge.
                 if !showsOuterChrome {
                     HStack {
+                        if let pct = growthPercent {
+                            growthPill(percent: pct)
+                        }
                         Spacer()
                         volumeButton
                     }
@@ -391,6 +395,34 @@ struct ProgressChartSection: View {
         }
     }
 
+    // MARK: - Growth Pill
+
+    /// Total percentage gain from the lowest top-metric on this chart to the
+    /// highest. Returns nil when there isn't an upward delta to celebrate
+    /// (single point, or every day is identical).
+    private func percentIncrease(points: [DailyProgressPoint]) -> Double? {
+        guard points.count >= 2 else { return nil }
+        let metrics = points.map { $0.topMetric }
+        guard let lo = metrics.min(), let hi = metrics.max(), lo > 0, hi > lo else { return nil }
+        return (hi - lo) / lo * 100
+    }
+
+    /// "↑ +25% Peak" capsule shown alongside the chart's header row. Uses
+    /// `secondaryPurple` so it visually couples with the min/max highlight
+    /// dots on the chart that the percentage is computed from.
+    private func growthPill(percent: Double) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 10, weight: .bold))
+            Text("+\(Int(percent.rounded()))% Peak")
+                .font(.neueMontrealSemiBold(size: 12))
+        }
+        .foregroundColor(.secondaryPurple)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(Color.secondaryPurple.opacity(0.15)))
+    }
+
     // MARK: - Chart
 
     @ViewBuilder
@@ -411,6 +443,24 @@ struct ProgressChartSection: View {
         // sits inside the plot body.
         let maxVolume = points.map { $0.volume }.max() ?? 0
         let visibleRange = max(yUpper - yLower, 1)
+
+        // The two endpoints the growth pill is measuring. We highlight them
+        // in `secondaryPurple` (same as the pill) so the user can visually
+        // tie the percentage to the points it's derived from. When min and
+        // max collapse onto a single point the pill is hidden anyway, so
+        // only the max gets a highlight in that degenerate case.
+        let minPoint = points.min(by: { $0.topMetric < $1.topMetric })
+        let maxPoint = points.max(by: { $0.topMetric < $1.topMetric })
+        let hasMinMaxSpread = (minPoint?.id != maxPoint?.id)
+            && ((maxPoint?.topMetric ?? 0) > (minPoint?.topMetric ?? 0))
+        // Built inside an immediately-invoked closure so the `if let` set
+        // mutations aren't parsed as @ViewBuilder branches.
+        let highlightedIds: Set<UUID> = {
+            var ids: Set<UUID> = []
+            if let mx = maxPoint { ids.insert(mx.id) }
+            if hasMinMaxSpread, let mn = minPoint { ids.insert(mn.id) }
+            return ids
+        }()
 
         Chart {
             // Volume bars are ALWAYS inserted into the mark tree — with
@@ -465,60 +515,72 @@ struct ProgressChartSection: View {
                 .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
             }
 
-            // Plain markers for every non-PR day so the user can see each
-            // data point on the line. Smaller and dimmer than the PR /
-            // peak markers so the focal point stays dominant.
-            ForEach(points.filter { !$0.isPR }) { p in
+            // Uniform small dots for every day that isn't the min or max
+            // endpoint. Same `primaryPurple` as the line so the series reads
+            // as one piece — only the two endpoints the growth pill is
+            // measuring get the brighter `secondaryPurple` treatment below.
+            ForEach(points.filter { !highlightedIds.contains($0.id) }) { p in
                 PointMark(
                     x: .value("Day", p.day),
                     y: .value("Top", p.topMetric)
                 )
                 .symbol(.circle)
                 .symbolSize(45)
-                .foregroundStyle(Color.primaryPurple.opacity(0.7))
+                .foregroundStyle(Color.primaryPurple)
             }
 
-            // PR markers — soft purple halo behind a solid dot so new-high
-            // days glow without being noisy.
-            ForEach(points.filter { $0.isPR }) { p in
+            // Min endpoint — slightly smaller than the peak, with a soft
+            // gray glow so the user reads it as "starting point" rather
+            // than "achievement". Only rendered when min and max are
+            // distinct (otherwise the growth pill is hidden too).
+            if hasMinMaxSpread, let mn = minPoint {
                 PointMark(
-                    x: .value("Day", p.day),
-                    y: .value("Top", p.topMetric)
+                    x: .value("Day", mn.day),
+                    y: .value("Top", mn.topMetric)
                 )
                 .symbol(.circle)
-                .symbolSize(180)
-                .foregroundStyle(Color.secondaryPurple.opacity(0.35))
+                .symbolSize(220)
+                .foregroundStyle(Color.gray.opacity(0.45))
 
                 PointMark(
-                    x: .value("Day", p.day),
-                    y: .value("Top", p.topMetric)
+                    x: .value("Day", mn.day),
+                    y: .value("Top", mn.topMetric)
                 )
                 .symbol(.circle)
-                .symbolSize(70)
+                .symbolSize(100)
                 .foregroundStyle(Color.secondaryPurple)
             }
 
-            // Peak point — oversized accent dot + value capsule on the
-            // best lift on this graph (highest reps for bodyweight,
-            // highest e1RM for weighted). `max(by:)` picks the first
-            // occurrence for ties, matching when the PR was actually set.
-            if let peak = points.max(by: { $0.topMetric < $1.topMetric }) {
+            // Max endpoint — slightly larger than the min, with a purple
+            // glow + value capsule. Same `secondaryPurple` as the growth
+            // pill so the user sees "this point is the peak the pill is
+            // bragging about". `max(by:)` picks the first occurrence for
+            // ties, matching when the PR was actually set.
+            if let mx = maxPoint {
                 PointMark(
-                    x: .value("Day", peak.day),
-                    y: .value("Top", peak.topMetric)
+                    x: .value("Day", mx.day),
+                    y: .value("Top", mx.topMetric)
                 )
                 .symbol(.circle)
-                .symbolSize(120)
-                .foregroundStyle(Color.primaryPurple)
+                .symbolSize(300)
+                .foregroundStyle(Color.secondaryPurple.opacity(0.35))
+
+                PointMark(
+                    x: .value("Day", mx.day),
+                    y: .value("Top", mx.topMetric)
+                )
+                .symbol(.circle)
+                .symbolSize(140)
+                .foregroundStyle(Color.secondaryPurple)
                 .annotation(position: .top, alignment: .center, spacing: 4) {
                     // Unit switches with mode — "123 lbs" for weighted,
                     // "8 reps" for bodyweight.
-                    Text("\(Int(peak.topMetric)) \(isBodyweight ? "reps" : "lbs")")
+                    Text("\(Int(mx.topMetric)) \(isBodyweight ? "reps" : "lbs")")
                         .font(.neueMontrealBold(size: 11))
                         .foregroundColor(.textPrimary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.primaryPurple.opacity(0.85)))
+                        .background(Capsule().fill(Color.secondaryPurple.opacity(0.85)))
                 }
             }
         }
@@ -658,10 +720,12 @@ struct ProgressChartSection: View {
         return f
     }()
 
-    /// Day-of-month as a plain number ("16").
+    /// Month/day pair ("5/4"). Stacked under the weekday so each tick reads
+    /// as "Mon / 5/4" — gives the user month context when the chart spans
+    /// more than a few weeks without printing a full year.
     private static let dayFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.dateFormat = "d"
+        f.dateFormat = "M/d"
         return f
     }()
 
@@ -759,17 +823,11 @@ struct ProgressChartSection: View {
             }
         }.sorted { $0.day < $1.day }
 
-        var runningMax: Double = 0
         return raw.map { row in
-            // A PR is strictly higher than every earlier day (use >, not >=,
-            // so repeated same-value days don't all light up).
-            let isPR = row.topMetric > runningMax
-            if isPR { runningMax = row.topMetric }
-            return DailyProgressPoint(
+            DailyProgressPoint(
                 day: row.day,
                 topMetric: row.topMetric,
-                volume: row.volume,
-                isPR: isPR
+                volume: row.volume
             )
         }
     }

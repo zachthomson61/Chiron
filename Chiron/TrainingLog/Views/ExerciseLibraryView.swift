@@ -118,63 +118,11 @@ struct ExerciseLibraryView: View {
         exercises.first(where: isBarbellRow(_:))
     }
     
-    private var shouldShowBodyweightSquatCard: Bool {
-        guard let exercise = bodyweightSquatExercise else { return false }
-        let query = normalizedQuery
-        let nameMatch = query.isEmpty || bodyweightSquatName.lowercased().contains(query)
-        return nameMatch && matchesSelectedCategory(exercise) && matchesSelectedDifficulty(exercise)
-    }
-
-    /// Determines if the deadlift card should be displayed.
-    /// Shows the card if the exercise exists and matches the search query (if any).
-    private var shouldShowDeadliftCard: Bool {
-        guard let exercise = deadliftExercise else { return false }
-        let query = normalizedQuery
-        let nameMatch = query.isEmpty || deadliftName.lowercased().contains(query)
-        return nameMatch && matchesSelectedCategory(exercise) && matchesSelectedDifficulty(exercise)
-    }
-
-    /// Determines if the barbell bench press card should be displayed.
-    /// Returns true if the exercise exists and matches the current search query.
-    private var shouldShowBarbellBenchPressCard: Bool {
-        guard let exercise = barbellBenchPressExercise else { return false }
-        let query = normalizedQuery
-        let nameMatch = query.isEmpty || barbellBenchPressName.lowercased().contains(query)
-        return nameMatch && matchesSelectedCategory(exercise) && matchesSelectedDifficulty(exercise)
-    }
-
-    /// Determines if the Romanian Deadlift card should be displayed.
-    /// Shows the card if the exercise exists and matches the search query (if any).
-    private var shouldShowRomanianDeadliftCard: Bool {
-        guard let exercise = romanianDeadliftExercise else { return false }
-        let query = normalizedQuery
-        let nameMatch = query.isEmpty || romanianDeadliftName.lowercased().contains(query)
-        return nameMatch && matchesSelectedCategory(exercise) && matchesSelectedDifficulty(exercise)
-    }
-
-    /// Determines if the barbell row card should be displayed.
-    /// Shows the card if the exercise exists and matches the search query (if any).
-    private var shouldShowBarbellRowCard: Bool {
-        guard let exercise = barbellRowExercise else { return false }
-        let query = normalizedQuery
-        let nameMatch = query.isEmpty || barbellRowName.lowercased().contains(query)
-        return nameMatch && matchesSelectedCategory(exercise) && matchesSelectedDifficulty(exercise)
-    }
-
-    /// Filtered exercise list excluding exercises with dedicated cards.
-    /// Exercises with dedicated cards (Bodyweight Squat, Deadlift, Barbell Bench Press,
-    /// Romanian Deadlift, Barbell Row) are excluded since they appear separately above.
     var filtered: [Exercise] {
         let query = normalizedQuery
         let base = query.isEmpty ? exercises : exercises.filter { $0.name.lowercased().contains(query) }
         return base.filter {
-            matchesSelectedCategory($0) &&
-            matchesSelectedDifficulty($0) &&
-            !isBodyweightSquat($0) &&
-            !isDeadlift($0) &&
-            !isBarbellBenchPress($0) &&
-            !isRomanianDeadlift($0) &&
-            !isBarbellRow($0)
+            matchesSelectedCategory($0) && matchesSelectedDifficulty($0)
         }
     }
 
@@ -315,22 +263,6 @@ struct ExerciseLibraryView: View {
 
                 // Exercise cards — all go through exerciseRow for consistent routing
                 LazyVStack(spacing: 12) {
-                    if shouldShowBodyweightSquatCard, let squat = bodyweightSquatExercise {
-                        exerciseRow(for: squat)
-                    }
-                    
-                    if shouldShowDeadliftCard, let deadlift = deadliftExercise {
-                        exerciseRow(for: deadlift)
-                    }
-
-                    if shouldShowRomanianDeadliftCard, let rdl = romanianDeadliftExercise {
-                        exerciseRow(for: rdl)
-                    }
-                    
-                    if shouldShowBarbellRowCard, let row = barbellRowExercise {
-                        exerciseRow(for: row)
-                    }
-                    
                     ForEach(filtered) { ex in
                         exerciseRow(for: ex)
                     }

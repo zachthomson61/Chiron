@@ -2,11 +2,10 @@
 //  RecentProgressSection.swift
 //  Chiron
 //
-//  Home-tab section that surfaces up to three exercises the user has made
-//  the greatest recent improvement on, each rendered as a compact version
-//  of the history-sheet progression chart with the exercise's library
-//  thumbnail alongside the title. Tapping a card opens the full history
-//  sheet for that exercise.
+//  Home-tab section that surfaces the three exercises the user has most
+//  recently trained, each rendered as a compact version of the history-sheet
+//  progression chart with the exercise's library thumbnail alongside the
+//  title. Tapping a card opens the full history sheet for that exercise.
 //
 
 import SwiftUI
@@ -15,8 +14,8 @@ import Charts
 // MARK: - Section View
 
 /// "Recent Progress" home-page section. Loads every set log for the user
-/// on appear, ranks exercises by recent slope change, and renders the top
-/// three as compact progression cards.
+/// on appear, ranks exercises by most recent activity, and renders the
+/// three most recently trained as compact progression cards.
 struct RecentProgressSection: View {
     @StateObject private var loader = RecentProgressLoader()
     @State private var selectedEntry: RecentProgressEntry?
@@ -72,7 +71,7 @@ struct RecentProgressSection: View {
             Text("Log a few sets to see your progression here")
                 .font(.neueMontrealSemiBold(size: 15))
                 .foregroundColor(.textPrimary)
-            Text("The exercises with the biggest recent improvements will show up in this section.")
+            Text("Your three most recently trained exercises will show up in this section.")
                 .font(.neueMontrealRegular(size: 13))
                 .foregroundColor(.textSecondary)
         }
@@ -216,17 +215,13 @@ struct RecentProgressEntry: Identifiable {
     let exerciseName: String
     let imageName: String?
     let isBodyweight: Bool
-    /// Aggregated one-point-per-day series — used only for the ranking
-    /// (slope score) and the subtitle delta. The chart itself is fed the
-    /// raw `setLogs` so it re-renders with the exact same logic the
-    /// history sheet uses.
+    /// Aggregated one-point-per-day series — used only for the subtitle
+    /// delta. The chart itself is fed the raw `setLogs` so it re-renders
+    /// with the exact same logic the history sheet uses.
     let points: [RecentProgressPoint]
     /// Raw set logs passed straight through to `ProgressChartSection` so
     /// the Home card chart is bit-for-bit identical to the History sheet.
     let setLogs: [ExerciseSetLog]
-    /// Recent-slope-change score — higher means the last data point pushed
-    /// the progression curve upward more steeply than the prior trend.
-    let slopeScore: Double
 
     /// Actual (not estimated) personal record derived from the raw set
     /// logs. Mirrors the history sheet so the Home card and the sheet
@@ -291,7 +286,7 @@ struct RecentProgressEntry: Identifiable {
 // MARK: - Loader
 
 /// Fetches every set log for the user, aggregates per-day metrics per
-/// exercise, and exposes the top three by recent slope change.
+/// exercise, and exposes the three exercises most recently trained.
 @MainActor
 final class RecentProgressLoader: ObservableObject {
     @Published var entries: [RecentProgressEntry] = []
@@ -354,13 +349,13 @@ final class RecentProgressLoader: ObservableObject {
 
     // MARK: - Aggregation
 
-    /// Buckets raw set logs by exercise name, computes per-day points, scores
-    /// each exercise's recent slope change, and returns the top three.
+    /// Buckets raw set logs by exercise name, computes per-day points, and
+    /// returns the three exercises with the most recent set log.
     private static func computeTopEntries(from logs: [ExerciseSetLog]) -> [RecentProgressEntry] {
         let grouped = Dictionary(grouping: logs, by: { $0.exerciseName })
         let bodyweight = UserManager.shared.getCurrentBodyweight()
 
-        var candidates: [RecentProgressEntry] = []
+        var candidates: [(entry: RecentProgressEntry, latest: Date)] = []
 
         for (name, exerciseLogs) in grouped {
             let isBodyweight = TrackedExerciseType.from(exerciseName: name) == .bodyweight
@@ -369,37 +364,29 @@ final class RecentProgressLoader: ObservableObject {
                 isBodyweight: isBodyweight,
                 bodyweight: bodyweight
             )
-            // Accept any exercise with at least one logged day — the user
-            // wants the top three to show up even if individual exercises
-            // only have one data point to plot.
+            // Accept any exercise with at least one logged day — single-point
+            // exercises still show up if they're among the user's three most
+            // recently trained movements.
             guard !points.isEmpty else { continue }
 
-            let score = recentSlopeChange(points: points)
-            candidates.append(
-                RecentProgressEntry(
+            let latest = exerciseLogs.map(\.timestamp).max() ?? .distantPast
+            candidates.append((
+                entry: RecentProgressEntry(
                     exerciseName: name,
                     imageName: imageName(for: name),
                     isBodyweight: isBodyweight,
                     points: points,
-                    setLogs: exerciseLogs,
-                    slopeScore: score
-                )
-            )
+                    setLogs: exerciseLogs
+                ),
+                latest: latest
+            ))
         }
 
-        // Sort: steepest improvement first, then fall back to most-recent
-        // activity so single-point exercises surface by recency (otherwise
-        // they'd all tie at slopeScore == 0 and order arbitrarily).
         return Array(
-            candidates.sorted { lhs, rhs in
-                if lhs.slopeScore != rhs.slopeScore {
-                    return lhs.slopeScore > rhs.slopeScore
-                }
-                let lhsDate = lhs.points.last?.day ?? .distantPast
-                let rhsDate = rhs.points.last?.day ?? .distantPast
-                return lhsDate > rhsDate
-            }
-            .prefix(3)
+            candidates
+                .sorted { $0.latest > $1.latest }
+                .prefix(3)
+                .map { $0.entry }
         )
     }
 
@@ -436,35 +423,6 @@ final class RecentProgressLoader: ObservableObject {
 
         _ = bodyweight  // bodyweight is needed downstream for volume but not for the top-metric mini chart
         return raw.sorted { $0.day < $1.day }
-    }
-
-    /// Change-in-slope score: (slope from last-to-current point) minus the
-    /// linear-regression slope across all earlier points. Higher = steeper
-    /// upward break from the prior trend. For two-point series, we fall
-    /// back to the single segment's slope as the score.
-    private static func recentSlopeChange(points: [RecentProgressPoint]) -> Double {
-        guard points.count >= 2 else { return 0 }
-        let last = points.last!
-        let prev = points[points.count - 2]
-        let daysBetween = max(last.day.timeIntervalSince(prev.day) / 86_400.0, 0.5)
-        let recentSlope = (last.value - prev.value) / daysBetween
-
-        guard points.count >= 3 else { return recentSlope }
-
-        // Linear regression on all points EXCEPT the last.
-        let earlier = Array(points.dropLast())
-        let firstDay = earlier[0].day
-        let xs = earlier.map { $0.day.timeIntervalSince(firstDay) / 86_400.0 }
-        let ys = earlier.map { $0.value }
-        let n = Double(earlier.count)
-        let sumX = xs.reduce(0, +)
-        let sumY = ys.reduce(0, +)
-        let sumXY = zip(xs, ys).reduce(0) { $0 + ($1.0 * $1.1) }
-        let sumXX = xs.reduce(0) { $0 + ($1 * $1) }
-        let denom = (n * sumXX) - (sumX * sumX)
-        let priorSlope: Double = denom == 0 ? 0 : ((n * sumXY) - (sumX * sumY)) / denom
-
-        return recentSlope - priorSlope
     }
 
     /// Maps exercise name → image asset. Mirrors the seed data in
