@@ -50,9 +50,6 @@ struct TrackView: View {
     @State private var exerciseSelectorDetent: PresentationDetent = PresentationDetent.large
     /// Sheet detent selection so info sheet opens at full height (top of screen).
     @State private var infoSheetDetent: PresentationDetent = PresentationDetent.large
-    /// Share sheet for debug CSV export after a set ends.
-    @State private var showDebugCSVShare: Bool = false
-    @State private var debugShareURLs: [URL] = []
     /// Snapshot of the view state captured when the info sheet opens so we can restore pose
     /// tracking / rep counting to the exact mode that was running before the sheet paused the camera.
     @State private var trackViewStateBeforeInfoSheet: TrackViewState?
@@ -87,6 +84,14 @@ struct TrackView: View {
     /// `endSet` so the badge evaluator can credit Heavy Hour minutes without
     /// relying on workoutLog.endTime (Track sessions don't write one).
     @State private var currentSetStart: Date?
+
+    /// Presentation toggle for the AI-tracking accuracy flag sheet (rep
+    /// count off / coach feedback wrong / both-or-other). Distinct from the
+    /// pain / not-in-control flag — different audience, different storage.
+    @State private var showAccuracyFlagSheet: Bool = false
+    /// Phase the flag was raised in. `.duringSet` snapshots live pose state,
+    /// `.afterSet` replays the recorded end-of-set snapshot.
+    @State private var accuracyFlagPhase: AccuracyFlagPhase = .afterSet
 
     @ObservedObject private var cameraManager = SharedCameraSessionManager.shared
     /// Rep count is published here; `cameraManager` alone does not trigger redraws when reps change.
@@ -185,16 +190,36 @@ struct TrackView: View {
 
                         HStack {
                             Spacer()
-                            if selectedExercise != nil {
-                                Button {
-                                    showExerciseInfo = true
-                                } label: {
-                                    Image(systemName: "info.circle")
-                                        .font(.system(size: 18, weight: .semibold))
-                                        .foregroundColor(.textPrimary)
-                                        .frame(width: 40, height: 40)
-                                        .background(Color.black.opacity(0.3))
-                                        .clipShape(Circle())
+                            VStack(spacing: 10) {
+                                if selectedExercise != nil {
+                                    Button {
+                                        showExerciseInfo = true
+                                    } label: {
+                                        Image(systemName: "info.circle")
+                                            .font(.system(size: 18, weight: .semibold))
+                                            .foregroundColor(.textPrimary)
+                                            .frame(width: 40, height: 40)
+                                            .background(Color.black.opacity(0.3))
+                                            .clipShape(Circle())
+                                    }
+                                }
+                                // Accuracy flag button — visible while the set is
+                                // running (flag mid-set) and right after it ends
+                                // (flag the just-completed set). The store knows
+                                // which snapshot to read from `accuracyFlagPhase`.
+                                if shouldShowAccuracyFlagButton {
+                                    Button {
+                                        accuracyFlagPhase = (trackViewState == .tracking) ? .duringSet : .afterSet
+                                        showAccuracyFlagSheet = true
+                                    } label: {
+                                        Image(systemName: "flag.fill")
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundColor(.expertRed)
+                                            .frame(width: 40, height: 40)
+                                            .background(Color.black.opacity(0.3))
+                                            .clipShape(Circle())
+                                    }
+                                    .accessibilityLabel("Flag this set")
                                 }
                             }
                         }
@@ -428,11 +453,6 @@ struct TrackView: View {
                 trackViewStateBeforeInfoSheet = nil
             }
         }
-        .sheet(isPresented: $showDebugCSVShare) {
-            if !debugShareURLs.isEmpty {
-                SquatRepShareSheet(urls: debugShareURLs)
-            }
-        }
         .sheet(isPresented: $showWeightScroller) {
             WeightScrollerSheet(
                 isPresented: $showWeightScroller,
@@ -462,6 +482,13 @@ struct TrackView: View {
                 .presentationDragIndicator(.visible)
             }
         }
+        .sheet(isPresented: $showAccuracyFlagSheet) {
+            AccuracyFlagSheet(
+                isPresented: $showAccuracyFlagSheet,
+                phase: accuracyFlagPhase,
+                onSubmitted: nil
+            )
+        }
     }
 
     // MARK: - Computed
@@ -472,6 +499,22 @@ struct TrackView: View {
     private var isCurrentExerciseBodyweight: Bool {
         guard let name = selectedExercise?.name else { return false }
         return TrackedExerciseType.from(exerciseName: name) == .bodyweight
+    }
+
+    /// True when there's something flagging-able on screen — a live set (`.tracking`)
+    /// or a just-completed set being recapped (`.armed` with completed sets).
+    /// The store separately decides whether it has data to send; the button just
+    /// stays hidden in the dead states (no exercise picked, no set ever started).
+    private var shouldShowAccuracyFlagButton: Bool {
+        guard selectedExercise != nil else { return false }
+        switch trackViewState {
+        case .tracking:
+            return true
+        case .armed:
+            return setsCompletedInSession > 0
+        case .idle:
+            return false
+        }
     }
 
     /// Label for the weight pill: "Weight" when unset, or the formatted value
@@ -704,6 +747,14 @@ struct TrackView: View {
         cameraManager.poseManager.resetRepCount()
         cameraManager.poseManager.startManualSet()
         currentSetStart = Date()
+        // Open an accuracy-flag capture window so an in-progress or after-set
+        // flag has the set id, exercise, and weight already recorded.
+        AccuracyFlagStore.shared.beginSet(
+            exerciseType: exerciseType,
+            exerciseName: exercise.name,
+            currentWeight: currentWeight,
+            setIndexInSession: setsCompletedInSession + 1
+        )
         // Start debug logging for this set (auto-exported as CSV when the set ends).
         SquatRepDebugLogger.shared.reset()
         poseManager.debugLoggerEnabled = true
@@ -743,13 +794,28 @@ struct TrackView: View {
         trackViewState = .armed
 
         // Close the telemetry session. CSV is finalized + queued; the video
-        // recorder is parked, awaiting the mp4 from `exportDebugCSV`'s
+        // recorder is parked, awaiting the mp4 from `finalizeScreenRecording`'s
         // ScreenRecorder.stop callback below.
         TelemetryCoordinator.shared.endSession()
 
-        // Stop debug logging and export CSV for analysis.
+        // Stop debug logging and hand the screen-recording mp4 to telemetry
+        // for R2 upload. The per-frame debug CSV is no longer exported locally —
+        // SessionCSVWriter writes its own CSV directly into the upload pipeline.
         poseManager.debugLoggerEnabled = false
-        exportDebugCSV()
+        finalizeScreenRecording()
+
+        // Record an initial accuracy-flag snapshot even on zero-rep sets so
+        // an after-set flag can still report "the app counted 0 but I did
+        // reps". The coach feedback (if any) overrides this snapshot below.
+        let endMetrics = poseManager.aggregatedMetricsSnapshot()
+        let endAnalysis = cameraManager.poseManager.currentFormAnalysis
+            ?? cameraManager.poseManager.lastRepFormAnalysis
+        AccuracyFlagStore.shared.recordSetEnd(
+            formAnalysis: endAnalysis,
+            aggregatedMetrics: endMetrics,
+            feedback: nil,
+            displayedRepCount: poseManager.repCount
+        )
 
         // If no reps were completed, treat the set as if it never happened:
         // skip analysis, audio feedback, and session bookkeeping.
@@ -836,6 +902,15 @@ struct TrackView: View {
                             currentWeight: weightForSet,
                             personalRecord: prToCelebrate
                         ) { feedback in
+                            // Replace the placeholder snapshot taken at end-of-set with
+                            // one that includes the coach line — that's the line a tester
+                            // would actually be flagging.
+                            AccuracyFlagStore.shared.recordSetEnd(
+                                formAnalysis: analysis,
+                                aggregatedMetrics: metrics,
+                                feedback: feedback,
+                                displayedRepCount: repsForSet
+                            )
                             // When this set is a PR, drop confetti at the moment the LLM line
                             // begins playing so visual + audio land together.
                             let onStart: (() -> Void)? = prToCelebrate == nil ? nil : {
@@ -932,41 +1007,23 @@ struct TrackView: View {
         }
     }
 
-    // MARK: - Debug CSV + Screen Recording Export
+    // MARK: - Screen Recording Finalize
 
-    /// Builds the per-set debug bundle: CSV first (synchronous), then awaits the screen
-    /// recorder's finalize callback before presenting the share sheet so both files land
-    /// together. If the screen recording is unavailable or failed, the CSV still ships.
-    /// Both files share a basename of `<exercise>_<yyyy-MM-dd_HHmmss>` so they sort together
-    /// and self-identify in any inbox.
-    private func exportDebugCSV() {
-        let logger = SquatRepDebugLogger.shared
-        var urls: [URL] = []
-        let basename = makeDebugBasename()
-
-        if !logger.allFrames.isEmpty {
-            let csv = logger.exportCSV()
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(basename).csv")
-            if let data = csv.data(using: .utf8), (try? data.write(to: url)) != nil {
-                urls.append(url)
-            }
-        }
-
+    /// Stops the ReplayKit recording started in `beginSet` and hands the temp
+    /// mp4 to `TelemetryCoordinator.attachRecordedVideo(...)` so the upload
+    /// pipeline can move it to `Pending/` and queue it for R2 alongside the
+    /// session CSV. No local share sheet — both files now ship to R2 directly.
+    private func finalizeScreenRecording() {
+        let basename = makeRecordingBasename()
         ScreenRecorder.shared.stop(basename: basename) { videoURL in
-            // Hand the temp mp4 to telemetry first so it can transcode +
-            // queue without depending on the manual share-sheet flow below.
             TelemetryCoordinator.shared.attachRecordedVideo(at: videoURL)
-            if let v = videoURL { urls.append(v) }
-            guard !urls.isEmpty else { return }
-            debugShareURLs = urls
-            showDebugCSVShare = true
         }
     }
 
     /// `<exercise_slug>_<yyyy-MM-dd_HHmmss>` — slug lowercases the exercise name, swaps spaces
     /// for underscores, and drops anything that isn't a letter/number/underscore/hyphen so the
-    /// filename is safe across AirDrop/Files/Mail.
-    private func makeDebugBasename() -> String {
+    /// filename is safe in the temporary directory and in any inbox if telemetry is disabled.
+    private func makeRecordingBasename() -> String {
         let slug: String = {
             guard let raw = selectedExercise?.name, !raw.isEmpty else { return "set" }
             let underscored = raw.lowercased().replacingOccurrences(of: " ", with: "_")
