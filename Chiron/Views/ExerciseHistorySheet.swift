@@ -404,9 +404,16 @@ struct ProgressChartSection: View {
     /// (single point, or every day is identical).
     private func percentIncrease(points: [DailyProgressPoint]) -> Double? {
         guard points.count >= 2 else { return nil }
-        let metrics = points.map { $0.topMetric }
-        guard let lo = metrics.min(), let hi = metrics.max(), lo > 0, hi > lo else { return nil }
-        return (hi - lo) / lo * 100
+        // Peak must come AFTER the trough chronologically — only then is
+        // it a genuine upward trend worth celebrating. Flat series, single
+        // points, and "peaked early then dropped" series all return nil.
+        guard let mn = points.min(by: { $0.topMetric < $1.topMetric }),
+              let mx = points.max(by: { $0.topMetric < $1.topMetric }),
+              mn.id != mx.id,
+              mx.day > mn.day,
+              mn.topMetric > 0,
+              mx.topMetric > mn.topMetric else { return nil }
+        return (mx.topMetric - mn.topMetric) / mn.topMetric * 100
     }
 
     /// "↑ +25% Peak" capsule shown alongside the chart's header row. Uses
@@ -446,23 +453,54 @@ struct ProgressChartSection: View {
         let maxVolume = points.map { $0.volume }.max() ?? 0
         let visibleRange = max(yUpper - yLower, 1)
 
-        // The two endpoints the growth pill is measuring. We highlight them
-        // in `secondaryPurple` (same as the pill) so the user can visually
-        // tie the percentage to the points it's derived from. When min and
-        // max collapse onto a single point the pill is hidden anyway, so
-        // only the max gets a highlight in that degenerate case.
+        // The two endpoints the growth pill is measuring. We highlight
+        // them in `secondaryPurple` (same as the pill) so the user can
+        // visually tie the percentage to the points it's derived from.
+        // Highlighting only kicks in for a genuine upward trend — peak
+        // must come temporally AFTER the trough. Otherwise the chart
+        // falls back to plain dots for every session and the pill hides.
         let minPoint = points.min(by: { $0.topMetric < $1.topMetric })
         let maxPoint = points.max(by: { $0.topMetric < $1.topMetric })
-        let hasMinMaxSpread = (minPoint?.id != maxPoint?.id)
-            && ((maxPoint?.topMetric ?? 0) > (minPoint?.topMetric ?? 0))
-        // Built inside an immediately-invoked closure so the `if let` set
-        // mutations aren't parsed as @ViewBuilder branches.
-        let highlightedIds: Set<UUID> = {
-            var ids: Set<UUID> = []
-            if let mx = maxPoint { ids.insert(mx.id) }
-            if hasMinMaxSpread, let mn = minPoint { ids.insert(mn.id) }
-            return ids
+        let isUpwardTrend: Bool = {
+            guard let mn = minPoint, let mx = maxPoint, mn.id != mx.id else { return false }
+            return mx.day > mn.day && mx.topMetric > mn.topMetric
         }()
+        let highlightedIds: Set<UUID> = {
+            guard isUpwardTrend, let mn = minPoint, let mx = maxPoint else { return [] }
+            return [mn.id, mx.id]
+        }()
+
+        // Warped time positions: each session's x-coordinate is the
+        // cumulative real-day gap from the first session, except every
+        // consecutive pair is forced to be at least `minSpacingDays`
+        // apart. This preserves time-proportional spacing for far-apart
+        // sessions while preventing clustered sessions (e.g. two days in
+        // a row) from visually overlapping their dots and date labels.
+        let minSpacingDays: Double = 3.0
+        let dayToPosition: [Date: Double] = {
+            var map: [Date: Double] = [:]
+            for (i, p) in points.enumerated() {
+                if i == 0 {
+                    map[p.day] = 0
+                } else {
+                    let prevDay = points[i - 1].day
+                    let prevPos = map[prevDay] ?? 0
+                    let realGapDays = p.day.timeIntervalSince(prevDay) / 86400
+                    map[p.day] = prevPos + max(realGapDays, minSpacingDays)
+                }
+            }
+            return map
+        }()
+        let firstPos = points.first.flatMap { dayToPosition[$0.day] } ?? 0
+        let lastPos = points.last.flatMap { dayToPosition[$0.day] } ?? 0
+        // ±1-day padding so the first/last data points don't sit flush
+        // against the plot edges (their date labels would otherwise clip
+        // on the card's corner radius).
+        let xDomain: ClosedRange<Double> = (firstPos - 1) ... (lastPos + 1)
+        // Date labels still cap at ~6 so long histories don't pack
+        // unreadable stacks of dates along the axis.
+        let labelDays = thinnedAxisDays(points: points)
+        let labelPositions = labelDays.compactMap { dayToPosition[$0] }.sorted()
 
         Chart {
             // Volume bars are ALWAYS inserted into the mark tree — with
@@ -475,15 +513,11 @@ struct ProgressChartSection: View {
             let barOpacity = showVolume ? 0.55 : 0.0
             let barLabelOpacity = showVolume ? 1.0 : 0.0
             ForEach(points) { p in
+                let idx = dayToPosition[p.day] ?? 0
                 let ratio = maxVolume > 0 ? (p.volume / maxVolume) : 0
                 let barTop = yLower + visibleRange * ratio * 0.75
-                // No `unit: .day` binning — with binning, BarMark centers
-                // itself on noon of the day while LineMark/PointMark and the
-                // custom date label sit at midnight, so the bar drifted to
-                // the right of the data point. Using the exact timestamp
-                // for all marks keeps them aligned over the date label.
                 BarMark(
-                    x: .value("Day", p.day),
+                    x: .value("Position", idx),
                     yStart: .value("Base", yLower),
                     yEnd: .value("Volume Top", barTop),
                     width: .fixed(18)
@@ -494,8 +528,10 @@ struct ProgressChartSection: View {
                 .foregroundStyle(Color.volumeAccent.opacity(barOpacity))
                 .cornerRadius(3)
                 .annotation(position: .top, alignment: .center, spacing: 2) {
-                    // Value label floats on top of the bar so the user
-                    // sees the actual tonnage without reading the axis.
+                    // Value label floats on top of every bar — overlap on
+                    // tightly-clustered sessions is acceptable per product
+                    // direction, since the primary line/dot series is the
+                    // chart's focus.
                     Text("\(Int(p.volume)) lbs")
                         .font(.neueMontrealSemiBold(size: 10))
                         .foregroundColor(.volumeAccent)
@@ -507,8 +543,9 @@ struct ProgressChartSection: View {
             // bodyweight). Smooth monotone interpolation avoids the
             // overshoot Catmull-Rom can introduce on abrupt PR jumps.
             ForEach(points) { p in
+                let idx = dayToPosition[p.day] ?? 0
                 LineMark(
-                    x: .value("Day", p.day),
+                    x: .value("Position", idx),
                     y: .value("Top", p.topMetric),
                     series: .value("Series", "Top")
                 )
@@ -522,8 +559,9 @@ struct ProgressChartSection: View {
             // as one piece — only the two endpoints the growth pill is
             // measuring get the brighter `secondaryPurple` treatment below.
             ForEach(points.filter { !highlightedIds.contains($0.id) }) { p in
+                let idx = dayToPosition[p.day] ?? 0
                 PointMark(
-                    x: .value("Day", p.day),
+                    x: .value("Position", idx),
                     y: .value("Top", p.topMetric)
                 )
                 .symbol(.circle)
@@ -533,11 +571,12 @@ struct ProgressChartSection: View {
 
             // Min endpoint — slightly smaller than the peak, with a soft
             // gray glow so the user reads it as "starting point" rather
-            // than "achievement". Only rendered when min and max are
-            // distinct (otherwise the growth pill is hidden too).
-            if hasMinMaxSpread, let mn = minPoint {
+            // than "achievement". Only rendered alongside the upward-
+            // trend treatment so it matches when the pill is shown.
+            if isUpwardTrend, let mn = minPoint {
+                let mnIdx = dayToPosition[mn.day] ?? 0
                 PointMark(
-                    x: .value("Day", mn.day),
+                    x: .value("Position", mnIdx),
                     y: .value("Top", mn.topMetric)
                 )
                 .symbol(.circle)
@@ -545,7 +584,7 @@ struct ProgressChartSection: View {
                 .foregroundStyle(Color.gray.opacity(0.45))
 
                 PointMark(
-                    x: .value("Day", mn.day),
+                    x: .value("Position", mnIdx),
                     y: .value("Top", mn.topMetric)
                 )
                 .symbol(.circle)
@@ -556,11 +595,12 @@ struct ProgressChartSection: View {
             // Max endpoint — slightly larger than the min, with a purple
             // glow + value capsule. Same `secondaryPurple` as the growth
             // pill so the user sees "this point is the peak the pill is
-            // bragging about". `max(by:)` picks the first occurrence for
-            // ties, matching when the PR was actually set.
-            if let mx = maxPoint {
+            // bragging about". Hidden alongside the pill when there's no
+            // upward trend to celebrate, so chart and pill stay in sync.
+            if isUpwardTrend, let mx = maxPoint {
+                let mxIdx = dayToPosition[mx.day] ?? 0
                 PointMark(
-                    x: .value("Day", mx.day),
+                    x: .value("Position", mxIdx),
                     y: .value("Top", mx.topMetric)
                 )
                 .symbol(.circle)
@@ -568,7 +608,7 @@ struct ProgressChartSection: View {
                 .foregroundStyle(Color.secondaryPurple.opacity(0.35))
 
                 PointMark(
-                    x: .value("Day", mx.day),
+                    x: .value("Position", mxIdx),
                     y: .value("Top", mx.topMetric)
                 )
                 .symbol(.circle)
@@ -587,7 +627,7 @@ struct ProgressChartSection: View {
             }
         }
         .chartYScale(domain: yLower...yUpper)
-        .chartXScale(domain: paddedXDomain(points: points))
+        .chartXScale(domain: xDomain)
         .chartXAxis {
             // Tick + gridline only — the stacked "Thu / 16" date labels are
             // drawn via chartOverlay below. AxisValueLabel with custom
@@ -595,7 +635,7 @@ struct ProgressChartSection: View {
             // likely a Swift Charts layout quirk with centered multi-line
             // labels at single-point domains), so we bypass the axis label
             // system entirely and position the labels ourselves.
-            AxisMarks(values: thinnedAxisDays(points: points)) { _ in
+            AxisMarks(values: labelPositions) { _ in
                 AxisGridLine().foregroundStyle(Color.white.opacity(0.18))
                 AxisTick().foregroundStyle(Color.white.opacity(0.35))
             }
@@ -680,13 +720,11 @@ struct ProgressChartSection: View {
         .chartOverlay { proxy in
             GeometryReader { geo in
                 let plotRect = proxy.plotFrame.map { geo[$0] } ?? .zero
-                // Custom x-axis date labels — rendered with SwiftUI
-                // Text/VStack so the stacked "Thu / 16" layout is
-                // guaranteed. Each label is positioned at the chart's
-                // actual plot-space x for its day, then offset below
-                // the plot area into the 34pt padding we reserved.
-                ForEach(thinnedAxisDays(points: points), id: \.self) { day in
-                    if let xInPlot = proxy.position(forX: day) {
+                // Custom x-axis date labels — positioned at each labeled
+                // day's warped x-position so they line up with the dots
+                // and gridlines.
+                ForEach(labelDays, id: \.self) { day in
+                    if let pos = dayToPosition[day], let xInPlot = proxy.position(forX: pos) {
                         VStack(spacing: 1) {
                             Text(Self.weekdayFormatter.string(from: day))
                                 .font(.system(size: 10, weight: .semibold))
@@ -733,31 +771,10 @@ struct ProgressChartSection: View {
 
     // MARK: - Axis Helpers
 
-    /// Pads the x-axis domain so data points aren't pinned to an edge of
-    /// the plot area. Single points get a symmetric ±3-day window so the
-    /// lone data point sits near the visual center; multi-point series get
-    /// a tighter ±1-day window around the actual range.
-    private func paddedXDomain(points: [DailyProgressPoint]) -> ClosedRange<Date> {
-        let cal = Calendar.current
-        if points.count <= 1 {
-            let anchor = points.first?.day ?? Date()
-            let start = cal.date(byAdding: .day, value: -3, to: anchor) ?? anchor
-            let end = cal.date(byAdding: .day, value: 3, to: anchor) ?? anchor
-            return start...end
-        } else {
-            let first = points.first!.day
-            let last = points.last!.day
-            let start = cal.date(byAdding: .day, value: -1, to: first) ?? first
-            let end = cal.date(byAdding: .day, value: 1, to: last) ?? last
-            return start...end
-        }
-    }
-
-    /// Returns the days to use as x-axis tick values, thinned so we never
-    /// print more than ~6 date labels (prevents crowding when the user has
-    /// logged many sessions). With one point per day, this also guarantees
-    /// no date is rendered twice — the prior `.automatic` marks would repeat
-    /// "Apr 16" because several ticks fell inside the same day.
+    /// Returns the days to use as x-axis tick values. Each session gets an
+    /// equal-width slot on the x-axis, so clustering by date is no longer
+    /// a labeling concern — this function just caps at ~6 labels so long
+    /// histories don't stack unreadable date columns.
     private func thinnedAxisDays(points: [DailyProgressPoint]) -> [Date] {
         let days = points.map { $0.day }
         let maxLabels = 6
