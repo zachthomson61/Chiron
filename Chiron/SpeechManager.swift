@@ -524,51 +524,21 @@ class SpeechManager: NSObject, ObservableObject {
             }
         }
         
-        // If file path found, try to load it (should be fast for small audio files)
+        // If file path found, load it on a background queue. A cold-cache read on first launch
+        // can take several hundred ms, so we wait for the load instead of racing it against a
+        // timeout — the bundled MP3 is always going to sound better than the system voice.
         if let path = audioPath {
-            // Try to load file on background queue with timeout fallback
             let fallbackTextCopy = fallbackText
-            let loadCompleted = NSLock()
-            var hasCompleted = false
-            
             DispatchQueue.global(qos: .userInitiated).async {
                 let data = try? Data(contentsOf: URL(fileURLWithPath: path))
-                
-                loadCompleted.lock()
-                let shouldProceed = !hasCompleted
-                hasCompleted = true
-                loadCompleted.unlock()
-                
-                if !shouldProceed {
-                    // Timeout already triggered, don't proceed
-                    return
-                }
-                
                 if let audioData = data {
                     DispatchQueue.main.async {
                         self.playAudioData(audioData)
                     }
                 } else {
-                    // File read failed - fallback to system voice (don't use OpenAI TTS to avoid network errors)
                     DispatchQueue.main.async {
                         self.fallbackToSystemVoice(fallbackTextCopy)
                     }
-                }
-            }
-            
-            // Set timeout: if file doesn't load within 500ms, fallback to system voice
-            // Increased from 100ms to 500ms to avoid premature fallback and network errors
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                guard let self = self else { return }
-                
-                loadCompleted.lock()
-                let shouldFallback = !hasCompleted
-                hasCompleted = true
-                loadCompleted.unlock()
-                
-                if shouldFallback {
-                    // Use system voice instead of OpenAI TTS to avoid network errors when offline
-                    self.fallbackToSystemVoice(fallbackTextCopy)
                 }
             }
         } else {
