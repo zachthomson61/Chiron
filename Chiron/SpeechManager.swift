@@ -343,6 +343,31 @@ class SpeechManager: NSObject, ObservableObject {
             }
         }
         
+        // Check for "Starting set N"
+        if text.hasPrefix("Starting set ") {
+            let pattern = #"^Starting set (\d+)$"#
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+               match.numberOfRanges > 1,
+               let range = Range(match.range(at: 1), in: text),
+               let setNumber = Int(text[range]) {
+                return "workout_starting_set_\(setNumber)"
+            }
+        }
+
+        // Check for bodyweight PR celebration ("Personal record — N reps. Huge work.")
+        // Weighted PR ("Personal record — 185 for 8. Huge work.") doesn't match — no enumerated audio.
+        if text.hasPrefix("Personal record — ") && text.hasSuffix(" reps. Huge work.") {
+            let pattern = #"^Personal record — (\d+) reps\. Huge work\.$"#
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+               match.numberOfRanges > 1,
+               let range = Range(match.range(at: 1), in: text),
+               let reps = Int(text[range]) {
+                return "pr_celebration_bodyweight_\(reps)"
+            }
+        }
+
         // Check for exercise guide phrases (without prefix)
         if let phraseId = constructExercisePhraseId(from: text, prefix: "workout_exercise_") {
             return phraseId

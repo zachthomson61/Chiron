@@ -105,6 +105,89 @@ struct SpeechPhraseCatalog {
         SpeechPhrase(id: "rest_stretch", text: "Rest, {duration} Seconds. Stretch out a bit.", category: .workoutFlow),
         SpeechPhrase(id: "rest_drink_water", text: "Rest, {duration} Seconds. Take a drink of water if you're thirsty.", category: .workoutFlow),
         SpeechPhrase(id: "rest_recover_next_set", text: "Rest, {duration} Seconds. Recover and then let's get this next set!", category: .workoutFlow),
+
+        // MARK: - Begin-Set Affirmations (Track tab)
+        SpeechPhrase(id: "affirmation_lets_go", text: "Let's go!", category: .encouragement),
+        SpeechPhrase(id: "affirmation_youve_got_this", text: "You've got this!", category: .encouragement),
+        SpeechPhrase(id: "affirmation_time_to_work", text: "Time to work!", category: .encouragement),
+        SpeechPhrase(id: "affirmation_lets_crush_it", text: "Let's crush it!", category: .encouragement),
+        SpeechPhrase(id: "affirmation_make_it_count", text: "Make it count!", category: .encouragement),
+
+        // MARK: - Goal-Based Intent Cues (Track tab, first set per exercise)
+        // Squat
+        SpeechPhrase(id: "intent_squat_build_muscle", text: "Sit deep and pause at the bottom — that stretch is where your muscle grows.", category: .instruction),
+        SpeechPhrase(id: "intent_squat_get_stronger", text: "Brace hard, control the descent, drive through the floor.", category: .instruction),
+        SpeechPhrase(id: "intent_squat_athletic_performance", text: "Slow down, then explode up — this is your power builder.", category: .instruction),
+        SpeechPhrase(id: "intent_squat_rehab", text: "Move slow through the full range, no bouncing at the bottom.", category: .instruction),
+        SpeechPhrase(id: "intent_squat_lose_fat_toned", text: "Steady pace, tight form, feel every rep.", category: .instruction),
+        SpeechPhrase(id: "intent_squat_endurance", text: "Find a clean, repeatable rhythm for the whole set.", category: .instruction),
+        SpeechPhrase(id: "intent_squat_health_longevity", text: "Full range of motion, controlled all the way.", category: .instruction),
+        // Bench Press
+        SpeechPhrase(id: "intent_bench_build_muscle", text: "Slow on the way down, pause at your chest — that's where the chest grows.", category: .instruction),
+        SpeechPhrase(id: "intent_bench_get_stronger", text: "Lock in tight, control the bar down, press with intent.", category: .instruction),
+        SpeechPhrase(id: "intent_bench_athletic_performance", text: "Control down, press up fast and powerful.", category: .instruction),
+        SpeechPhrase(id: "intent_bench_rehab", text: "Smooth and controlled, no bouncing off your chest.", category: .instruction),
+        SpeechPhrase(id: "intent_bench_lose_fat_toned", text: "Steady tempo, tight form, squeeze the chest on every press.", category: .instruction),
+        SpeechPhrase(id: "intent_bench_endurance", text: "Clean reps at a consistent tempo.", category: .instruction),
+        SpeechPhrase(id: "intent_bench_health_longevity", text: "Full range of motion, move the bar with control.", category: .instruction),
+        // Deadlift
+        SpeechPhrase(id: "intent_deadlift_build_muscle", text: "Control the descent and feel your back and legs loading up.", category: .instruction),
+        SpeechPhrase(id: "intent_deadlift_get_stronger", text: "Push the floor away — this is your whole-body strength builder.", category: .instruction),
+        SpeechPhrase(id: "intent_deadlift_athletic_performance", text: "Explosive off the floor — hip drive is raw power.", category: .instruction),
+        SpeechPhrase(id: "intent_deadlift_rehab", text: "Set your back, move slow, keep the bar close to your body.", category: .instruction),
+        SpeechPhrase(id: "intent_deadlift_lose_fat_toned", text: "Tight form, controlled pulls, whole-body engagement.", category: .instruction),
+        SpeechPhrase(id: "intent_deadlift_endurance", text: "Repeatable clean reps — never sacrifice form.", category: .instruction),
+        SpeechPhrase(id: "intent_deadlift_health_longevity", text: "Neutral spine, smooth from the floor to lockout.", category: .instruction),
+        // Romanian Deadlift
+        SpeechPhrase(id: "intent_rdl_build_muscle", text: "Hinge deep and feel that hamstring stretch — let it load the muscle.", category: .instruction),
+        SpeechPhrase(id: "intent_rdl_get_stronger", text: "Control the hinge, load the hamstrings, drive your hips forward.", category: .instruction),
+        SpeechPhrase(id: "intent_rdl_athletic_performance", text: "Load the hamstrings deep, fire your hips on the way up.", category: .instruction),
+        SpeechPhrase(id: "intent_rdl_rehab", text: "Soft knees, flat back, hinge only as far as control allows.", category: .instruction),
+        SpeechPhrase(id: "intent_rdl_lose_fat_toned", text: "Tight core, clean hinge, steady pace.", category: .instruction),
+        SpeechPhrase(id: "intent_rdl_endurance", text: "Smooth hinge, consistent rhythm, don't rush it.", category: .instruction),
+        SpeechPhrase(id: "intent_rdl_health_longevity", text: "Controlled hinge to keep your spine safe.", category: .instruction),
+        // Barbell Row
+        SpeechPhrase(id: "intent_row_build_muscle", text: "Pull with your back, squeeze at the top — feel the muscle working.", category: .instruction),
+        SpeechPhrase(id: "intent_row_get_stronger", text: "Solid hinge, drive the elbows back, own every rep.", category: .instruction),
+        SpeechPhrase(id: "intent_row_athletic_performance", text: "Pull hard, stay tight, transfer power through your back.", category: .instruction),
+        SpeechPhrase(id: "intent_row_rehab", text: "Flat back, no jerking, control both directions.", category: .instruction),
+        SpeechPhrase(id: "intent_row_lose_fat_toned", text: "Controlled pulls, tight form, no momentum.", category: .instruction),
+        SpeechPhrase(id: "intent_row_endurance", text: "Clean reps, steady pace, keep form through fatigue.", category: .instruction),
+        SpeechPhrase(id: "intent_row_health_longevity", text: "Tall chest, flat back, move with control.", category: .instruction),
+
+        // MARK: - Coaching Prompts
+        SpeechPhrase(id: "coaching_prompt_which_exercise", text: "Which exercise would you like coaching on?", category: .instruction),
+
+        // MARK: - Framing Reminder (Track tab)
+        SpeechPhrase(id: "framing_reminder", text: "Prop your phone about four to six feet away. Ensure it's either in front of you or at about a 45 degree angle. Face it towards you, and step back until you see a green skeleton filter. When you're ready for your set, enter the weight you're lifting and press begin set.", category: .instruction),
+
+        // MARK: - PR Celebration (Dynamic)
+        SpeechPhrase(id: "pr_celebration_bodyweight", text: "Personal record — {reps} reps. Huge work.", category: .encouragement),
+        SpeechPhrase(id: "pr_celebration_weighted", text: "Personal record — {descriptor}. Huge work.", category: .encouragement),
+
+        // MARK: - Set Start (Dynamic)
+        SpeechPhrase(id: "workout_starting_set", text: "Starting set {number}", category: .workoutFlow),
+
+        // MARK: - Coaching Fallbacks
+        // No-reps fallbacks (close-grip bench press)
+        SpeechPhrase(id: "fallback_no_reps_get_ready_next", text: "Let's get ready for the next set!", category: .feedback),
+        SpeechPhrase(id: "fallback_no_reps_take_your_time", text: "Take your time and focus on the next set.", category: .feedback),
+        SpeechPhrase(id: "fallback_no_reps_rest_up", text: "Rest up and let's get after it!", category: .feedback),
+        SpeechPhrase(id: "fallback_no_reps_get_ready", text: "Let's get ready!", category: .feedback),
+        // Missing-analysis fallbacks
+        SpeechPhrase(id: "fallback_good_effort_focus_form", text: "Good effort on that set. Keep focusing on your form.", category: .feedback),
+        SpeechPhrase(id: "fallback_nice_control_more_depth", text: "Nice control there, but let's aim for a little more depth next set.", category: .feedback),
+        // High-score rest fallbacks
+        SpeechPhrase(id: "fallback_high_great_set_form_control", text: "Great set! Excellent form and control.", category: .feedback),
+        SpeechPhrase(id: "fallback_high_nice_work_solid_set", text: "Nice work! That was a solid set.", category: .feedback),
+        SpeechPhrase(id: "fallback_high_well_done_great_execution", text: "Well done! Great execution on that set.", category: .feedback),
+        SpeechPhrase(id: "fallback_high_great_set", text: "Great set!", category: .feedback),
+        // Low-score rest fallbacks
+        SpeechPhrase(id: "fallback_low_elbows_tucked", text: "Nice effort there. Focus on keeping those elbows tucked.", category: .feedback),
+        SpeechPhrase(id: "fallback_low_tighten_form", text: "Good work. Let's tighten up the form next set.", category: .feedback),
+        SpeechPhrase(id: "fallback_low_good_effort", text: "Good effort!", category: .feedback),
+        // Insufficient-data fallback (OpenAI coaching)
+        SpeechPhrase(id: "fallback_insufficient_data", text: "Good set. When you're ready, start your next set.", category: .feedback),
     ]
     
     /// Get phrase by ID
@@ -291,7 +374,23 @@ struct SpeechPhraseCatalog {
                 text: "Nice work on those \(count) reps. "
             ))
         }
-        
+
+        // Set start variations: sets 1-20
+        for setNumber in 1...20 {
+            variations.append((
+                id: "workout_starting_set_\(setNumber)",
+                text: "Starting set \(setNumber)"
+            ))
+        }
+
+        // PR celebration (bodyweight): 1-50 reps
+        for reps in 1...50 {
+            variations.append((
+                id: "pr_celebration_bodyweight_\(reps)",
+                text: "Personal record — \(reps) reps. Huge work."
+            ))
+        }
+
         return variations
     }
     
