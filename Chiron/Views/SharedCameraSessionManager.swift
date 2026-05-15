@@ -266,10 +266,18 @@ class ActiveWorkoutCameraPreviewView: UIView {
 /// Maps MediaPipe **normalized image** landmarks (top-left origin, x right, y down, \[0,1\]) into
 /// full-screen SwiftUI coordinates for a **mirrored** front-camera preview in portrait.
 ///
+/// The transform branches on whether `connection.videoRotationAngle = 90` actually rotated the buffer
+/// before MediaPipe saw it. On iPhone 17/17 Pro/17 Max the rotation is a no-op and the buffer arrives
+/// in native landscape, so we rotate the landmarks 90° (CCW) and mirror. On older iPhones the buffer is
+/// pre-rotated to portrait, so we just mirror horizontally.
+///
 /// Used for the main pose skeleton overlay on the camera preview.
 enum PoseOverlayCoordinateMapping {
-    static func viewPoint(normalized p: CGPoint, canvasSize: CGSize) -> CGPoint {
-        CGPoint(x: (1.0 - p.y) * canvasSize.width, y: (1.0 - p.x) * canvasSize.height)
+    static func viewPoint(normalized p: CGPoint, canvasSize: CGSize, bufferIsPortrait: Bool = false) -> CGPoint {
+        if bufferIsPortrait {
+            return CGPoint(x: (1.0 - p.x) * canvasSize.width, y: p.y * canvasSize.height)
+        }
+        return CGPoint(x: (1.0 - p.y) * canvasSize.width, y: (1.0 - p.x) * canvasSize.height)
     }
 }
 
@@ -302,7 +310,7 @@ struct PoseVisualizationOverlay: View {
         GeometryReader { _ in
             ZStack {
                 if let landmarks = poseManager.currentNormalizedLandmarks, !landmarks.isEmpty {
-                    PoseLandmarkSkeletonView(landmarks: landmarks)
+                    PoseLandmarkSkeletonView(landmarks: landmarks, bufferIsPortrait: poseManager.landmarkBufferIsPortrait)
                 }
             }
         }
@@ -313,11 +321,12 @@ struct PoseVisualizationOverlay: View {
 /// Renders `poseSkeletonEdges` and joint dots using `PoseOverlayCoordinateMapping` (Canvas uses `canvasSize`, not an external `GeometryReader` size).
 struct PoseLandmarkSkeletonView: View {
     let landmarks: [String: CGPoint]
+    let bufferIsPortrait: Bool
 
     var body: some View {
         Canvas { context, canvasSize in
             func viewPoint(_ p: CGPoint) -> CGPoint {
-                PoseOverlayCoordinateMapping.viewPoint(normalized: p, canvasSize: canvasSize)
+                PoseOverlayCoordinateMapping.viewPoint(normalized: p, canvasSize: canvasSize, bufferIsPortrait: bufferIsPortrait)
             }
 
             for (a, b) in poseSkeletonEdges {

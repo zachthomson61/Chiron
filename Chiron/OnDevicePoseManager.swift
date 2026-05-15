@@ -227,6 +227,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// Populated by MediaPipePoseAdapter from PoseLandmarkerResult.landmarks.
     @Published var currentNormalizedLandmarks: [String: CGPoint]?
 
+    /// Orientation of the most recent pixel buffer fed to MediaPipe.
+    /// `connection.videoRotationAngle = 90` rotates buffers to portrait on some devices (e.g. iPhone 16 and earlier)
+    /// but is a no-op on others (e.g. iPhone 17 family), so the overlay transform has to branch on the actual
+    /// buffer dimensions rather than assume one or the other.
+    @Published var landmarkBufferIsPortrait: Bool = false
+
     /// Wrist-derived bar segment (normalised coords) for barbell exercises.
     /// `nil` when the exercise is not barbell-based or both wrists are not sufficiently visible.
     @Published var currentBarbellLine: BarbellLine?
@@ -693,10 +699,18 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     
     func analyzeFrame(_ pixelBuffer: CVPixelBuffer) {
         guard let poseLandmarker = poseLandmarker else { return }
-        
+
+        // Track whether the connection actually rotated the buffer to portrait (varies by device, see property doc).
+        let isPortraitBuffer = CVPixelBufferGetHeight(pixelBuffer) > CVPixelBufferGetWidth(pixelBuffer)
+        if isPortraitBuffer != landmarkBufferIsPortrait {
+            DispatchQueue.main.async { [weak self] in
+                self?.landmarkBufferIsPortrait = isPortraitBuffer
+            }
+        }
+
         frameTimestampMs += 33 // ~30 fps; must be monotonically increasing
         let ts = frameTimestampMs
-        
+
         do {
             let mpImage = try MPImage(pixelBuffer: pixelBuffer)
             try poseLandmarker.detectAsync(image: mpImage, timestampInMilliseconds: ts)
