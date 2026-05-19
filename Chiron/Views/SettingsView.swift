@@ -8,6 +8,7 @@ struct SettingsView: View {
     @StateObject private var speech = SpeechManager.shared
     @StateObject private var haptics = HapticsManager.shared
     @StateObject private var cameraCoaching = CameraCoachingPreferencesManager.shared
+    @StateObject private var volumeTrigger = VolumeTriggerPreferences.shared
     @State private var preferredUnits: UnitSystem = .imperial
     @State private var profileMissing = false
 
@@ -18,6 +19,7 @@ struct SettingsView: View {
             audioSection
             hapticsSection
             cameraCoachingSection
+            volumeTriggerSection
             unitsSection
             aboutSection
         }
@@ -59,6 +61,18 @@ struct SettingsView: View {
             Text("Camera Coaching")
         } footer: {
             Text("Master switch for on-device form analysis during sets. When off, no exercise will run rep counting or form cues, regardless of per-exercise settings.")
+        }
+    }
+
+    // MARK: - Volume Button Set Control
+
+    private var volumeTriggerSection: some View {
+        Section {
+            Toggle("Volume Button Set Control", isOn: $volumeTrigger.isEnabled)
+        } header: {
+            Text("Hands-Free Set Control")
+        } footer: {
+            Text("When on, pressing the volume up or down button — on your phone or on connected headphones — starts your next set and ends the current one while you're on the Track tab. Music keeps playing; you'll see a brief volume blip before it settles back.")
         }
     }
 

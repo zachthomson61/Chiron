@@ -9,6 +9,7 @@
 import SwiftUI
 import SwiftData
 import AVFoundation
+import Combine
 
 // MARK: - Sheet presentation (explicit types avoid Swift 6 / SDK inference issues)
 
@@ -366,6 +367,12 @@ struct TrackView: View {
         .navigationBarHidden(true)
         .onAppear(perform: onAppear)
         .onDisappear(perform: onDisappear)
+        .onChange(of: trackViewState) { _, newValue in
+            VolumeTriggerCoordinator.shared.setActive(newValue != .idle)
+        }
+        .onReceive(VolumeTriggerCoordinator.shared.$actionRequestCounter.dropFirst()) { _ in
+            handlePrimaryAction()
+        }
         .sheet(isPresented: $showExerciseSelector) {
             TrackExerciseLibrarySheetView(
                 selectedExercise: selectedExercise,
