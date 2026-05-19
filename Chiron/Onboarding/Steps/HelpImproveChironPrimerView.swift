@@ -8,12 +8,8 @@
 //  Tapping the primary CTA opts the user in; "Not now" opts out. Either choice
 //  advances the flow. The choice is persisted to `TelemetryPreferencesManager`
 //  so the rest of the app's consent gate (TelemetryCoordinator.isEnabled)
-//  honors it without any further plumbing.
-//
-//  TODO(pre-testflight): pair this with a Settings toggle so users can revoke
-//  consent later — currently there's no UI to flip the flag back. Search marker:
-//  `TODO_TELEMETRY_SETTINGS_TOGGLE` (also referenced from
-//  `TelemetryPreferencesManager.shareDataToImproveChiron` doc comment).
+//  honors it without any further plumbing. Users can revoke or grant consent
+//  later via the "Help Improve Chiron" toggle in `SettingsView`.
 //
 
 import SwiftUI

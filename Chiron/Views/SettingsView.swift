@@ -9,6 +9,7 @@ struct SettingsView: View {
     @StateObject private var haptics = HapticsManager.shared
     @StateObject private var cameraCoaching = CameraCoachingPreferencesManager.shared
     @StateObject private var volumeTrigger = VolumeTriggerPreferences.shared
+    @StateObject private var telemetryPrefs = TelemetryPreferencesManager.shared
     @State private var preferredUnits: UnitSystem = .imperial
     @State private var profileMissing = false
 
@@ -21,6 +22,7 @@ struct SettingsView: View {
             cameraCoachingSection
             volumeTriggerSection
             unitsSection
+            helpImproveChironSection
             aboutSection
         }
         .navigationTitle("Settings")
@@ -36,7 +38,7 @@ struct SettingsView: View {
         } header: {
             Text("Audio & Voice")
         } footer: {
-            Text("When off, the coach stays silent — including PR call-outs, set wrap-ups, and rest reminders. Sound effects from local audio still play.")
+            Text("When off, the coach stays silent, including PR call-outs, set wrap-ups, and rest reminders. Sound effects from local audio still play.")
         }
     }
 
@@ -72,7 +74,7 @@ struct SettingsView: View {
         } header: {
             Text("Hands-Free Set Control")
         } footer: {
-            Text("When on, pressing the volume up or down button — on your phone or on connected headphones — starts your next set and ends the current one while you're on the Track tab. Music keeps playing; you'll see a brief volume blip before it settles back.")
+            Text("When on, pressing the volume up or down button (on your phone or on connected headphones) starts your next set and ends the current one while you're on the Track tab. Music keeps playing; you'll see a brief volume blip before it settles back.")
         }
     }
 
@@ -95,7 +97,19 @@ struct SettingsView: View {
         } footer: {
             Text(profileMissing
                  ? "Finish onboarding to choose your display units."
-                 : "Affects how weights are shown across the app. Stored values aren't converted — only the display.")
+                 : "Affects how weights are shown across the app. Stored values aren't converted, only the display.")
+        }
+    }
+
+    // MARK: - Help Improve Chiron
+
+    private var helpImproveChironSection: some View {
+        Section {
+            Toggle("Share Workout Data", isOn: $telemetryPrefs.shareDataToImproveChiron)
+        } header: {
+            Text("Help Improve Chiron")
+        } footer: {
+            Text("Share anonymous form data and short clips of your sets so we can keep tuning the coaching. Tied to an opaque device handle. No name, no email.")
         }
     }
 
@@ -132,7 +146,7 @@ struct SettingsView: View {
 
     private var appVersionString: String {
         let info = Bundle.main.infoDictionary
-        let short = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let short = info?["CFBundleShortVersionString"] as? String ?? "-"
         let build = info?["CFBundleVersion"] as? String ?? ""
         return build.isEmpty ? short : "\(short) (\(build))"
     }

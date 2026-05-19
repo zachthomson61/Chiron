@@ -22,16 +22,15 @@ final class TelemetryPreferencesManager: ObservableObject {
     private static let cellularKey = "chiron.telemetry.allow_cellular.v1"
 
     /// Master switch. When false, no CSV is written, no screen recording is
-    /// captured for upload, and no new files are enqueued.
+    /// captured for upload, and no new files are enqueued. Surfaced in
+    /// `SettingsView` under "Help Improve Chiron".
     ///
     /// **Default is currently `true`** — solo-developer testing phase, no
-    /// external testers, all data should land in R2 automatically. There is
-    /// no UI for this flag right now.
+    /// external testers, all data should land in R2 automatically.
     ///
-    /// **Before TestFlight** flip the default back to `false` and re-add the
-    /// "Help Improve Chiron" section to `SettingsView` (git history has it).
-    /// Apple reviewers treat unconsented screen-capture-and-upload as a
-    /// privacy violation, even with the existing camera permission.
+    /// **Before TestFlight** flip the default back to `false`. Apple reviewers
+    /// treat unconsented screen-capture-and-upload as a privacy violation,
+    /// even with the existing camera permission.
     @Published var shareDataToImproveChiron: Bool {
         didSet { UserDefaults.standard.set(shareDataToImproveChiron, forKey: Self.shareKey) }
     }
