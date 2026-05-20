@@ -200,6 +200,7 @@ private struct MyGoalCard: View {
                         .font(.neueMontrealBold(size: 40))
                         .foregroundColor(.textPrimary)
                         .lineLimit(2)
+                        .minimumScaleFactor(0.5)
                         .multilineTextAlignment(.leading)
                     Spacer()
                     Image(systemName: "square.and.pencil")
