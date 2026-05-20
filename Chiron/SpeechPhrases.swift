@@ -190,6 +190,64 @@ struct SpeechPhraseCatalog {
         SpeechPhrase(id: "fallback_insufficient_data", text: "Good set. When you're ready, start your next set.", category: .feedback),
     ]
     
+    /// Deterministic-fallback `capitalizedBest` values produced by
+    /// `OpenAICoachingManager.buildFallbackFeedback`. Each entry pairs the
+    /// exact rendered string with a short stable key used to build phrase
+    /// IDs. Keep this list aligned with the bestThing producers in
+    /// `SetEndFeedbackPlanner.positivePhrase` / `CoachingContract.detectPositiveNote`.
+    static let fallbackBestThings: [(text: String, key: String)] = [
+        ("Nice effort there", "nice_effort"),
+        ("Good depth on that set", "good_depth"),
+        ("Chest stayed nice and tall", "chest_tall"),
+        ("Knees tracked well over your toes", "knees_over_toes"),
+        ("Solid lockout at the top", "solid_lockout_top"),
+        ("Tempo stayed controlled", "tempo_controlled"),
+        ("Back stayed nice and flat", "back_flat"),
+        ("Solid hip position throughout", "solid_hip_position"),
+        ("Elbows stayed tight to your sides", "elbows_tight"),
+        ("Really clean rows", "clean_rows"),
+        ("Back stayed flat the whole way up", "back_flat_pull"),
+        ("Hips and shoulders moved together nicely", "hips_shoulders_together"),
+        ("Strong lockout position", "strong_lockout"),
+        ("Bar stayed tight to your body", "bar_tight_body"),
+        ("Really clean pulls", "clean_pulls"),
+        ("Smooth hip hinge with a flat back", "smooth_hinge"),
+        ("Knees stayed nice and soft without bending", "soft_knees"),
+        ("Good depth on that hinge", "good_depth_hinge"),
+        ("Bar stayed right against your legs", "bar_against_legs"),
+        ("Textbook Romanian deadlifts", "textbook_rdl"),
+        ("Controlled tempo", "controlled_tempo"),
+    ]
+
+    /// Deterministic-fallback cues from `CoachingContract.definitions`, in
+    /// the lowercased form that `buildFallbackFeedback` substitutes into
+    /// `"{Best}, now {cue}"`. Keyed by `IssueCode.rawValue` so the resulting
+    /// phrase ID stays stable across renames of the display strings.
+    static let fallbackCues: [(lowercasedText: String, issueCode: String)] = [
+        ("sit deeper until hips reach knee level", "insufficient_depth"),
+        ("keep your chest tall and proud", "forward_lean"),
+        ("push your knees out over your toes", "knee_valgus"),
+        ("keep your knees tracking straight ahead", "knee_varus"),
+        ("bring your grip in closer to your ribs", "grip_too_wide"),
+        ("tuck those elbows to your sides", "elbows_flaring"),
+        ("lock out fully at the top and touch your chest at the bottom", "incomplete_rom"),
+        ("take more time lowering the bar", "eccentric_too_fast"),
+        ("press up a little faster", "concentric_too_slow"),
+        ("hold the stretch at the bottom for a full second", "insufficient_stretch_pause"),
+        ("keep your back flat and close to parallel with the ground — don't stand up between reps", "row_momentum_drive"),
+        ("brace your core and keep your spine flat — don't let your back round", "row_rounded_back"),
+        ("point your toes and knees straight ahead", "row_knee_internal_rotation"),
+        ("pull your elbows back toward your hips, not out to the sides", "row_elbow_flare"),
+        ("brace hard and lock in a flat back from setup to lockout", "deadlift_rounded_back"),
+        ("push through your legs first so hips and shoulders rise together", "deadlift_hip_shoot_up"),
+        ("stand tall at the top without leaning back", "deadlift_hyperextension"),
+        ("keep the bar tight to your body the whole way up", "deadlift_bar_drift"),
+        ("brace your core and keep your spine flat all the way down", "rdl_rounded_back"),
+        ("keep your knees at a soft fixed bend — push your hips back instead", "rdl_excessive_knee_bend"),
+        ("hinge deeper until you feel a stretch in your hamstrings", "rdl_shallow_hinge"),
+        ("keep the bar sliding along your thighs the whole way down", "rdl_bar_drift"),
+    ]
+
     /// Get phrase by ID
     static func phrase(id: String) -> SpeechPhrase? {
         return phrases.first { $0.id == id }
@@ -389,6 +447,28 @@ struct SpeechPhraseCatalog {
                 id: "pr_celebration_bodyweight_\(reps)",
                 text: "Personal record — \(reps) reps. Huge work."
             ))
+        }
+
+        // Deterministic LLM-fail fallback combinations. Mirrors the
+        // `base` strings built in `OpenAICoachingManager.buildFallbackFeedback`
+        // for the no-safety-prefix path. Without these, every fallback
+        // line goes to OpenAI TTS at runtime and falls through to the
+        // robotic AVSpeechSynthesizer when the network is degraded.
+        for best in fallbackBestThings {
+            variations.append((
+                id: "fallback_clean_\(best.key)",
+                text: "\(best.text) — that set was dialed in"
+            ))
+            variations.append((
+                id: "fallback_corrective_no_cue_\(best.key)",
+                text: "\(best.text) — keep that same form"
+            ))
+            for cue in fallbackCues {
+                variations.append((
+                    id: "fallback_corrective_\(best.key)_\(cue.issueCode)",
+                    text: "\(best.text), now \(cue.lowercasedText)"
+                ))
+            }
         }
 
         return variations

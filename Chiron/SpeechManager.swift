@@ -368,6 +368,14 @@ class SpeechManager: NSObject, ObservableObject {
             }
         }
 
+        // Deterministic LLM-fail fallback templates from
+        // `OpenAICoachingManager.buildFallbackFeedback`. Match before the
+        // generic exercise-guide check — those texts contain commas and the
+        // exercise matcher would otherwise try to split them.
+        if let phraseId = constructFallbackPhraseId(from: text) {
+            return phraseId
+        }
+
         // Check for exercise guide phrases (without prefix)
         if let phraseId = constructExercisePhraseId(from: text, prefix: "workout_exercise_") {
             return phraseId
@@ -411,6 +419,41 @@ class SpeechManager: NSObject, ObservableObject {
         return nil
     }
     
+    /// Match the deterministic LLM-fail fallback templates from
+    /// `OpenAICoachingManager.buildFallbackFeedback` and return the
+    /// corresponding pre-baked phrase ID. Returns nil for any text that
+    /// doesn't match one of the three templates (clean / no-cue corrective /
+    /// with-cue corrective). Safety-prefixed variants are not baked and
+    /// fall through to OpenAI TTS.
+    private func constructFallbackPhraseId(from text: String) -> String? {
+        let cleanSuffix = " — that set was dialed in"
+        if text.hasSuffix(cleanSuffix) {
+            let best = String(text.dropLast(cleanSuffix.count))
+            if let key = SpeechPhraseCatalog.fallbackBestThings.first(where: { $0.text == best })?.key {
+                return "fallback_clean_\(key)"
+            }
+        }
+
+        let noCueSuffix = " — keep that same form"
+        if text.hasSuffix(noCueSuffix) {
+            let best = String(text.dropLast(noCueSuffix.count))
+            if let key = SpeechPhraseCatalog.fallbackBestThings.first(where: { $0.text == best })?.key {
+                return "fallback_corrective_no_cue_\(key)"
+            }
+        }
+
+        if let commaRange = text.range(of: ", now ") {
+            let best = String(text[..<commaRange.lowerBound])
+            let cue = String(text[commaRange.upperBound...])
+            if let bestKey = SpeechPhraseCatalog.fallbackBestThings.first(where: { $0.text == best })?.key,
+               let issueCode = SpeechPhraseCatalog.fallbackCues.first(where: { $0.lowercasedText == cue })?.issueCode {
+                return "fallback_corrective_\(bestKey)_\(issueCode)"
+            }
+        }
+
+        return nil
+    }
+
     /// Construct exercise phrase ID from text
     private func constructExercisePhraseId(from text: String, prefix: String) -> String? {
         // Remove prefix if present

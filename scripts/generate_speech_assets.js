@@ -234,6 +234,75 @@ function generateDynamicVariations() {
         variations.push({ id: `pr_celebration_bodyweight_${reps}`, text: `Personal record — ${reps} reps. Huge work.` });
     }
 
+    // Deterministic LLM-fail fallback combinations. Mirrors the
+    // `fallbackBestThings` × `fallbackCues` enumeration in
+    // SpeechPhrases.swift. Keep both lists aligned — every entry here must
+    // have a matching entry in the Swift catalog or the matcher in
+    // SpeechManager.constructFallbackPhraseId will miss at runtime.
+    const fallbackBestThings = [
+        { text: 'Nice effort there', key: 'nice_effort' },
+        { text: 'Good depth on that set', key: 'good_depth' },
+        { text: 'Chest stayed nice and tall', key: 'chest_tall' },
+        { text: 'Knees tracked well over your toes', key: 'knees_over_toes' },
+        { text: 'Solid lockout at the top', key: 'solid_lockout_top' },
+        { text: 'Tempo stayed controlled', key: 'tempo_controlled' },
+        { text: 'Back stayed nice and flat', key: 'back_flat' },
+        { text: 'Solid hip position throughout', key: 'solid_hip_position' },
+        { text: 'Elbows stayed tight to your sides', key: 'elbows_tight' },
+        { text: 'Really clean rows', key: 'clean_rows' },
+        { text: 'Back stayed flat the whole way up', key: 'back_flat_pull' },
+        { text: 'Hips and shoulders moved together nicely', key: 'hips_shoulders_together' },
+        { text: 'Strong lockout position', key: 'strong_lockout' },
+        { text: 'Bar stayed tight to your body', key: 'bar_tight_body' },
+        { text: 'Really clean pulls', key: 'clean_pulls' },
+        { text: 'Smooth hip hinge with a flat back', key: 'smooth_hinge' },
+        { text: 'Knees stayed nice and soft without bending', key: 'soft_knees' },
+        { text: 'Good depth on that hinge', key: 'good_depth_hinge' },
+        { text: 'Bar stayed right against your legs', key: 'bar_against_legs' },
+        { text: 'Textbook Romanian deadlifts', key: 'textbook_rdl' },
+        { text: 'Controlled tempo', key: 'controlled_tempo' },
+    ];
+    const fallbackCues = [
+        { lowercasedText: 'sit deeper until hips reach knee level', issueCode: 'insufficient_depth' },
+        { lowercasedText: 'keep your chest tall and proud', issueCode: 'forward_lean' },
+        { lowercasedText: 'push your knees out over your toes', issueCode: 'knee_valgus' },
+        { lowercasedText: 'keep your knees tracking straight ahead', issueCode: 'knee_varus' },
+        { lowercasedText: 'bring your grip in closer to your ribs', issueCode: 'grip_too_wide' },
+        { lowercasedText: 'tuck those elbows to your sides', issueCode: 'elbows_flaring' },
+        { lowercasedText: 'lock out fully at the top and touch your chest at the bottom', issueCode: 'incomplete_rom' },
+        { lowercasedText: 'take more time lowering the bar', issueCode: 'eccentric_too_fast' },
+        { lowercasedText: 'press up a little faster', issueCode: 'concentric_too_slow' },
+        { lowercasedText: 'hold the stretch at the bottom for a full second', issueCode: 'insufficient_stretch_pause' },
+        { lowercasedText: "keep your back flat and close to parallel with the ground — don't stand up between reps", issueCode: 'row_momentum_drive' },
+        { lowercasedText: "brace your core and keep your spine flat — don't let your back round", issueCode: 'row_rounded_back' },
+        { lowercasedText: 'point your toes and knees straight ahead', issueCode: 'row_knee_internal_rotation' },
+        { lowercasedText: 'pull your elbows back toward your hips, not out to the sides', issueCode: 'row_elbow_flare' },
+        { lowercasedText: 'brace hard and lock in a flat back from setup to lockout', issueCode: 'deadlift_rounded_back' },
+        { lowercasedText: 'push through your legs first so hips and shoulders rise together', issueCode: 'deadlift_hip_shoot_up' },
+        { lowercasedText: 'stand tall at the top without leaning back', issueCode: 'deadlift_hyperextension' },
+        { lowercasedText: 'keep the bar tight to your body the whole way up', issueCode: 'deadlift_bar_drift' },
+        { lowercasedText: 'brace your core and keep your spine flat all the way down', issueCode: 'rdl_rounded_back' },
+        { lowercasedText: 'keep your knees at a soft fixed bend — push your hips back instead', issueCode: 'rdl_excessive_knee_bend' },
+        { lowercasedText: 'hinge deeper until you feel a stretch in your hamstrings', issueCode: 'rdl_shallow_hinge' },
+        { lowercasedText: 'keep the bar sliding along your thighs the whole way down', issueCode: 'rdl_bar_drift' },
+    ];
+    for (const best of fallbackBestThings) {
+        variations.push({
+            id: `fallback_clean_${best.key}`,
+            text: `${best.text} — that set was dialed in`,
+        });
+        variations.push({
+            id: `fallback_corrective_no_cue_${best.key}`,
+            text: `${best.text} — keep that same form`,
+        });
+        for (const cue of fallbackCues) {
+            variations.push({
+                id: `fallback_corrective_${best.key}_${cue.issueCode}`,
+                text: `${best.text}, now ${cue.lowercasedText}`,
+            });
+        }
+    }
+
     return variations;
 }
 
