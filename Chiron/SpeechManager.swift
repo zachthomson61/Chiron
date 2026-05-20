@@ -596,16 +596,17 @@ class SpeechManager: NSObject, ObservableObject {
     private func setupAudioSession() {
         // Don't setup if already active and properly configured
         let audioSession = AVAudioSession.sharedInstance()
-        if isAudioSessionActive && audioSession.category == .playback && audioSession.categoryOptions.contains(.mixWithOthers) {
+        if isAudioSessionActive && audioSession.category == .playback && audioSession.mode == .voicePrompt && audioSession.categoryOptions.contains(.mixWithOthers) {
             return
         }
-        
+
         do {
             // Set category first - only change if needed to avoid interrupting video playback
             // Don't deactivate the session first as that would interrupt video playback
-            let needsCategoryUpdate = audioSession.category != .playback || !audioSession.categoryOptions.contains(.mixWithOthers)
+            // Mode `.voicePrompt` triggers more aggressive ducking of other apps' audio (e.g. Spotify).
+            let needsCategoryUpdate = audioSession.category != .playback || audioSession.mode != .voicePrompt || !audioSession.categoryOptions.contains(.mixWithOthers)
             if needsCategoryUpdate {
-                try audioSession.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+                try audioSession.setCategory(.playback, mode: .voicePrompt, options: [.mixWithOthers])
             }
             
             // Activate without deactivating first - this preserves video playback with .mixWithOthers
@@ -624,7 +625,7 @@ class SpeechManager: NSObject, ObservableObject {
     private func setupAudioSessionFallback() {
         do {
             let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try audioSession.setCategory(.playback, mode: .voicePrompt, options: [.mixWithOthers])
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 do {
                     try audioSession.setActive(true, options: [])
@@ -651,8 +652,9 @@ class SpeechManager: NSObject, ObservableObject {
         
         do {
             let desiredOptions: AVAudioSession.CategoryOptions = enabled ? [.mixWithOthers, .duckOthers] : [.mixWithOthers]
-            // Set category with desired options - preserves video playback due to .mixWithOthers
-            try audioSession.setCategory(.playback, mode: .default, options: desiredOptions)
+            // Set category with desired options - preserves video playback due to .mixWithOthers.
+            // Mode `.voicePrompt` triggers more aggressive ducking than `.default`.
+            try audioSession.setCategory(.playback, mode: .voicePrompt, options: desiredOptions)
             
             if enabled && !isAudioSessionActive {
                 try audioSession.setActive(true, options: [])

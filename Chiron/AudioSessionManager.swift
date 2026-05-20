@@ -30,12 +30,16 @@ class AudioSessionManager {
     /// background audio to continue playing alongside the app's audio/video content.
     /// This is essential for muted video players that would otherwise interrupt
     /// background music.
+    ///
+    /// Mode is `.voicePrompt`, which signals to iOS that our audio is a voice prompt
+    /// and triggers significantly more aggressive ducking of other audio (e.g. Spotify)
+    /// than the default ducking level. This lets coaching feedback cut through music.
     private func configureAudioSession() {
         do {
             let audioSession = AVAudioSession.sharedInstance()
             try audioSession.setCategory(
                 .playback,
-                mode: .default,
+                mode: .voicePrompt,
                 options: [.mixWithOthers]
             )
             try audioSession.setActive(true)
