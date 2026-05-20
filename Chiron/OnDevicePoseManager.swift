@@ -417,6 +417,16 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// Timestamp of the first frame in this hinge cycle where smoothed angle rose more than
     /// `rdlBottomAscentMargin` above the running min. Set once per cycle.
     private var rdlAscentStartTime: Date?
+    /// Largest excursion above the running min observed since the last min update, in degrees.
+    /// Resets to 0 each time `rdlMinSmoothedHipAngleInHinge` deepens. Drives the bottom-rebound
+    /// detector below: a deeper min established AFTER a non-trivial excursion means the user
+    /// descended, started rising, then deepened again — a setup/positioning signature that
+    /// the standard bottom-dwell measure (last-min-update to ascent-start) cannot see because
+    /// the min keeps updating during the bounce.
+    private var rdlMaxAngleAbovePrevMin: Float = 0
+    /// Set true when a "descend → partial ascent → deepen further" pattern is observed in the
+    /// current hinge cycle. Causes the rep to be rejected on the transition back to standing.
+    private var rdlBottomReboundDetected: Bool = false
     /// Captures a rep candidate that has passed all in-cycle gates but is awaiting post-rep
     /// stability verification. Real reps leave the user planted; walking/putdown misfires see
     /// the ankles drift within the next second.
@@ -469,6 +479,21 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// Angle increase above the running min that counts as the start of ascent, ending the
     /// bottom-dwell window. Set above EMA noise to avoid false ascent triggers at the bottom.
     private let rdlBottomAscentMargin: Float = 5.0
+    /// Bottom-rebound detection. Real RDL reps descend monotonically to a single minimum, then
+    /// ascend monotonically. Setup/positioning hinges before a set (lowering the bar, adjusting
+    /// grip, "feeling out" the position) can look like a clean rep on every existing gate but
+    /// betray themselves with a small bounce at the bottom: the user reaches a depth, starts to
+    /// rise, then deepens further before standing up. This pattern is invisible to the standard
+    /// bottom-dwell measure because that measure restarts every time the running min updates.
+    /// `rdlBottomReboundExcursionDeg`: minimum excursion above the previous running min required
+    /// to count as a "partial ascent" — observed misfire excursion was 1.75°; real reps either
+    /// never re-deepen or have no measurable excursion at all, so 1.5° catches the misfire with
+    /// margin to EMA noise (alpha=0.4 keeps smoothed jitter under ~1°).
+    /// `rdlBottomReboundMinDecreaseDeg`: minimum decrease of the new running min vs the previous
+    /// running min required to count as a "deepening." Filters out sub-degree noise blips that
+    /// happen to land just below the prior min without representing a real second descent.
+    private let rdlBottomReboundExcursionDeg: Float = 1.5
+    private let rdlBottomReboundMinDecreaseDeg: Float = 0.5
     /// Post-rep ankle stability window.
     /// Pickup/walking-away misfires can produce a hinge cycle that looks like a real rep on every
     /// in-cycle signal, but the user's body drifts (walking, putting the bar down) within the next
@@ -3358,6 +3383,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     rdlMinSmoothedHipAngleInHinge = .greatestFiniteMagnitude
                     rdlMinUpdateTime = now
                     rdlAscentStartTime = nil
+                    rdlMaxAngleAbovePrevMin = 0
+                    rdlBottomReboundDetected = false
                     if let stableY = rdlStandingAnkleY {
                         currentRepCycleAnkleYMin = stableY
                         currentRepCycleAnkleYMax = stableY
@@ -3397,6 +3424,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 rdlMinSmoothedHipAngleInHinge = .greatestFiniteMagnitude
                 rdlMinUpdateTime = now
                 rdlAscentStartTime = nil
+                rdlMaxAngleAbovePrevMin = 0
+                rdlBottomReboundDetected = false
                 if let stableY = rdlStandingAnkleY {
                     currentRepCycleAnkleYMin = stableY
                     currentRepCycleAnkleYMax = stableY
@@ -3422,9 +3451,27 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             rdlMinSmoothedHipAngleInHinge = min(rdlMinSmoothedHipAngleInHinge, smoothed)
             if rdlMinSmoothedHipAngleInHinge < prevMin {
                 rdlMinUpdateTime = now
-            } else if rdlAscentStartTime == nil &&
-                      smoothed > rdlMinSmoothedHipAngleInHinge + rdlBottomAscentMargin {
-                rdlAscentStartTime = now
+                // Bottom-rebound: the running min just deepened. If, before this deepening, the
+                // smoothed angle had risen meaningfully above the previous min, the cycle is a
+                // "descend → partial ascent → deepen further" pattern — a setup/positioning
+                // hinge, not a clean rep. Require the previous min to be finite (skips the cycle's
+                // first ever min set on entry) and the new min to be at least
+                // `rdlBottomReboundMinDecreaseDeg` below it to filter noise blips.
+                if prevMin.isFinite,
+                   rdlMaxAngleAbovePrevMin >= rdlBottomReboundExcursionDeg,
+                   (prevMin - rdlMinSmoothedHipAngleInHinge) >= rdlBottomReboundMinDecreaseDeg {
+                    rdlBottomReboundDetected = true
+                }
+                rdlMaxAngleAbovePrevMin = 0
+            } else {
+                rdlMaxAngleAbovePrevMin = max(
+                    rdlMaxAngleAbovePrevMin,
+                    smoothed - rdlMinSmoothedHipAngleInHinge
+                )
+                if rdlAscentStartTime == nil &&
+                   smoothed > rdlMinSmoothedHipAngleInHinge + rdlBottomAscentMargin {
+                    rdlAscentStartTime = now
+                }
             }
 
             guard smoothed >= rdlStandingThreshold else { return false }
@@ -3456,6 +3503,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 resetRdlBarFloorReachTrackers()
                 rdlRepPhase = .standing; rdlRepCycleStartTime = nil
                 rdlMinUpdateTime = nil; rdlAscentStartTime = nil
+                rdlMaxAngleAbovePrevMin = 0
+                rdlBottomReboundDetected = false
                 resetCurrentRepCycleAnkleStability()
                 return false
             }
@@ -3469,9 +3518,25 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     resetRdlBarFloorReachTrackers()
                     rdlRepPhase = .standing; rdlRepCycleStartTime = nil
                     rdlMinUpdateTime = nil; rdlAscentStartTime = nil
+                    rdlMaxAngleAbovePrevMin = 0
+                    rdlBottomReboundDetected = false
                     resetCurrentRepCycleAnkleStability()
                     return false
                 }
+            }
+            // Bottom-rebound gate: catches "descend → partial ascent → deepen further" cycles
+            // that the bottom-dwell gate misses because the min keeps updating during the bounce.
+            // Real RDLs go down monotonically and up monotonically; this pattern is a setup or
+            // positioning hinge (lowering the bar, adjusting grip, "feeling out" the hinge).
+            if rdlBottomReboundDetected {
+                rdlLastRejectReason = "bottomRebound"
+                resetRdlBarFloorReachTrackers()
+                rdlRepPhase = .standing; rdlRepCycleStartTime = nil
+                rdlMinUpdateTime = nil; rdlAscentStartTime = nil
+                rdlMaxAngleAbovePrevMin = 0
+                rdlBottomReboundDetected = false
+                resetCurrentRepCycleAnkleStability()
+                return false
             }
             // Bar-floor-reach gate: pickup/putdown drops the wrists to floor level AND keeps the
             // hinge shallow (lifter bends knees to reach the bar instead of folding the hips).
@@ -3490,6 +3555,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     resetRdlBarFloorReachTrackers()
                     rdlRepPhase = .standing; rdlRepCycleStartTime = nil
                     rdlMinUpdateTime = nil; rdlAscentStartTime = nil
+                    rdlMaxAngleAbovePrevMin = 0
+                    rdlBottomReboundDetected = false
                     resetCurrentRepCycleAnkleStability()
                     return false
                 }
@@ -3511,6 +3578,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             rdlRepCycleStartTime = nil
             rdlMinUpdateTime = nil
             rdlAscentStartTime = nil
+            rdlMaxAngleAbovePrevMin = 0
+            rdlBottomReboundDetected = false
             resetCurrentRepCycleAnkleStability()
             if deepHingeConfident {
                 lastRepValidationTime = now
