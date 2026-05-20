@@ -239,7 +239,7 @@ enum CoachingContract {
             displayName: "Hips Rising Too Fast",
             severity: .high,
             cue: "Push through your legs first so hips and shoulders rise together",
-            shortCue: "Hips and shoulders together"
+            shortCue: "Hips and shoulders rise together"
         ),
         .deadliftHyperextension: IssueDefinition(
             code: .deadliftHyperextension,
