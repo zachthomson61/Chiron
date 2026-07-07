@@ -157,6 +157,33 @@ class WorkoutLogService {
         }
     }
     
+    /// Updates the weight and/or reps on an existing set log.
+    ///
+    /// Used by the history sheet's inline editor so users can correct
+    /// mistakes from the rep-counting algorithm or a mistyped weight.
+    /// Passing nil for a field deletes it from the document, matching the
+    /// save-path convention where nil weight/reps are omitted entirely.
+    ///
+    /// - Parameters:
+    ///   - setLogId: Firestore document ID of the set log to update
+    ///   - weight: Corrected weight in lbs, or nil to clear (bodyweight)
+    ///   - reps: Corrected rep count, or nil to clear
+    ///   - completion: Callback with Result of the update
+    func updateSetLog(setLogId: String, weight: Double?, reps: Int?, completion: @escaping (Result<Void, Error>) -> Void) {
+        let updates: [String: Any] = [
+            "weight": weight ?? FieldValue.delete(),
+            "reps": reps ?? FieldValue.delete()
+        ]
+
+        db.collection(exerciseSetLogsCollection).document(setLogId).updateData(updates) { error in
+            if let error = error {
+                completion(.failure(error))
+            } else {
+                completion(.success(()))
+            }
+        }
+    }
+
     /// Retrieves exercise history for a specific exercise and user.
     ///
     /// - Parameters:

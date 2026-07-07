@@ -140,7 +140,13 @@ struct ExerciseHistorySheet: View {
 
                         LazyVStack(spacing: 12) {
                             ForEach(performedSets) { setLog in
-                                HistoryRow(setLog: setLog)
+                                HistoryRow(
+                                    setLog: setLog,
+                                    isToday: Calendar.current.isDateInToday(setLog.timestamp),
+                                    onSave: { weight, reps, completion in
+                                        updateSet(setLog, weight: weight, reps: reps, completion: completion)
+                                    }
+                                )
                             }
                         }
                         .padding(.horizontal, 20)
@@ -226,6 +232,27 @@ struct ExerciseHistorySheet: View {
                     setLogs = logs
                 case .failure(let error):
                     errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// Persists an inline edit from a HistoryRow, then mirrors the change
+    /// into the local `setLogs` array so the chart, PR line, and row all
+    /// refresh without a re-fetch. The row stays in edit mode on failure
+    /// (completion(false)) so the user can retry.
+    private func updateSet(_ setLog: ExerciseSetLog, weight: Double?, reps: Int, completion: @escaping (Bool) -> Void) {
+        WorkoutLogService.shared.updateSetLog(setLogId: setLog.id, weight: weight, reps: reps) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    if let idx = setLogs.firstIndex(where: { $0.id == setLog.id }) {
+                        setLogs[idx].weight = weight
+                        setLogs[idx].reps = reps
+                    }
+                    completion(true)
+                case .failure:
+                    completion(false)
                 }
             }
         }
@@ -858,14 +885,55 @@ struct ProgressChartSection: View {
 /// user asked to revert to: left column shows the full timestamp and the set
 /// number, right column shows weight and reps with their units, and the
 /// saved coaching cue sits underneath as a small line when present.
+///
+/// Two additions on top of that base layout:
+/// - A pencil button on the trailing edge signals that the values are
+///   editable and expands an inline weight/reps editor, so mistakes from
+///   the rep-counting algorithm or a mistyped weight can be corrected.
+/// - Sets logged today (the workout the user just finished) get a purple
+///   border, a tinted fill, and a "TODAY" badge so they stand out from
+///   older history.
 private struct HistoryRow: View {
     let setLog: ExerciseSetLog
+    /// True when this set was logged today — drives the just-completed
+    /// highlight treatment (purple border + tinted fill + TODAY badge).
+    let isToday: Bool
+    /// Persists an edit. The parent owns the Firestore write and the local
+    /// state update; it calls the completion with false when the write
+    /// fails so the row can surface the error and stay in edit mode.
+    let onSave: (_ weight: Double?, _ reps: Int, _ completion: @escaping (Bool) -> Void) -> Void
+
+    @State private var isEditing = false
+    @State private var weightText: String = ""
+    @State private var repsText: String = ""
+    @State private var isSaving = false
+    @State private var saveFailed = false
 
     private var dateFormatter: DateFormatter {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter
+    }
+
+    // MARK: - Edit Validation
+
+    private var trimmedWeight: String {
+        weightText.trimmingCharacters(in: .whitespaces)
+    }
+
+    private var repsValue: Int? {
+        Int(repsText.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// Reps must be a positive number (the history list only shows sets
+    /// with reps > 0, so saving 0 would make the row vanish). Weight may
+    /// be left empty for bodyweight sets, but if present must parse.
+    private var isValid: Bool {
+        guard let reps = repsValue, reps > 0, reps <= 999 else { return false }
+        if trimmedWeight.isEmpty { return true }
+        guard let weight = Double(trimmedWeight), weight >= 0, weight <= 5000 else { return false }
+        return true
     }
 
     var body: some View {
@@ -877,9 +945,20 @@ private struct HistoryRow: View {
                         .font(.neueMontrealRegular(size: 12))
                         .foregroundColor(.textSecondary)
 
-                    Text("Set \(setLog.setNumber)")
-                        .font(.neueMontrealSemiBold(size: 14))
-                        .foregroundColor(.textPrimary)
+                    HStack(spacing: 6) {
+                        Text("Set \(setLog.setNumber)")
+                            .font(.neueMontrealSemiBold(size: 14))
+                            .foregroundColor(.textPrimary)
+
+                        if isToday {
+                            Text("TODAY")
+                                .font(.neueMontrealSemiBold(size: 9))
+                                .foregroundColor(.textPrimary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.primaryPurple))
+                        }
+                    }
                 }
 
                 Spacer()
@@ -908,6 +987,9 @@ private struct HistoryRow: View {
                         }
                     }
                 }
+                // Dim the stored values while the editor is open so the
+                // fields below read as "the new values".
+                .opacity(isEditing ? 0.35 : 1)
 
                 // Flags render on the trailing edge when the user flagged
                 // pain or a loss of control for this set.
@@ -923,6 +1005,68 @@ private struct HistoryRow: View {
                             .foregroundColor(.intermediateYellow)
                     }
                 }
+
+                // Always-visible pencil — the affordance telling users the
+                // weight/reps on this set can be corrected. Toggles into an
+                // X while the editor is open.
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        if isEditing {
+                            isEditing = false
+                        } else {
+                            beginEdit()
+                        }
+                    }
+                } label: {
+                    // Matches the app-wide edit affordance (square.and.pencil
+                    // in primaryPurple, as used on TrainingProfileCard and the
+                    // Home goal card). Toggles to an X while the editor is open.
+                    Image(systemName: isEditing ? "xmark" : "square.and.pencil")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(isEditing ? .textSecondary : .primaryPurple)
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
+                .disabled(isSaving)
+                .accessibilityLabel(isEditing ? "Cancel editing" : "Edit weight and reps")
+            }
+
+            // Inline editor — expands under the main row so the card keeps
+            // its shape. Two fields + Save; validation gates the button.
+            if isEditing {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 12) {
+                        editField(title: "Weight (lbs)", text: $weightText, keyboard: .decimalPad)
+                        editField(title: "Reps", text: $repsText, keyboard: .numberPad)
+                        Spacer()
+
+                        Button {
+                            save()
+                        } label: {
+                            Text(isSaving ? "Saving…" : "Save")
+                                .font(.neueMontrealSemiBold(size: 14))
+                                .foregroundColor(.textPrimary)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 9)
+                                .background(
+                                    Capsule().fill(
+                                        isValid && !isSaving
+                                            ? Color.primaryPurple
+                                            : Color.white.opacity(0.08)
+                                    )
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!isValid || isSaving)
+                    }
+
+                    if saveFailed {
+                        Text("Couldn't save changes. Check your connection and try again.")
+                            .font(.neueMontrealRegular(size: 12))
+                            .foregroundColor(.expertRed)
+                    }
+                }
+                .padding(.top, 4)
             }
 
             // Saved coaching cue / note for the set (if any). Rendered under
@@ -940,8 +1084,63 @@ private struct HistoryRow: View {
             }
         }
         .padding(16)
-        .background(Color.white.opacity(0.05))
+        // Today's sets get a tinted fill + purple border so the workout the
+        // user just finished is visually separated from older history.
+        .background(isToday ? Color.primaryPurple.opacity(0.12) : Color.white.opacity(0.05))
         .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.primaryPurple.opacity(isToday ? 0.6 : 0), lineWidth: 1.5)
+        )
+    }
+
+    // MARK: - Edit Helpers
+
+    private func editField(title: String, text: Binding<String>, keyboard: UIKeyboardType) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.neueMontrealRegular(size: 11))
+                .foregroundColor(.textSecondary)
+            TextField("", text: text)
+                .keyboardType(keyboard)
+                .font(.neueMontrealBold(size: 16))
+                .foregroundColor(.textPrimary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(width: title.hasPrefix("Weight") ? 92 : 64)
+                .background(Color.white.opacity(0.08))
+                .cornerRadius(8)
+        }
+    }
+
+    /// Prefills the fields from the stored values. Whole-number weights
+    /// prefill without the trailing ".0" so the field is pleasant to edit.
+    private func beginEdit() {
+        if let weight = setLog.weight {
+            weightText = weight == floor(weight) ? "\(Int(weight))" : String(format: "%.1f", weight)
+        } else {
+            weightText = ""
+        }
+        repsText = setLog.reps.map(String.init) ?? ""
+        saveFailed = false
+        isEditing = true
+    }
+
+    private func save() {
+        guard let reps = repsValue else { return }
+        let weight = trimmedWeight.isEmpty ? nil : Double(trimmedWeight)
+        isSaving = true
+        saveFailed = false
+        onSave(weight, reps) { success in
+            isSaving = false
+            if success {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isEditing = false
+                }
+            } else {
+                saveFailed = true
+            }
+        }
     }
 }
 
