@@ -656,6 +656,75 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var tempoRepSamples: Int = 0
     // Legacy 2D tempo thresholds removed; now uses deepDepthThreshold3D / shallowDepthThreshold3D.
 
+    // MARK: - Intra-set tempo coaching (per-rep role-event contract)
+    //
+    // ADDITIVE TEMPO LAYER — does NOT feed FormAnalysis. Each rep detector stamps the three
+    // role-based transitions of its own state machine onto the timestamps below; the central
+    // `finalizeTempoRepOnRepCount` turns them into a `RepTempo` at the existing rep-count
+    // moment. Everything here is mutated on the analysis queue (the `handleMediaPipeResult`
+    // path) only. These are intentionally distinct from the `sum*Ms` aggregates above so the
+    // two never double-count. See `TempoCoaching.swift` for the value types.
+    //
+    // Movement order (set at the per-exercise wiring sites):
+    //   • Eccentric-first (squat, bodyweight, RDL): lower → stretch → lift. eccentricStart is
+    //     the first transition; the stretch + concentric reversals are found per-frame.
+    //   • Concentric-first (row, deadlift): pull → top → lower → bottom, counted at the bottom.
+    //     The eccentric is the *second* half; the bottom (stretch) coincides with the rep count.
+
+    /// Loaded lowering begins (eccentric start).
+    private var tempoEccentricStartAt: CFTimeInterval?
+    /// Deepest loaded position reached (last extreme of the stretch).
+    private var tempoStretchReachedAt: CFTimeInterval?
+    /// Lift out of the stretch begins (concentric start). For concentric-first lifts this is
+    /// seeded at the prior rep's bottom so the concentric duration stays measurable.
+    private var tempoConcentricStartAt: CFTimeInterval?
+    /// Concentric-first only: top / lockout reached — the concentric end.
+    private var tempoTopReachedAt: CFTimeInterval?
+    /// Running smoothed-signal extreme used to detect phase reversals for detectors that don't
+    /// already expose one (squat knee-angle, deadlift/row hip/elbow-angle). Reset at each role mark.
+    private var tempoReversalExtreme: Float?
+    /// Signal value at the last `stretchReached` stamp. The rolling extreme above updates on
+    /// every strict deepening (EMA creep + landmark wander produce endless micro-minimums during
+    /// a genuine still hold), so the arrival *timestamp* only moves when the signal deepens past
+    /// this by `tempoStretchRestampDeadbandDeg` — otherwise a real pause would never accumulate.
+    private var tempoStretchStampExtreme: Float?
+    /// Degrees the smoothed joint-angle signal must move off its per-rep extreme before a
+    /// reversal counts as a phase change. Sized above EMA jitter, below a real direction change.
+    private let tempoAngleReversalMarginDeg: Float = 6.0
+    /// Degrees of further deepening (beyond the last stamped stretch point) that re-stamp the
+    /// stretch arrival time. Above smoothed noise/EMA creep (≲0.5°), well below the reversal margin.
+    private let tempoStretchRestampDeadbandDeg: Float = 1.5
+
+    /// Most recent completed rep's tempo (analysis queue writes; cue layer reads).
+    private var lastRepTempo: RepTempo?
+    /// Last up-to-4 rep tempos — the earned-cue gate window needs up to "last 4" at Low intensity.
+    private var recentRepTempos: [RepTempo] = []
+    /// Pause-tone latch: at most one release tone per stretch (Phase 3b). Reset when a new
+    /// stretch can begin — `tempoMarkEccentricStart` (eccentric-first cycle) and the per-rep
+    /// finalize (concentric-first hang starts at the count). Analysis-queue only.
+    private var tempoPauseToneFiredThisStretch = false
+
+    // Concentric-first hang clock (Phase 3b). The rep counts at the detector's exit threshold,
+    // mid-lower — so the seeded `tempoConcentricStartAt` is NOT the hang start: timing from it
+    // would count the tail of the lower plus the lead of the next pull (~0.85 s for a row)
+    // toward `minPauseMs`, firing false tones on touch-and-go reps and latching away their
+    // bounce marks. Instead, track the extension extreme with the same deadband/reversal
+    // pattern as the eccentric-first stretch: the clock re-anchors while the signal is still
+    // settling into the hang, and the hang ends when it reverses toward the next pull.
+    // All analysis-queue only; cleared in `resetTempoRoleState`.
+    private var tempoHangRollingExtreme: Float?
+    private var tempoHangStampExtreme: Float?
+    private var tempoHangStampAt: CFTimeInterval?
+    private var tempoHangDeparted = false
+
+    /// Active tempo-coaching config for the current set. Rebuilt on the main thread at each
+    /// set start (`performPerSetAggregationReset`) from the onboarding profile + the current
+    /// exercise, then read at rep-count time — the same write-at-rest / read-mid-set idiom as
+    /// `tempoTargets`. `.disabled` until the first build and for non-hypertrophy goals.
+    private(set) var tempoCoachingConfig: TempoCoachingConfig = .disabled
+    /// Profile source for the tempo config (same store the onboarding flow persists to).
+    private let tempoProfileStore = UserDefaultsUserProfileStore()
+
     // Hip-based depth calibration (self-calibrates to standing reference each set)
     private var standingHipHeight: Float?
     private var standingLegLength: Float?
@@ -825,6 +894,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             let now = Date()
             if validateRep(skeleton: smoothed, overlay: landmarks, confidence: adapted.perJointConfidence, formAnalysis: formAnalysis, now: now) {
                 debugRepCounted = true
+                // Intra-set tempo: finalize this rep's eccentric/pause/concentric on the analysis
+                // queue from the role timestamps the detector stamped during the cycle. Read-only
+                // observer — runs after the rep is already counted, before the main-queue handoff.
+                finalizeTempoRepOnRepCount()
                 if trackedExerciseType == .bodyweight {
                     let preValid = bodyweightRepHistory.count
                     commitBodyweightRepIfNeeded()
@@ -834,6 +907,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                     self.handleRepDetected()
                 }
             }
+
+            // Intra-set tempo (Phase 3b): pause-tone channel runs only where rep counting
+            // runs — same setup/suppression guards, after the validators stamped this frame.
+            updateTempoPauseChannel()
 
             DispatchQueue.main.async {
                 if !SharedCameraSessionManager.shared.trackExplicitSetActive {
@@ -2527,6 +2604,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             if smoothed <= rowFlexedThreshold {
                 rowRepPhase = .flexed
                 rowRepCycleStartTime = now
+                tempoMarkTopReached()  // intra-set tempo: top of pull reached (concentric-first)
                 beginAnkleStabilityCycle(overlay: overlay)
                 rowMinShoulderYInFlexed = .greatestFiniteMagnitude
                 rowMaxShoulderYInFlexed = -.greatestFiniteMagnitude
@@ -2542,6 +2620,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return false
 
         case .flexed:
+            // Intra-set tempo (concentric-first): detect when the controlled lowering begins.
+            tempoObserveConcentricFirstTop(signal: smoothed, topAtMax: false)
             // Sample shoulder Y on every frame in the active cycle (parallel to ankle gate).
             if let ov = overlay,
                let ls = ov["leftShoulder"], let rs = ov["rightShoulder"] {
@@ -3054,11 +3134,14 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             if smoothed >= deadliftLockoutThreshold {
                 deadliftRepPhase = .lockedOut
                 deadliftRepCycleStartTime = now
+                tempoMarkTopReached()  // intra-set tempo: lockout reached (concentric-first)
                 beginAnkleStabilityCycle(overlay: overlay)
             }
             return false
 
         case .lockedOut:
+            // Intra-set tempo (concentric-first): detect when the controlled lowering begins.
+            tempoObserveConcentricFirstTop(signal: smoothed, topAtMax: true)
             guard smoothed <= deadliftHingeThreshold else { return false }
             let dur = now.timeIntervalSince(deadliftRepCycleStartTime ?? now)
             if let last = lastRepValidationTime, now.timeIntervalSince(last) < deadliftMinRepInterval {
@@ -3410,6 +3493,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
                 return false
             }
 
+            // Intra-set tempo: watch for the true hinge start (fall off the standing extreme).
+            // Runs only in the non-pending flow — during a pending-rep verification window the
+            // role timestamps still hold the prior rep's stamps for its deferred finalize.
+            tempoObserveEccentricFirstTop(signal: smoothed)
+
             // Continuously refresh the ankle baseline while the user is verifiably standing,
             // so the rep cycle starts measuring drift from a planted-feet reference point.
             if smoothed >= rdlStandingThreshold,
@@ -3420,6 +3508,7 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             if smoothed <= rdlHingeThreshold {
                 rdlRepPhase = .hinged
                 rdlRepCycleStartTime = now
+                tempoMarkEccentricStart()  // intra-set tempo: carry the watch's eccentric start
                 rdlMaxLowerWristYInHinge = -.greatestFiniteMagnitude
                 rdlMinSmoothedHipAngleInHinge = .greatestFiniteMagnitude
                 rdlMinUpdateTime = now
@@ -3436,6 +3525,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return false
 
         case .hinged:
+            // Intra-set tempo (eccentric-first): track hinge depth + the reversal back to standing.
+            tempoObserveEccentricFirstStretch(signal: smoothed, stretchAtMin: true)
             // Track the lowest (largest-Y) wrist and the deepest (smallest-angle) hinge seen this
             // cycle so the bar-floor-reach gate below can reject pickups/putdowns. The wrist signal
             // uses the lower of the two wrists — only one needs to be visible/tracked.
@@ -3807,6 +3898,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         sumPauseMs = 0
         sumConcentricMs = 0
         tempoRepSamples = 0
+        // Reset intra-set tempo coaching state (role stamps + reversal trackers + hang clock
+        // via resetTempoRoleState, pause-tone latch, earned-cue gate window incl. bounced flags)
+        resetTempoRoleState()
+        tempoPauseToneFiredThisStretch = false
+        lastRepTempo = nil
+        recentRepTempos.removeAll()
         // Reset ROM tracking
         sumBottomDepth = 0
         bottomDepthSamples = 0
@@ -3871,6 +3968,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         sumPauseMs = 0
         sumConcentricMs = 0
         tempoRepSamples = 0
+        // Reset intra-set tempo coaching state (role stamps + hang clock, latch, gate window)
+        resetTempoRoleState()
+        tempoPauseToneFiredThisStretch = false
+        lastRepTempo = nil
+        recentRepTempos.removeAll()
         sumBottomDepth = 0
         bottomDepthSamples = 0
         deepFrameCount = 0
@@ -4108,9 +4210,13 @@ class OnDevicePoseManager: NSObject, ObservableObject {
 
         switch bwRepPhase {
         case .up:
+            // Intra-set tempo: watch for the true descent start (fall off the standing extreme).
+            // The `.down` threshold below sits deep in the movement, so it can't time the eccentric.
+            tempoObserveEccentricFirstTop(signal: smoothed)
             if smoothed <= profile.downAngleThreshold {
                 bwRepPhase = .down
                 bwRepCycleStartTime = now
+                tempoMarkEccentricStart()  // intra-set tempo: carry the watch's eccentric start
                 if trackedExerciseType == .barbell {
                     beginAnkleStabilityCycle(overlay: overlay)
                 }
@@ -4119,6 +4225,8 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             return false
 
         case .down:
+            // Intra-set tempo (eccentric-first): track the descent's deepest point + the reversal.
+            tempoObserveEccentricFirstStretch(signal: smoothed, stretchAtMin: true)
             guard smoothed >= profile.upAngleThreshold else { return false }
 
             let dur = now.timeIntervalSince(bwRepCycleStartTime ?? now)
@@ -4469,6 +4577,11 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         if workoutState == .waiting && consecutiveGoodReps >= minRepsForSetStart {
             handleSetStart()
         }
+
+        // Intra-set tempo (Phase 3a): reactive post-rep verbal nudge — appended, no change to
+        // the logic above. On the set-starting rep the window was just cleared, so it stays
+        // silent; during `.waiting` the state guard inside keeps stale windows from cueing.
+        maybeSpeakTempoCue()
     }
 
     /// Builds BodyweightRepMetrics from current-rep accumulators, validates, appends only if valid, resets state.
@@ -4530,6 +4643,19 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// Per-set reset shared by rep-driven set start and explicit Track set start.
     private func performPerSetAggregationReset() {
         setStartTime = Date()
+        // Intra-set tempo: rebuild the coaching config for this set (main thread — both
+        // callers force main). Profile edits between sets take effect on the next set.
+        refreshTempoCoachingConfig()
+        // Intra-set tempo: clear the earned-cue gate window. The gate is per-set — without
+        // this, misses from the previous set (or reps measured under a *different exercise's*
+        // eccentric scale) would satisfy the trigger window and cue on a fresh set's first
+        // reps. Same main-thread-clears-analysis-queue-aggregate idiom as sumEccentricMs below.
+        lastRepTempo = nil
+        recentRepTempos.removeAll()
+        // Intra-set tempo: drop any in-flight role stamps / hang clock from pre-set movement
+        // and re-arm the pause-tone latch, so the set's first rep starts from a clean cycle.
+        resetTempoRoleState()
+        tempoPauseToneFiredThisStretch = false
         viewpointSmoother.reset(keepBucket: .chest_side)
         activeBodyweightRepProfile = SquatRepProfileTable.profile(for: .chest_side)
         squatExtensionFrameStateInternal = .neither
@@ -4755,6 +4881,364 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
         lastDepth = currentDepth
     }
+
+    // MARK: - Intra-set tempo coaching: role-event stamping + per-rep finalize
+    //
+    // All of this runs on the analysis queue (inside the validators + the rep-count finalize). It
+    // is a read-only observer of rep state — it never changes a detection threshold or transition.
+
+    /// The five exercises that receive intra-set tempo coaching. Bench variants keep their own
+    /// eccentric/concentric aggregation and are excluded here.
+    private var tempoCoachingTargetExercise: Bool {
+        switch trackedExerciseType {
+        case .bodyweight, .barbell, .romanianDeadlift, .deadlift, .row:
+            return true
+        case .benchPress, .closeGripBenchPress:
+            return false
+        }
+    }
+
+    /// Clears all in-flight role timestamps + the reversal tracker for a fresh rep cycle.
+    /// Used by the per-rep finalize and (Phase 4) by the set/exercise resets.
+    private func resetTempoRoleState() {
+        tempoEccentricStartAt = nil
+        tempoStretchReachedAt = nil
+        tempoConcentricStartAt = nil
+        tempoTopReachedAt = nil
+        tempoReversalExtreme = nil
+        tempoStretchStampExtreme = nil
+        tempoHangRollingExtreme = nil
+        tempoHangStampExtreme = nil
+        tempoHangStampAt = nil
+        tempoHangDeparted = false
+    }
+
+    /// Eccentric-first: the detector confirmed the lowering (its down/hinge threshold crossed).
+    /// The *true* eccentric start was already stamped by the top-phase watch when the signal fell
+    /// off the standing extreme — the detector threshold sits deep into the movement (e.g. squat
+    /// enters `.down` at ≤100° knee angle, most of a descent from ~170°), so stamping here would
+    /// systematically undercount the eccentric. Carry the watch's stamp; fall back to now only if
+    /// the watch never fired (e.g. tracking started mid-descent).
+    private func tempoMarkEccentricStart() {
+        guard tempoCoachingTargetExercise else { return }
+        let watchStampedStart = tempoEccentricStartAt
+        resetTempoRoleState()
+        tempoEccentricStartAt = watchStampedStart ?? CACurrentMediaTime()
+        tempoPauseToneFiredThisStretch = false  // new cycle → new stretch (Phase 3b latch)
+    }
+
+    /// Concentric-first: the top / lockout was reached — the concentric ends here and the
+    /// lowering (eccentric) is about to begin. Resets the reversal tracker so the eccentric-start
+    /// detection in the top phase starts from a clean extreme. Leaves `concentricStartAt` (seeded
+    /// at the prior bottom) intact so the concentric duration stays measurable.
+    private func tempoMarkTopReached() {
+        guard tempoCoachingTargetExercise else { return }
+        // Phase 3b bounce back-fill (concentric-first): the pull just topped, ending the
+        // bottom hang that followed the previous count. If the hang never reached the pause
+        // target (the tone latch never fired), the just-finalized rep left its stretch early —
+        // mark it bounced so the earned gate can cue "pause at the bottom" on a later rep.
+        // Purely mechanical marking; the gate's pauseToneEnabled/enabled checks decide meaning
+        // (deadlift's floor reset therefore never produces a cue). Analysis queue.
+        if tempoConcentricStartAt != nil,
+           !tempoPauseToneFiredThisStretch,
+           !recentRepTempos.isEmpty {
+            recentRepTempos[recentRepTempos.count - 1].bounced = true
+            lastRepTempo?.bounced = true
+        }
+        tempoTopReachedAt = CACurrentMediaTime()
+        tempoEccentricStartAt = nil
+        tempoStretchReachedAt = nil
+        tempoReversalExtreme = nil
+    }
+
+    /// Eccentric-first per-frame observer (call while the lift is in its loaded-lowering phase).
+    /// Tracks the deepest stretch (`stretchReached`) and the reversal that begins the concentric
+    /// (`concentricStart`). `stretchAtMin` = true when a deeper stretch means a *smaller* signal
+    /// value (knee / hip flexion angle).
+    private func tempoObserveEccentricFirstStretch(signal: Float, stretchAtMin: Bool) {
+        guard tempoEccentricStartAt != nil else { return }
+        guard let extreme = tempoReversalExtreme, let stampExtreme = tempoStretchStampExtreme else {
+            tempoReversalExtreme = signal
+            tempoStretchStampExtreme = signal
+            tempoStretchReachedAt = CACurrentMediaTime()
+            return
+        }
+        // Rolling extreme updates on every strict deepening — it anchors the reversal test.
+        let deepened = stretchAtMin ? (signal < extreme) : (signal > extreme)
+        if deepened { tempoReversalExtreme = signal }
+
+        let restamp = stretchAtMin
+            ? (signal <= stampExtreme - tempoStretchRestampDeadbandDeg)
+            : (signal >= stampExtreme + tempoStretchRestampDeadbandDeg)
+        if restamp {
+            // Meaningfully deeper than the last stamped stretch point — the descent is still in
+            // progress (or a mid-descent hitch resumed). Move the arrival stamp and reopen any
+            // provisional concentric start so the pause is measured at the true deepest stretch.
+            // EMA creep and landmark wander stay inside the deadband, so a genuine still hold
+            // keeps its arrival time and the pause accumulates.
+            tempoStretchStampExtreme = signal
+            tempoStretchReachedAt = CACurrentMediaTime()
+            tempoConcentricStartAt = nil
+        } else if !deepened, tempoConcentricStartAt == nil {
+            let reversed = stretchAtMin
+                ? (signal >= extreme + tempoAngleReversalMarginDeg)
+                : (signal <= extreme - tempoAngleReversalMarginDeg)
+            if reversed { tempoConcentricStartAt = CACurrentMediaTime() }
+        }
+    }
+
+    /// Shared top-phase reversal core: tracks the top extreme and stamps `eccentricStart` when
+    /// the signal falls off it by the margin — the true start of the loaded lowering. If the
+    /// signal returns to a new top extreme after a provisional stamp (a fidget or a re-lockout,
+    /// not a working descent), the stamp is cleared and re-armed, which also self-heals any
+    /// stale stamp left by a rejected rep cycle.
+    private func tempoObserveTopPhaseCore(signal: Float, topAtMax: Bool) {
+        guard let extreme = tempoReversalExtreme else {
+            tempoReversalExtreme = signal
+            return
+        }
+        let newTop = topAtMax ? (signal > extreme) : (signal < extreme)
+        if newTop {
+            tempoReversalExtreme = signal
+            tempoEccentricStartAt = nil
+        } else if tempoEccentricStartAt == nil {
+            let reversed = topAtMax
+                ? (signal <= extreme - tempoAngleReversalMarginDeg)
+                : (signal >= extreme + tempoAngleReversalMarginDeg)
+            if reversed { tempoEccentricStartAt = CACurrentMediaTime() }
+        }
+    }
+
+    /// Eccentric-first top watch (call while the lift is in its standing/top phase — squat `.up`,
+    /// RDL `.standing`). Stamps the true eccentric start, which `tempoMarkEccentricStart` carries
+    /// when the detector later confirms the rep cycle. Both eccentric-first signals are joint
+    /// angles that are maximal at standing.
+    private func tempoObserveEccentricFirstTop(signal: Float) {
+        tempoObserveTopPhaseCore(signal: signal, topAtMax: true)
+    }
+
+    /// Concentric-first per-frame observer (call while the lift is in its top phase, after
+    /// `tempoMarkTopReached`). Detects when the lift begins descending off the top extreme — the
+    /// eccentric (lowering) start. `topAtMax` = true when the top means a *larger* signal value
+    /// (deadlift hip angle); false when the top means a smaller value (row elbow flexion).
+    private func tempoObserveConcentricFirstTop(signal: Float, topAtMax: Bool) {
+        guard tempoTopReachedAt != nil else { return }
+        tempoObserveTopPhaseCore(signal: signal, topAtMax: topAtMax)
+    }
+
+    /// Finalizes the just-counted rep into a `RepTempo`. Called on the analysis queue the moment
+    /// `validateRep` returns true, before the rep is handed to the main queue. Eccentric-first and
+    /// concentric-first share the same three subtractions; the only difference is that a
+    /// concentric-first lift reaches its stretch (bottom) exactly at the rep-count moment and its
+    /// next concentric starts from that same bottom.
+    private func finalizeTempoRepOnRepCount() {
+        guard tempoCoachingTargetExercise else { return }
+        let now = CACurrentMediaTime()
+        let concentricFirst = (trackedExerciseType == .deadlift || trackedExerciseType == .row)
+
+        // Concentric-first lifts hit the loaded stretch exactly as the rep counts.
+        if tempoStretchReachedAt == nil { tempoStretchReachedAt = now }
+
+        let eccentricMs: Double = {
+            guard let start = tempoEccentricStartAt,
+                  let stretch = tempoStretchReachedAt, stretch >= start else { return 0 }
+            return (stretch - start) * 1000.0
+        }()
+        let pauseMs: Double = {
+            guard let stretch = tempoStretchReachedAt,
+                  let concentric = tempoConcentricStartAt, concentric >= stretch else { return 0 }
+            return (concentric - stretch) * 1000.0
+        }()
+        let concentricMs: Double = {
+            if concentricFirst {
+                // Concentric = pull (prior bottom → top). Unmeasured on a set's first rep.
+                guard let top = tempoTopReachedAt,
+                      let start = tempoConcentricStartAt, top >= start else { return 0 }
+                return (top - start) * 1000.0
+            }
+            // Eccentric-first concentric = stretch exit → top (rep count).
+            guard let start = tempoConcentricStartAt, now >= start else { return 0 }
+            return (now - start) * 1000.0
+        }()
+
+        let tempo = RepTempo(eccentricMs: eccentricMs, pauseMs: pauseMs, concentricMs: concentricMs)
+        lastRepTempo = tempo
+        recentRepTempos.append(tempo)
+        if recentRepTempos.count > 4 {
+            recentRepTempos.removeFirst(recentRepTempos.count - 4)
+        }
+
+        // Open the next cycle. Concentric-first: the bottom we just counted is the next pull's
+        // origin, so seed concentricStart there; the eccentric reversal in the top phase reopens
+        // eccentricStart later.
+        resetTempoRoleState()
+        if concentricFirst { tempoConcentricStartAt = now }
+        tempoPauseToneFiredThisStretch = false  // Phase 3b: the post-count hang is a new stretch
+
+        tempoDebugLog("REP TEMPO [\(trackedExerciseType)] ecc=\(Int(eccentricMs))ms pause=\(Int(pauseMs))ms con=\(Int(concentricMs))ms")
+    }
+
+    // MARK: - Intra-set tempo coaching: config + earned-cue gate (Phase 2)
+
+    /// Rebuilds the tempo-coaching config from the persisted onboarding profile for the
+    /// current exercise. Called on the main thread at set start; cheap (one UserDefaults
+    /// read + JSON decode per set).
+    func refreshTempoCoachingConfig() {
+        tempoCoachingConfig = TempoCoachingConfig.build(
+            profile: tempoProfileStore.load(),
+            exercise: trackedExerciseType
+        )
+        tempoDebugLog("CONFIG [\(trackedExerciseType)] enabled=\(tempoCoachingConfig.enabled) intensity=\(tempoCoachingConfig.intensity) verbal=\(tempoCoachingConfig.verbalEnabled) tone=\(tempoCoachingConfig.pauseToneEnabled)")
+    }
+
+    /// Channel-agnostic tempo cue decision for the just-counted rep.
+    ///
+    /// Contract: call *after* the rep has been finalized into `recentRepTempos` (i.e.
+    /// `tempo` is `recentRepTempos.last` — the Phase 3 call site in `handleRepDetected`
+    /// runs after the analysis queue's `finalizeTempoRepOnRepCount`, so the ordering holds
+    /// via the main-queue dispatch). The gate itself needs the whole recent window, which
+    /// is why this reads `recentRepTempos` rather than just `tempo`.
+    ///
+    /// Cooldown (`config.verbalCooldown`) and the existing cue de-dup are enforced at the
+    /// speak site, not here — the tone/HUD channels share this decision but pace themselves.
+    func evaluateTempoCue(
+        for tempo: RepTempo,
+        exercise: TrackedExerciseType,
+        config: TempoCoachingConfig
+    ) -> TempoCueDecision? {
+        // Defensive: if called before the finalize landed, evaluate the passed rep alone.
+        let recent = recentRepTempos.isEmpty ? [tempo] : recentRepTempos
+        return TempoCueGate.evaluate(recent: recent, config: config)
+    }
+
+    // MARK: - Intra-set tempo coaching: cue channels (Phase 3)
+
+    /// 3b — bottom-stretch pause tone. Called once per frame on the analysis queue, inside
+    /// the same setup/suppression guards as rep counting, after the validators ran (so this
+    /// frame's role stamps are current). Times the live hold in the deepest stretch and fires
+    /// the release tone once per stretch when the hold reaches `minPauseMs`:
+    /// - Eccentric-first: the in-rep stretch — `stretchReached` stamped, concentric not begun.
+    ///   The stamp re-anchors while still descending (deadband), so the hold clock measures
+    ///   stillness, not descent.
+    /// - Concentric-first: the post-count bottom hang, timed by the dedicated hang clock
+    ///   (`concentricFirstHangHoldStart`) — anchored when the extension settles, ended when
+    ///   the signal reverses toward the next pull, so neither the lower's tail nor the pull's
+    ///   lead counts toward the hold.
+    private func updateTempoPauseChannel() {
+        let config = tempoCoachingConfig
+        guard config.enabled, config.pauseToneEnabled else { return }
+        guard workoutState == .exercising else { return }  // cross-queue enum read, codebase idiom
+        guard !tempoPauseToneFiredThisStretch else { return }
+
+        let concentricFirst = (trackedExerciseType == .deadlift || trackedExerciseType == .row)
+        let holdStart: CFTimeInterval?
+        if concentricFirst {
+            holdStart = concentricFirstHangHoldStart()
+        } else {
+            holdStart = (tempoConcentricStartAt == nil) ? tempoStretchReachedAt : nil
+        }
+        guard let start = holdStart else { return }
+        let heldMs = (CACurrentMediaTime() - start) * 1000.0
+        guard heldMs >= config.minPauseMs else { return }
+
+        tempoPauseToneFiredThisStretch = true  // latch: once per stretch, no doubled audio
+        DispatchQueue.main.async {             // audio off the analysis queue per thread model
+            TempoCueAudio.playRelease()
+        }
+        tempoDebugLog("PAUSE TONE [\(trackedExerciseType)] after \(Int(heldMs))ms hold")
+    }
+
+    /// Advances the concentric-first hang clock one frame and returns the current hold's
+    /// anchor timestamp, or nil when there is nothing to time (pre-first-count, the next pull
+    /// already topped or departed, or the first frame of a fresh hang). Analysis queue only.
+    private func concentricFirstHangHoldStart() -> CFTimeInterval? {
+        guard tempoTopReachedAt == nil, tempoConcentricStartAt != nil, !tempoHangDeparted else { return nil }
+        guard let (signal, hangAtMax) = concentricFirstHangSignal() else { return nil }
+        guard let rolling = tempoHangRollingExtreme,
+              let stamp = tempoHangStampExtreme,
+              let stampAt = tempoHangStampAt else {
+            tempoHangRollingExtreme = signal
+            tempoHangStampExtreme = signal
+            tempoHangStampAt = CACurrentMediaTime()
+            return nil
+        }
+
+        let deeper = hangAtMax ? (signal > rolling) : (signal < rolling)
+        if deeper { tempoHangRollingExtreme = signal }
+
+        let restamp = hangAtMax
+            ? (signal >= stamp + tempoStretchRestampDeadbandDeg)
+            : (signal <= stamp - tempoStretchRestampDeadbandDeg)
+        if restamp {
+            // Still settling into the hang — move the anchor. EMA creep and landmark wander
+            // stay inside the deadband, so a genuine still hang keeps its anchor.
+            tempoHangStampExtreme = signal
+            tempoHangStampAt = CACurrentMediaTime()
+            return tempoHangStampAt
+        }
+
+        let currentRolling = tempoHangRollingExtreme ?? signal
+        let departed = hangAtMax
+            ? (signal <= currentRolling - tempoAngleReversalMarginDeg)
+            : (signal >= currentRolling + tempoAngleReversalMarginDeg)
+        if departed {
+            // The next pull began — hang over, no tone this stretch. The bounce is assessed
+            // via the still-unfired latch when the pull tops (`tempoMarkTopReached`).
+            tempoHangDeparted = true
+            return nil
+        }
+        return stampAt
+    }
+
+    /// The smoothed rep-axis signal for the concentric-first bottom hang, and whether the
+    /// hang sits at the signal's maximum (row: elbow near full extension) or minimum
+    /// (deadlift: hip flexion at the floor — only reachable if its pause tone is re-enabled
+    /// for deliberate touch-and-go programming).
+    private func concentricFirstHangSignal() -> (value: Float, hangAtMax: Bool)? {
+        switch trackedExerciseType {
+        case .row:      return rowSmoothedElbowAngle.map { ($0, true) }
+        case .deadlift: return deadliftSmoothedHipAngle.map { ($0, false) }
+        default:        return nil
+        }
+    }
+
+    /// 3a — reactive post-rep verbal nudge. Appended at the end of `handleRepDetected()`
+    /// (main thread). The analysis queue finalized this rep into `recentRepTempos` before
+    /// dispatching here, so the gate sees the just-counted rep. Cooldown + de-dup ride the
+    /// existing shared cue state (`lastCueSpokenAt`/`lastCueText`/`cueCooldownSeconds`) — no
+    /// parallel throttle — with the intensity's `verbalCooldown` as the operative spacing.
+    /// `SpeechPriority.low` never preempts form/safety cues, and the `isSpeaking` guard below
+    /// keeps a tempo nudge from even queueing while anything else is talking (SpeechManager's
+    /// arbitration lets any newcomer interrupt speech older than 3 s — a disposable nudge
+    /// must yield instead; the earned gate re-cues if the deviation persists).
+    private func maybeSpeakTempoCue() {
+        guard workoutState == .exercising else { return }  // pre-set reps / stale windows never cue
+        let config = tempoCoachingConfig
+        guard config.enabled, config.verbalEnabled else { return }
+        guard !SpeechManager.shared.isSpeaking else { return }
+        guard let tempo = lastRepTempo else { return }
+        guard let decision = evaluateTempoCue(for: tempo, exercise: trackedExerciseType, config: config) else {
+            return
+        }
+        let now = Date()
+        let cooldown = max(cueCooldownSeconds, config.verbalCooldown)
+        if let last = lastCueSpokenAt, now.timeIntervalSince(last) < cooldown { return }
+        lastCueSpokenAt = now
+        lastCueText = decision.phrase
+        SpeechManager.shared.speak(decision.phrase, priority: .low)
+        tempoDebugLog("VERBAL CUE [\(decision.kind)] \"\(decision.phrase)\"")
+    }
+
+    #if DEBUG
+    /// Checkpoint-1 verification log. Flip off once per-exercise tempo is confirmed sane.
+    private let tempoDebugLogEnabled = true
+    private func tempoDebugLog(_ msg: @autoclosure () -> String) {
+        guard tempoDebugLogEnabled else { return }
+        print("[TempoCoach] \(msg())")
+    }
+    #else
+    private func tempoDebugLog(_ msg: @autoclosure () -> String) {}
+    #endif
 }
 
 // MARK: - MediaPipe Livestream Delegate
