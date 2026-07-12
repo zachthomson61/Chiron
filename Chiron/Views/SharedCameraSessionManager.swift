@@ -370,26 +370,6 @@ enum PoseOverlayCoordinateMapping {
     }
 }
 
-/// Skeleton segments; joint names match `MediaPipePoseAdapter` overlay keys.
-private let poseSkeletonEdges: [(String, String)] = [
-    ("leftShoulder", "rightShoulder"),
-    ("leftShoulder", "leftElbow"),
-    ("rightShoulder", "rightElbow"),
-    ("leftElbow", "leftWrist"),
-    ("rightElbow", "rightWrist"),
-    ("leftShoulder", "leftHip"),
-    ("rightShoulder", "rightHip"),
-    ("leftHip", "rightHip"),
-    ("leftHip", "leftKnee"),
-    ("rightHip", "rightKnee"),
-    ("leftKnee", "leftAnkle"),
-    ("rightKnee", "rightAnkle"),
-    ("nose", "leftEye"),
-    ("nose", "rightEye"),
-    ("leftEye", "leftEar"),
-    ("rightEye", "rightEar"),
-]
-
 /// Displays the MediaPipe pose skeleton overlay when the user toggles it on via the stick figure button.
 /// Shows real-time pose landmarks and skeleton edges from the pose detector.
 struct PoseVisualizationOverlay: View {
@@ -407,7 +387,7 @@ struct PoseVisualizationOverlay: View {
     }
 }
 
-/// Renders `poseSkeletonEdges` and joint dots using `PoseOverlayCoordinateMapping` (Canvas uses `canvasSize`, not an external `GeometryReader` size).
+/// Renders joint dots using `PoseOverlayCoordinateMapping` (Canvas uses `canvasSize`, not an external `GeometryReader` size).
 struct PoseLandmarkSkeletonView: View {
     let landmarks: [String: CGPoint]
     let bufferIsPortrait: Bool
@@ -416,14 +396,6 @@ struct PoseLandmarkSkeletonView: View {
         Canvas { context, canvasSize in
             func viewPoint(_ p: CGPoint) -> CGPoint {
                 PoseOverlayCoordinateMapping.viewPoint(normalized: p, canvasSize: canvasSize, bufferIsPortrait: bufferIsPortrait)
-            }
-
-            for (a, b) in poseSkeletonEdges {
-                guard let pa = landmarks[a], let pb = landmarks[b] else { continue }
-                var path = Path()
-                path.move(to: viewPoint(pa))
-                path.addLine(to: viewPoint(pb))
-                context.stroke(path, with: .color(.green), lineWidth: 3)
             }
 
             for (_, point) in landmarks {
