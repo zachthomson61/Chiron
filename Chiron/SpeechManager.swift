@@ -433,11 +433,16 @@ class SpeechManager: NSObject, ObservableObject {
     /// with-cue corrective). Safety-prefixed variants are not baked and
     /// fall through to OpenAI TTS.
     private func constructFallbackPhraseId(from text: String) -> String? {
-        let cleanSuffix = " — that set was dialed in"
-        if text.hasSuffix(cleanSuffix) {
-            let best = String(text.dropLast(cleanSuffix.count))
-            if let key = SpeechPhraseCatalog.fallbackBestThings.first(where: { $0.text == best })?.key {
-                return "fallback_clean_\(key)"
+        // Clean set: the closer is one of several rotated spoken variants
+        // ("… — that set was dialed in", "… — that one was perfect", …). Try
+        // each; the best-lookup guard rejects any accidental suffix collision.
+        for closer in SpeechPhraseCatalog.cleanClosers {
+            let cleanSuffix = " — \(closer.text)"
+            if text.hasSuffix(cleanSuffix) {
+                let best = String(text.dropLast(cleanSuffix.count))
+                if let key = SpeechPhraseCatalog.fallbackBestThings.first(where: { $0.text == best })?.key {
+                    return SpeechPhraseCatalog.cleanFallbackPhraseId(bestKey: key, closerKey: closer.key)
+                }
             }
         }
 

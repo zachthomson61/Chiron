@@ -51,6 +51,13 @@ class OpenAICoachingManager: ObservableObject {
     /// focused form coaching. Bodyweight exercises and unset weights skip this.
     private var lastWeightByExercise: [TrackedExerciseType: Double] = [:]
 
+    /// Rotating index into `SpeechPhraseCatalog.cleanClosers`, advanced once per
+    /// clean set so the spoken clean line ("… — that set was dialed in", "… —
+    /// that one was perfect", …) varies instead of repeating. Session-scoped and
+    /// shared across exercises so the whole session hears variety. Advanced only
+    /// on clean sets so every closer gets used before repeating.
+    private var cleanCloserRotation: Int = 0
+
     /// Cached user profile for profile-aware phrasing. Lazily loaded from the
     /// store and refreshed whenever `refreshProfile()` is called — typically
     /// right after onboarding completes.
@@ -69,6 +76,7 @@ class OpenAICoachingManager: ObservableObject {
         cachedProfile = profileStore.load()
         setIndexByExercise.removeAll()
         lastWeightByExercise.removeAll()
+        cleanCloserRotation = 0
     }
 
     // MARK: - Previous-Set Cue API
@@ -166,6 +174,15 @@ class OpenAICoachingManager: ObservableObject {
             recordLastCued(exerciseType: exerciseType, cue: CoachingContract.cue(for: surfaced))
         }
 
+        // Pick (and advance) the rotating spoken closer for a clean set so the
+        // deterministic clean line isn't always "that set was dialed in". Only
+        // clean sets consume a slot, so every closer gets used before repeating.
+        // Corrective sets don't use a closer, so the index is irrelevant there.
+        let cleanCloserIndex = cleanCloserRotation
+        if plan.tone == .clean {
+            cleanCloserRotation += 1
+        }
+
         // Update the per-exercise weight history for the next set's comparison.
         // Always record so a subsequent set with the same weight doesn't trip
         // the increased-weight branch on stale state.
@@ -181,6 +198,7 @@ class OpenAICoachingManager: ObservableObject {
             weightIncreasedFromPrior: weightIncreased,
             priorWeight: weightIncreased ? priorWeight : nil,
             currentWeight: weightIncreased ? currentWeight : nil,
+            cleanCloserIndex: cleanCloserIndex,
             completion: completion
         )
     }
@@ -212,6 +230,7 @@ class OpenAICoachingManager: ObservableObject {
         weightIncreasedFromPrior: Bool = false,
         priorWeight: Double? = nil,
         currentWeight: Double? = nil,
+        cleanCloserIndex: Int = 0,
         completion: @escaping (SetEndFeedback) -> Void
     ) {
         let exerciseLabel = Self.exerciseLabel(for: exerciseType)
@@ -345,7 +364,7 @@ class OpenAICoachingManager: ObservableObject {
         """
 
         guard let url = URL(string: baseURL) else {
-            completion(buildFallbackFeedback(plan: plan, profileContext: profileContext))
+            completion(buildFallbackFeedback(plan: plan, profileContext: profileContext, cleanCloserIndex: cleanCloserIndex))
             return
         }
 
@@ -370,7 +389,7 @@ class OpenAICoachingManager: ObservableObject {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
-            completion(buildFallbackFeedback(plan: plan, profileContext: profileContext))
+            completion(buildFallbackFeedback(plan: plan, profileContext: profileContext, cleanCloserIndex: cleanCloserIndex))
             return
         }
 
@@ -389,11 +408,11 @@ class OpenAICoachingManager: ObservableObject {
             guard let self = self else { return }
 
             if error != nil {
-                safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext))
+                safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext, cleanCloserIndex: cleanCloserIndex))
                 return
             }
             guard let data = data else {
-                safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext))
+                safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext, cleanCloserIndex: cleanCloserIndex))
                 return
             }
 
@@ -412,22 +431,22 @@ class OpenAICoachingManager: ObservableObject {
                     )
 
                     if self.isGenericResponse(cleaned) {
-                        safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext))
+                        safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext, cleanCloserIndex: cleanCloserIndex))
                     } else {
                         safeComplete(self.buildFeedback(plan: plan, spokenText: cleaned))
                     }
                 } else {
-                    safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext))
+                    safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext, cleanCloserIndex: cleanCloserIndex))
                 }
             } catch {
-                safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext))
+                safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext, cleanCloserIndex: cleanCloserIndex))
             }
         }
         task.resume()
 
         DispatchQueue.global().asyncAfter(deadline: .now() + Self.apiTimeoutSeconds) {
             task.cancel()
-            safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext))
+            safeComplete(self.buildFallbackFeedback(plan: plan, profileContext: profileContext, cleanCloserIndex: cleanCloserIndex))
         }
     }
 
@@ -453,7 +472,8 @@ class OpenAICoachingManager: ObservableObject {
     /// returns something generic/unusable. Still respects the plan's tone.
     private func buildFallbackFeedback(
         plan: SetEndFeedbackPlanner.Plan,
-        profileContext: CoachingProfileContext?
+        profileContext: CoachingProfileContext?,
+        cleanCloserIndex: Int = 0
     ) -> SetEndFeedback {
         let capitalizedBest = plan.bestThing.isEmpty
             ? "Nice effort there"
@@ -469,7 +489,13 @@ class OpenAICoachingManager: ObservableObject {
                 base = "\(capitalizedBest) — keep that same form"
             }
         case .clean:
-            base = "\(capitalizedBest) — that set was dialed in"
+            // Rotate the spoken closer so a clean set isn't always "dialed in".
+            // The chosen closer + best determine the pre-baked phrase id via the
+            // shared `cleanFallbackPhraseId` rule, so this text round-trips
+            // through `SpeechManager.constructFallbackPhraseId` to baked audio.
+            let closers = SpeechPhraseCatalog.cleanClosers
+            let closer = closers[((cleanCloserIndex % closers.count) + closers.count) % closers.count]
+            base = "\(capitalizedBest) — \(closer.text)"
         }
 
         let spoken = safety.map { "\($0). \(base)" } ?? base

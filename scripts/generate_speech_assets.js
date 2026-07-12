@@ -286,11 +286,31 @@ function generateDynamicVariations() {
         { lowercasedText: 'hinge deeper until you feel a stretch in your hamstrings', issueCode: 'rdl_shallow_hinge' },
         { lowercasedText: 'keep the bar sliding along your thighs the whole way down', issueCode: 'rdl_bar_drift' },
     ];
+    // Spoken clean-set closers. Mirrors `SpeechPhraseCatalog.cleanClosers` in
+    // SpeechPhrases.swift — keep both lists (and the id rule below) aligned or
+    // the baked audio and the runtime matcher will drift.
+    const cleanClosers = [
+        { text: 'that set was dialed in', key: 'dialed_in' },
+        { text: 'that one was perfect', key: 'perfect' },
+        { text: 'you were locked in there', key: 'locked_in' },
+        { text: 'clean work all the way', key: 'clean_work' },
+        { text: 'that was textbook', key: 'textbook' },
+        { text: 'really strong set', key: 'strong_set' },
+    ];
+    // Mirrors `SpeechPhraseCatalog.cleanFallbackPhraseId`: `dialed_in` keeps the
+    // legacy un-suffixed id so previously baked audio still resolves.
+    const cleanFallbackPhraseId = (bestKey, closerKey) =>
+        closerKey === 'dialed_in'
+            ? `fallback_clean_${bestKey}`
+            : `fallback_clean_${bestKey}_${closerKey}`;
+
     for (const best of fallbackBestThings) {
-        variations.push({
-            id: `fallback_clean_${best.key}`,
-            text: `${best.text} — that set was dialed in`,
-        });
+        for (const closer of cleanClosers) {
+            variations.push({
+                id: cleanFallbackPhraseId(best.key, closer.key),
+                text: `${best.text} — ${closer.text}`,
+            });
+        }
         variations.push({
             id: `fallback_corrective_no_cue_${best.key}`,
             text: `${best.text} — keep that same form`,

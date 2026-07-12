@@ -248,6 +248,36 @@ struct SpeechPhraseCatalog {
         ("keep the bar sliding along your thighs the whole way down", "rdl_bar_drift"),
     ]
 
+    /// Spoken closers for a clean set. `buildFallbackFeedback` rotates through
+    /// these so a clean set isn't always spoken as "that set was dialed in".
+    /// Each entry is a full spoken clause — the builder prepends " — ". Keep
+    /// these mutually distinct (no entry a trailing substring of another) so
+    /// the reverse-matcher in `SpeechManager.constructFallbackPhraseId` can tell
+    /// them apart. `dialed_in` stays first (see `cleanFallbackPhraseId`).
+    ///
+    /// IMPORTANT: mirror any change here in `scripts/generate_speech_assets.js`
+    /// (its `cleanClosers`) or the baked audio and the matcher will drift.
+    static let cleanClosers: [(text: String, key: String)] = [
+        ("that set was dialed in", "dialed_in"),
+        ("that one was perfect", "perfect"),
+        ("you were locked in there", "locked_in"),
+        ("clean work all the way", "clean_work"),
+        ("that was textbook", "textbook"),
+        ("really strong set", "strong_set"),
+    ]
+
+    /// The pre-baked phrase id for a clean fallback line (best × closer).
+    /// `dialed_in` keeps the legacy un-suffixed id so audio baked before closers
+    /// existed still resolves; every other closer appends `_<closerKey>`. This
+    /// single rule is shared by the baking loop AND
+    /// `SpeechManager.constructFallbackPhraseId`, so the writer and reader can
+    /// never disagree. The JS bake script mirrors it.
+    static func cleanFallbackPhraseId(bestKey: String, closerKey: String) -> String {
+        closerKey == "dialed_in"
+            ? "fallback_clean_\(bestKey)"
+            : "fallback_clean_\(bestKey)_\(closerKey)"
+    }
+
     /// Get phrase by ID
     static func phrase(id: String) -> SpeechPhrase? {
         return phrases.first { $0.id == id }
@@ -455,10 +485,12 @@ struct SpeechPhraseCatalog {
         // line goes to OpenAI TTS at runtime and falls through to the
         // robotic AVSpeechSynthesizer when the network is degraded.
         for best in fallbackBestThings {
-            variations.append((
-                id: "fallback_clean_\(best.key)",
-                text: "\(best.text) — that set was dialed in"
-            ))
+            for closer in cleanClosers {
+                variations.append((
+                    id: cleanFallbackPhraseId(bestKey: best.key, closerKey: closer.key),
+                    text: "\(best.text) — \(closer.text)"
+                ))
+            }
             variations.append((
                 id: "fallback_corrective_no_cue_\(best.key)",
                 text: "\(best.text) — keep that same form"

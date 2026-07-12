@@ -38,6 +38,9 @@ struct TrackView: View {
     @State private var setsCompletedInSession: Int = 0
     /// Short coaching cue from the last completed set's primary form deviation.
     @State private var primaryCueText: String?
+    /// Rotating index into `cleanSetAffirmations` so back-to-back clean sets
+    /// don't repeat the same affirmation on the card / in history.
+    @State private var cleanCueRotation: Int = 0
 
     @State private var showExerciseSelector = false
     @State private var showExerciseInfo = false
@@ -875,15 +878,12 @@ struct TrackView: View {
         let formAnalysis = cameraManager.poseManager.currentFormAnalysis
             ?? cameraManager.poseManager.lastRepFormAnalysis
 
-        // Compute the short coaching cue synchronously so it can be written
-        // alongside the set log. The OpenAI callback below still governs when
-        // the cue text fades in on screen / is spoken.
-        var resolvedShortCue: String? = nil
-        if let analysis = formAnalysis, let exercise = selectedExercise {
-            let exerciseType = TrackedExerciseType.from(exerciseName: exercise.name)
-            let payload = CoachingLogic.buildPayload(from: analysis, exerciseType: exerciseType)
-            resolvedShortCue = payload.primaryIssue.map { CoachingContract.shortCue(for: $0) }
-        }
+        // The short cue is no longer computed here from the raw primary issue.
+        // A raw cue bypasses the Stage-2 gate, so history used to store a
+        // critical cue even when the live card showed "Dialed in". The cue is
+        // now derived from the gated `feedback` inside the coaching callback
+        // below (see `resolvedSetCue`) and used for BOTH the card and history,
+        // so the two can never disagree.
 
         // Detect PR against prior history BEFORE writing this set, then fan
         // out: save the set, fire confetti on PR, and call coaching with the
@@ -912,14 +912,6 @@ struct TrackView: View {
                 }
 
                 DispatchQueue.main.async {
-                    // Save the completed set regardless of PR status.
-                    saveCompletedSetToFirestore(
-                        exerciseName: exerciseName,
-                        weight: weightForSet,
-                        reps: repsForSet,
-                        cues: resolvedShortCue
-                    )
-
                     // PR confetti is dropped from inside the LLM-speech `onStart` below so the
                     // visual lands together with the audio. Firing it here (~3–5s before the LLM
                     // returns) made the confetti seem unrelated to the spoken announcement.
@@ -966,14 +958,33 @@ struct TrackView: View {
                                 PRCelebrationCenter.shared.fireConfetti()
                             }
                             SpeechManager.shared.speak(feedback.spokenText, onStart: onStart)
-                            // Fade in the correct card contents for this set's outcome.
-                            let cardText: String? = feedback.displayShortCue ?? (
-                                feedback.tone == .clean ? "Dialed in" : nil
+
+                            // Single source of truth for this set's short cue: the
+                            // gated `feedback`. The exact same string is shown on the
+                            // card AND written to history, so the live view and the
+                            // History tab can never disagree. A clean set gets a
+                            // rotating affirmation instead of a critical cue.
+                            let setCue = resolvedSetCue(from: feedback)
+                            saveCompletedSetToFirestore(
+                                exerciseName: exerciseName,
+                                weight: weightForSet,
+                                reps: repsForSet,
+                                cues: setCue
                             )
+                            // Fade in the correct card contents for this set's outcome.
                             withAnimation(.easeInOut(duration: 0.35)) {
-                                primaryCueText = cardText
+                                primaryCueText = setCue
                             }
                         }
+                    } else {
+                        // Degenerate set (reps counted but no form analysis): still
+                        // persist the set so it appears in history, with no cue.
+                        saveCompletedSetToFirestore(
+                            exerciseName: exerciseName,
+                            weight: weightForSet,
+                            reps: repsForSet,
+                            cues: nil
+                        )
                     }
                 }
             }
@@ -1147,6 +1158,42 @@ struct TrackView: View {
                 persistLastWeight(latestWeight, for: exerciseName)
             }
         }
+    }
+
+    // MARK: - Set-end cue
+
+    /// Short, literal affirmations for a clean set. Rotated (not random) so
+    /// consecutive clean sets don't repeat the same word. Kept literal — no
+    /// similes — to match the spoken-cue language rules. "Dialed in" stays in
+    /// the pool; it's just no longer the only thing users ever see.
+    private static let cleanSetAffirmations = [
+        "Dialed in",
+        "Perfect",
+        "Clean set",
+        "Locked in",
+        "Nailed it",
+        "Textbook",
+        "On point",
+        "Strong set"
+    ]
+
+    /// The short cue for a finished set — the single source of truth for both
+    /// the on-screen card and the persisted `cues` in history. A surfaced
+    /// critique (from the gated Stage-2 plan) wins; otherwise a clean set gets
+    /// a rotating affirmation; a corrective set with no short cue gets nil.
+    ///
+    /// Because both the live card and the history write call this, the two
+    /// always show the same thing. Mutating `cleanCueRotation` here is safe
+    /// from the escaping coaching callback — `@State`'s setter is nonmutating.
+    private func resolvedSetCue(from feedback: SetEndFeedback) -> String? {
+        if let cue = feedback.displayShortCue {
+            return cue
+        }
+        guard feedback.tone == .clean else { return nil }
+        let pool = Self.cleanSetAffirmations
+        let affirmation = pool[cleanCueRotation % pool.count]
+        cleanCueRotation += 1
+        return affirmation
     }
 
     // MARK: - Firestore Logging
