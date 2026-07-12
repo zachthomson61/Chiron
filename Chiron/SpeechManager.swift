@@ -14,6 +14,13 @@ class SpeechManager: NSObject, ObservableObject {
     // Local audio file playback
     private var audioPlayer: AVAudioPlayer?
     private var phraseManifest: [String: String] = [:]
+
+    // Ducking release is deferred by this interval after a cue finishes so background
+    // music (e.g. Spotify) stays ducked through the cue's tail instead of surging back
+    // over the final word. Makes verbal cues cut through more clearly. See scheduleUnduck().
+    private static let duckTailHold: TimeInterval = 0.45
+    /// Pending deferred un-duck; cancelled whenever a new cue re-enables ducking.
+    private var pendingUnduckWorkItem: DispatchWorkItem?
     
     // OpenAI TTS fallback for phrases not in catalog
     private let openAIAPIKey: String?
@@ -682,10 +689,40 @@ class SpeechManager: NSObject, ObservableObject {
         }
     }
     
+    /// Defers un-ducking until the cue's tail has fully played, then only releases the
+    /// duck if we're still idle (no queued, playing, or synthesizing cue). Holding the
+    /// duck through the tail keeps background music low across the whole cue — including
+    /// the final word — so verbal cues are heard clearly rather than being clipped by
+    /// music surging back the instant the last sample finishes.
+    private func scheduleUnduck() {
+        pendingUnduckWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.pendingUnduckWorkItem = nil
+            // Re-check idle state at fire time so a cue that started during the tail
+            // window keeps the duck engaged (avoids a duck→unduck→duck flicker).
+            let idle = self.speakQueue.isEmpty
+                && self.audioPlayer == nil
+                && !(self.synthesizer?.isSpeaking ?? false)
+            if idle {
+                self.setDuckingEnabled(false)
+            }
+        }
+        pendingUnduckWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.duckTailHold, execute: work)
+    }
+
     private func setDuckingEnabled(_ enabled: Bool) {
+        // A fresh cue is re-engaging the duck — cancel any pending tail release so it
+        // can't fire mid-cue and momentarily un-duck the music.
+        if enabled {
+            pendingUnduckWorkItem?.cancel()
+            pendingUnduckWorkItem = nil
+        }
+
         let audioSession = AVAudioSession.sharedInstance()
         let currentHasDucking = audioSession.categoryOptions.contains(.duckOthers)
-        
+
         // Only change category if ducking state actually needs to change
         // This prevents interrupting video playback unnecessarily
         guard enabled != currentHasDucking else {
@@ -810,6 +847,8 @@ class SpeechManager: NSObject, ObservableObject {
             // Create new player
             let player = try AVAudioPlayer(data: data)
             player.delegate = self
+            // Play the cue at full scale so it sits as far above the ducked music as possible.
+            player.volume = 1.0
             
             // Prepare to play (this validates the audio data)
             guard player.prepareToPlay() else {
@@ -923,7 +962,7 @@ class SpeechManager: NSObject, ObservableObject {
             }
             utterance.rate = 0.5
             utterance.pitchMultiplier = 1.1
-            utterance.volume = 0.95
+            utterance.volume = 1.0
             utterance.preUtteranceDelay = 0.2
             utterance.postUtteranceDelay = 0.1
             
@@ -1132,8 +1171,8 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
             self.synthesizer?.delegate = nil
             self.synthesizer = nil
             self.currentSpeechContext = .none
-            if self.speakQueue.isEmpty && self.audioPlayer == nil { 
-                self.setDuckingEnabled(false) 
+            if self.speakQueue.isEmpty && self.audioPlayer == nil {
+                self.scheduleUnduck()
             }
             self.playNextFromQueueIfAvailable()
         }
@@ -1171,8 +1210,8 @@ extension SpeechManager: AVAudioPlayerDelegate {
             self.audioPlayer?.delegate = nil
             self.audioPlayer = nil
             self.currentSpeechContext = .none
-            if self.speakQueue.isEmpty && !(self.synthesizer?.isSpeaking ?? false) { 
-                self.setDuckingEnabled(false) 
+            if self.speakQueue.isEmpty && !(self.synthesizer?.isSpeaking ?? false) {
+                self.scheduleUnduck()
             }
             self.playNextFromQueueIfAvailable()
         }
