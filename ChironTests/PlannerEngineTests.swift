@@ -154,10 +154,13 @@ final class PlannerEngineTests: XCTestCase {
         input.varietyLevel = .high
         input.daysPerWeek = 3
         input.programDuration = 1
-        
+        // Generous session so the engine's deterministic time boxing (trims isolation
+        // work to fit sessionMinutes, default 45) doesn't mask the variety difference.
+        input.sessionMinutes = 90
+
         // When
         let plan = engine.generatePlan(from: input)
-        
+
         // Then
         let firstDay = plan.weeks.first!.days.first!
         // High variety should have ~8 exercises (6 main + warmup + cooldown)
@@ -223,6 +226,9 @@ final class PlannerEngineTests: XCTestCase {
         input.varietyContinuum = 1.0 // High variety to ensure supersets are created
         input.daysPerWeek = 3
         input.programDuration = 1
+        // The engine pairs supersets deterministically only for short sessions
+        // (supersets && sessionMinutes < 45); the default of exactly 45 disables them.
+        input.sessionMinutes = 30
         
         // When
         let plan = engine.generatePlan(from: input)

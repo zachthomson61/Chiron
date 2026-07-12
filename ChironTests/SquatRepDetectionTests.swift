@@ -135,18 +135,23 @@ final class SquatViewpointClassifierTests: XCTestCase {
 
     /// Head-side view: shoulders lower in frame (larger Y), narrow widths.
     func testHeadSideClassification() {
+        // Geometry chosen against the current classifyCameraHeight thresholds: a
+        // head-height camera compresses the legs, so torso/leg span ratio must
+        // exceed 0.78 (here 0.18/0.22 ≈ 0.82), shoulders sit below the 0.45 line,
+        // and the nose below 0.4. The old fixture's ratio (0.47) reads as a floor
+        // camera under the retuned thresholds.
         let overlay: [String: CGPoint] = [
-            "nose":          CGPoint(x: 0.5, y: 0.38),
-            "leftShoulder":  CGPoint(x: 0.49, y: 0.48),
-            "rightShoulder": CGPoint(x: 0.51, y: 0.48),
-            "leftHip":       CGPoint(x: 0.49, y: 0.62),
-            "rightHip":      CGPoint(x: 0.51, y: 0.62),
-            "leftKnee":      CGPoint(x: 0.49, y: 0.78),
-            "rightKnee":     CGPoint(x: 0.51, y: 0.78),
-            "leftAnkle":     CGPoint(x: 0.49, y: 0.92),
-            "rightAnkle":    CGPoint(x: 0.51, y: 0.92),
-            "leftWrist":     CGPoint(x: 0.49, y: 0.55),
-            "rightWrist":    CGPoint(x: 0.51, y: 0.55),
+            "nose":          CGPoint(x: 0.5, y: 0.42),
+            "leftShoulder":  CGPoint(x: 0.49, y: 0.50),
+            "rightShoulder": CGPoint(x: 0.51, y: 0.50),
+            "leftHip":       CGPoint(x: 0.49, y: 0.68),
+            "rightHip":      CGPoint(x: 0.51, y: 0.68),
+            "leftKnee":      CGPoint(x: 0.49, y: 0.80),
+            "rightKnee":     CGPoint(x: 0.51, y: 0.80),
+            "leftAnkle":     CGPoint(x: 0.49, y: 0.90),
+            "rightAnkle":    CGPoint(x: 0.51, y: 0.90),
+            "leftWrist":     CGPoint(x: 0.49, y: 0.58),
+            "rightWrist":    CGPoint(x: 0.51, y: 0.58),
         ]
         let confidence: [String: Float] = [
             "leftKnee": 0.9, "rightKnee": 0.9,
@@ -241,37 +246,47 @@ final class SquatViewpointSmootherTests: XCTestCase {
 
 final class SquatRepProfileTableTests: XCTestCase {
 
+    // Rep detection moved from shoulder-excursion thresholds to knee-angle hysteresis
+    // (SquatRepDetectionProfile). These tests assert the invariants the current rep
+    // state machine and extension classifier actually rely on.
+
     func testAllBucketsReturnProfile() {
         for bucket in SquatViewpointBucket.allCases {
             let profile = SquatRepProfileTable.profile(for: bucket)
-            XCTAssertGreaterThan(profile.repBottomExcursionNormalized, 0,
-                                 "Profile for \(bucket.rawValue) should have positive bottom excursion")
+            // Knee-angle hysteresis: enter DOWN below downAngleThreshold, return to UP
+            // above upAngleThreshold — the gap is what debounces mid-rep jitter.
+            XCTAssertGreaterThan(profile.downAngleThreshold, 0,
+                                 "Profile for \(bucket.rawValue) should have a positive down threshold")
+            XCTAssertGreaterThan(profile.upAngleThreshold, profile.downAngleThreshold,
+                                 "Profile for \(bucket.rawValue) needs hysteresis: up > down threshold")
+            XCTAssertGreaterThan(profile.kneeAngleEMAAlpha, 0)
+            XCTAssertLessThanOrEqual(profile.kneeAngleEMAAlpha, 1)
             XCTAssertGreaterThan(profile.minRepCycleDuration, 0)
             XCTAssertGreaterThan(profile.maxRepCycleDuration, profile.minRepCycleDuration)
         }
     }
 
-    func testFloorProfilesHaveLowerExcursion() {
-        let chestSide = SquatRepProfileTable.profile(for: .chest_side)
-        let floorFront = SquatRepProfileTable.profile(for: .floor_front)
-        let floorSide = SquatRepProfileTable.profile(for: .floor_side)
-        let floorOblique = SquatRepProfileTable.profile(for: .floor_oblique)
-
-        // Floor cameras look up → shoulder vertical is compressed → need lower thresholds
-        XCTAssertLessThan(floorFront.repBottomExcursionNormalized,
-                          chestSide.repBottomExcursionNormalized,
-                          "Floor front should have lower bottom excursion than chest side")
-        XCTAssertLessThan(floorSide.repBottomExcursionNormalized,
-                          chestSide.repBottomExcursionNormalized)
-        XCTAssertLessThan(floorOblique.repBottomExcursionNormalized,
-                          chestSide.repBottomExcursionNormalized)
+    func testDepthThresholdsAreOrdered() {
+        for bucket in SquatViewpointBucket.allCases {
+            let profile = SquatRepProfileTable.profile(for: bucket)
+            // A rep must be countable before it is "good", and accumulation must begin
+            // before the counting threshold is reached.
+            XCTAssertLessThan(profile.repAccumulationStartDepth, profile.repCountDepthThreshold)
+            XCTAssertLessThan(profile.repCountDepthThreshold, profile.repGoodDepthThreshold)
+            // Extension-state hysteresis bands must not overlap or invert.
+            XCTAssertLessThan(profile.extensionUpEnterMaxDepth, profile.extensionUpExitDepth)
+            XCTAssertLessThan(profile.extensionUpExitDepth, profile.extensionDownEnterDepth)
+            XCTAssertLessThan(profile.extensionDownExitDepth, profile.extensionDownEnterDepth)
+        }
     }
 
     func testUnknownUsesChestSideBaseline() {
         let unknown = SquatRepProfileTable.profile(for: .unknown)
         let chestSide = SquatRepProfileTable.profile(for: .chest_side)
-        XCTAssertEqual(unknown.repBottomExcursionNormalized, chestSide.repBottomExcursionNormalized)
-        XCTAssertEqual(unknown.shoulderEMAAlpha, chestSide.shoulderEMAAlpha)
+        XCTAssertEqual(unknown.downAngleThreshold, chestSide.downAngleThreshold)
+        XCTAssertEqual(unknown.upAngleThreshold, chestSide.upAngleThreshold)
+        XCTAssertEqual(unknown.kneeAngleEMAAlpha, chestSide.kneeAngleEMAAlpha)
+        XCTAssertEqual(unknown.repCountDepthThreshold, chestSide.repCountDepthThreshold)
     }
 }
 

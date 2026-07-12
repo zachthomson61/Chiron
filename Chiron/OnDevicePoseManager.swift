@@ -253,6 +253,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     @Published var currentSquatExtensionFrameState: SquatExtensionFrameState = .neither
 
     private var viewpointSmoother = SquatViewpointSmoother()
+
+    /// Last viewpoint values published to the main queue (analysis-queue state; nil forces
+    /// a republish). Lets `updateBodyweightViewpointAndExtension` publish on change only.
+    private var lastPublishedCameraHeight: CameraHeightCategory?
+    private var lastPublishedCameraView: CameraViewCategory?
+    private var lastPublishedViewpointBucket: SquatViewpointBucket?
     private var squatExtensionFrameStateInternal: SquatExtensionFrameState = .neither
     /// Active rep-detection profile for bodyweight (updated each frame from smoothed viewpoint).
     private var activeBodyweightRepProfile: SquatRepDetectionProfile = SquatRepProfileTable.profile(for: .chest_side)
@@ -604,7 +610,13 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     
     // MARK: - MediaPipe Pose Properties
     
+    /// Guarded by `poseLandmarkerLock`: written by `setupMediaPipe` (init on a global
+    /// queue, and again on the runtime GPU→CPU fallback) while `analyzeFrame` reads at
+    /// frame rate on the video queue. An unsynchronized swap could release the old
+    /// landmarker under an in-flight read — use-after-free on exactly the degraded
+    /// devices the fallback exists for.
     private var poseLandmarker: PoseLandmarker?
+    private let poseLandmarkerLock = NSLock()
     private let poseAdapter = MediaPipePoseAdapter()
     
     /// Higher alpha (0.35) so lower body tracks with less lag; deep squats update overlay and rep logic faster.
@@ -614,6 +626,19 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     /// Hold last stable form/landmarks for this many frames when pose is missing or low confidence.
     private let holdStablePoseFrames: Int = 3
     private var framesSinceGoodPose: Int = 0
+
+    /// Last time the set-end / next-set-start checks were dispatched to the main queue
+    /// (analysis-queue state). Both checks compare multi-second windows, so evaluating
+    /// them at ~4 Hz instead of per frame sheds two main-thread wakeups per frame.
+    private var lastSetStateCheckAt: CFTimeInterval = 0
+
+    /// Consecutive livestream delegate callbacks that carried an error (MediaPipe delegate
+    /// queue only). The GPU→CPU fallback in `setupMediaPipe` covers construction failures;
+    /// this covers a GPU delegate that initializes but then fails at inference time —
+    /// without it the app would stay pose-blind for the rest of the session.
+    private var consecutiveLandmarkerErrors = 0
+    private var didFallBackToCPUDelegate = false
+    private let landmarkerErrorFallbackThreshold = 45 // ~1.5-4 s of failed frames
     private(set) var currentAnalysisSource: PoseAnalysisSource = .pose3D
     
     /// Monotonic frame counter used as timestamp for MediaPipe livestream API.
@@ -718,12 +743,42 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     private var tempoHangDeparted = false
 
     /// Active tempo-coaching config for the current set. Rebuilt on the main thread at each
-    /// set start (`performPerSetAggregationReset`) from the onboarding profile + the current
-    /// exercise, then read at rep-count time — the same write-at-rest / read-mid-set idiom as
-    /// `tempoTargets`. `.disabled` until the first build and for non-hypertrophy goals.
+    /// set start (`performPerSetAggregationReset`) and whenever the master toggle flips, from
+    /// the onboarding profile + the current exercise + `intraSetTempoCoachingEnabled`, then read
+    /// at rep-count time — the same write-at-rest / read-mid-set idiom as `tempoTargets`.
     private(set) var tempoCoachingConfig: TempoCoachingConfig = .disabled
     /// Profile source for the tempo config (same store the onboarding flow persists to).
     private let tempoProfileStore = UserDefaultsUserProfileStore()
+
+    /// Master on/off for intra-set tempo coaching, surfaced as a live-workout toggle. This is
+    /// the authoritative gate (see `TempoCoachingConfig.build`) — it lets the user turn coaching
+    /// on regardless of which goal store their profile froze at onboarding, and off whenever they
+    /// don't want it. Persisted; default derives from the onboarding goal. Flipping it rebuilds
+    /// the config immediately so the change takes effect within the current set.
+    @Published var intraSetTempoCoachingEnabled: Bool = OnDevicePoseManager.loadIntraSetCoachingPreference() {
+        didSet {
+            guard oldValue != intraSetTempoCoachingEnabled else { return }
+            UserDefaults.standard.set(intraSetTempoCoachingEnabled, forKey: Self.intraSetCoachingKey)
+            refreshTempoCoachingConfig()
+        }
+    }
+    private static let intraSetCoachingKey = "chiron.intraset_tempo_coaching_enabled"
+
+    /// Initial toggle value: the user's stored choice if they've set one, else a goal-derived
+    /// default (on for a hypertrophy goal in *either* goal store). Reads UserDefaults directly —
+    /// no singleton access — so it's safe to evaluate during `shared` init.
+    private static func loadIntraSetCoachingPreference() -> Bool {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: intraSetCoachingKey) != nil {
+            return defaults.bool(forKey: intraSetCoachingKey)
+        }
+        if TempoCoachingConfig.goalSuggestsCoaching(profile: UserDefaultsUserProfileStore().load()) {
+            return true
+        }
+        // Home-screen goal card (`UserPreferencesManager.primaryGoal`, key "user_primary_goal",
+        // stored as PrimaryGoal.rawValue) — read raw to avoid touching that singleton at init.
+        return defaults.string(forKey: "user_primary_goal") == PrimaryGoal.buildMuscle.rawValue
+    }
 
     // Hip-based depth calibration (self-calibrates to standing reference each set)
     private var standingHipHeight: Float?
@@ -768,13 +823,18 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     
     // MARK: - MediaPipe Setup
     
-    private func setupMediaPipe() {
+    private func setupMediaPipe(preferGPU: Bool = true) {
         guard let modelPath = Bundle.main.path(forResource: "pose_landmarker_full", ofType: "task") else {
             return
         }
-        
+
         let options = PoseLandmarkerOptions()
         options.baseOptions.modelAssetPath = modelPath
+        // Run inference on the GPU. The default CPU delegate burned CPU cores at ~30 fps
+        // for entire workouts — the app's dominant sustained thermal load. Fall back to
+        // CPU below if this device/model combination rejects the GPU delegate, or via
+        // `handleMediaPipeResult`'s error counter if the GPU path fails at runtime.
+        options.baseOptions.delegate = preferGPU ? .GPU : .CPU
         options.runningMode = .liveStream
         options.numPoses = 1
         options.minPoseDetectionConfidence = 0.5
@@ -782,17 +842,30 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         options.minPosePresenceConfidence = 0.4
         options.minTrackingConfidence = 0.4
         options.poseLandmarkerLiveStreamDelegate = self
-        
+
+        let built: PoseLandmarker?
         do {
-            poseLandmarker = try PoseLandmarker(options: options)
+            built = try PoseLandmarker(options: options)
         } catch {
+            guard preferGPU else { return }
+            options.baseOptions.delegate = .CPU
+            built = try? PoseLandmarker(options: options)
         }
+        guard let built else { return }
+        poseLandmarkerLock.lock()
+        poseLandmarker = built
+        poseLandmarkerLock.unlock()
     }
     
     // MARK: - Pose Detection
     
     func analyzeFrame(_ pixelBuffer: CVPixelBuffer) {
-        guard let poseLandmarker = poseLandmarker else { return }
+        // Locked read + local strong reference: safe against the GPU→CPU fallback
+        // swapping the landmarker mid-frame (see property doc).
+        poseLandmarkerLock.lock()
+        let landmarker = poseLandmarker
+        poseLandmarkerLock.unlock()
+        guard let poseLandmarker = landmarker else { return }
 
         // Track whether the connection actually rotated the buffer to portrait (varies by device, see property doc).
         let isPortraitBuffer = CVPixelBufferGetHeight(pixelBuffer) > CVPixelBufferGetWidth(pixelBuffer)
@@ -802,7 +875,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             }
         }
 
-        frameTimestampMs += 33 // ~30 fps; must be monotonically increasing
+        // Real elapsed milliseconds (CACurrentMediaTime is monotonic), guarded to stay
+        // strictly increasing as MediaPipe requires. The old fixed `+= 33` assumed every
+        // camera frame reached inference; with thermal/idle frame decimation upstream
+        // (SharedCameraSessionManager), wall-clock gaps between analyzed frames are real
+        // and the timestamps must reflect them.
+        frameTimestampMs = max(frameTimestampMs + 1, Int(CACurrentMediaTime() * 1000))
         let ts = frameTimestampMs
 
         do {
@@ -815,10 +893,29 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     
     /// Called by the PoseLandmarker livestream delegate on a serial queue.
     fileprivate func handleMediaPipeResult(_ result: PoseLandmarkerResult?, timestampMs: Int, error: Error?) {
+        // Runtime GPU-delegate failure detection: sustained errored callbacks (not the
+        // occasional drop) mean this delegate can't infer on this device — rebuild once
+        // on CPU. Counter state lives on MediaPipe's serial delegate queue.
+        if error != nil {
+            consecutiveLandmarkerErrors += 1
+            if consecutiveLandmarkerErrors == landmarkerErrorFallbackThreshold && !didFallBackToCPUDelegate {
+                didFallBackToCPUDelegate = true
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    self?.setupMediaPipe(preferGPU: false)
+                }
+            }
+        } else {
+            consecutiveLandmarkerErrors = 0
+        }
+
+        // Publish the pose-lost state exactly once when crossing the hold threshold
+        // (`==`, not `>=`). Re-publishing identical nils every frame kept firing
+        // objectWillChange at ~30 Hz on the main thread for as long as nobody was in
+        // frame — exactly the rest-period scenario where the phone should be cooling.
         guard let result = result,
               let adapted = poseAdapter.adapt(result, timestampMs: timestampMs) else {
             framesSinceGoodPose += 1
-            if framesSinceGoodPose >= holdStablePoseFrames {
+            if framesSinceGoodPose == holdStablePoseFrames {
                 DispatchQueue.main.async {
                     self.poseDetected = false
                     self.currentFormAnalysis = nil
@@ -828,10 +925,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             }
             return
         }
-        
+
         guard adapted.skeleton.meetsMinimumRequirements(for: trackedExerciseType) else {
             framesSinceGoodPose += 1
-            if framesSinceGoodPose >= holdStablePoseFrames {
+            if framesSinceGoodPose == holdStablePoseFrames {
                 DispatchQueue.main.async {
                     self.poseDetected = false
                     self.currentFormAnalysis = nil
@@ -912,11 +1009,17 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             // runs — same setup/suppression guards, after the validators stamped this frame.
             updateTempoPauseChannel()
 
-            DispatchQueue.main.async {
-                if !SharedCameraSessionManager.shared.trackExplicitSetActive {
-                    self.checkForSetEnd()
+            // Both checks gate on multi-second windows (inactivity, consecutive reps);
+            // ~4 Hz preserves their semantics without a main-queue hop per frame.
+            let nowCheck = CACurrentMediaTime()
+            if nowCheck - lastSetStateCheckAt >= 0.25 {
+                lastSetStateCheckAt = nowCheck
+                DispatchQueue.main.async {
+                    if !SharedCameraSessionManager.shared.trackExplicitSetActive {
+                        self.checkForSetEnd()
+                    }
+                    self.checkForNextSetStart()
                 }
-                self.checkForNextSetStart()
             }
         }
 
@@ -3924,6 +4027,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             initializeBenchPressRepTracking()
         }
         viewpointSmoother.reset(keepBucket: .chest_side)
+        // Invalidate the publish-on-change caches so the first analyzed frame after a
+        // reset republishes viewpoint state (the main-queue block below resets the
+        // published values out from under the caches).
+        lastPublishedCameraHeight = nil
+        lastPublishedCameraView = nil
+        lastPublishedViewpointBucket = nil
         activeBodyweightRepProfile = SquatRepProfileTable.profile(for: .chest_side)
         squatExtensionFrameStateInternal = .neither
         resetBodyweightSquatRepCycleState()
@@ -3992,6 +4101,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             initializeBenchPressRepTracking()
         }
         viewpointSmoother.reset(keepBucket: .chest_side)
+        // Invalidate the publish-on-change caches so the first analyzed frame after a
+        // reset republishes viewpoint state (the main-queue block below resets the
+        // published values out from under the caches).
+        lastPublishedCameraHeight = nil
+        lastPublishedCameraView = nil
+        lastPublishedViewpointBucket = nil
         activeBodyweightRepProfile = SquatRepProfileTable.profile(for: .chest_side)
         squatExtensionFrameStateInternal = .neither
         resetBodyweightSquatRepCycleState()
@@ -4068,11 +4183,23 @@ class OnDevicePoseManager: NSObject, ObservableObject {
             }
         }
 
-        DispatchQueue.main.async {
-            self.currentCameraHeightCategory = hCat
-            self.currentCameraViewCategory = vCat
-            self.currentSquatViewpointBucket = self.viewpointSmoother.activeBucket
-            self.currentSquatProfileName = self.viewpointSmoother.activeBucket.rawValue
+        // Publish viewpoint state only when it changes (same pattern as the extension
+        // state above). The unconditional version wrote four @Published properties per
+        // frame — ~30 Hz of objectWillChange on every observing view — for values that
+        // change at most every few seconds.
+        let bucket = viewpointSmoother.activeBucket
+        if hCat != lastPublishedCameraHeight
+            || vCat != lastPublishedCameraView
+            || bucket != lastPublishedViewpointBucket {
+            lastPublishedCameraHeight = hCat
+            lastPublishedCameraView = vCat
+            lastPublishedViewpointBucket = bucket
+            DispatchQueue.main.async {
+                self.currentCameraHeightCategory = hCat
+                self.currentCameraViewCategory = vCat
+                self.currentSquatViewpointBucket = bucket
+                self.currentSquatProfileName = bucket.rawValue
+            }
         }
     }
 
@@ -4657,6 +4784,12 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         resetTempoRoleState()
         tempoPauseToneFiredThisStretch = false
         viewpointSmoother.reset(keepBucket: .chest_side)
+        // Invalidate the publish-on-change caches so the first analyzed frame after a
+        // reset republishes viewpoint state (the main-queue block below resets the
+        // published values out from under the caches).
+        lastPublishedCameraHeight = nil
+        lastPublishedCameraView = nil
+        lastPublishedViewpointBucket = nil
         activeBodyweightRepProfile = SquatRepProfileTable.profile(for: .chest_side)
         squatExtensionFrameStateInternal = .neither
         resetBodyweightSquatRepCycleState()
@@ -4710,6 +4843,21 @@ class OnDevicePoseManager: NSObject, ObservableObject {
         }
         workoutState = .exercising
         performPerSetAggregationReset()
+    }
+
+    /// Counterpart to `startManualSet` for explicit (Track) sets. The inactivity-driven
+    /// `checkForSetEnd` path can't do this job: Track's End Set leaves
+    /// `suppressRepCounting = true`, which gates the whole per-frame block that
+    /// dispatches the check — so without an explicit transition, `workoutState` stays
+    /// `.exercising` forever and the thermal frame decimation (which treats
+    /// `.exercising` as an active set) never engages during rest periods.
+    func endManualSet() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { self.endManualSet() }
+            return
+        }
+        guard workoutState == .exercising else { return }
+        workoutState = .waiting
     }
 
     private func handleSetStart() {
@@ -5086,9 +5234,10 @@ class OnDevicePoseManager: NSObject, ObservableObject {
     func refreshTempoCoachingConfig() {
         tempoCoachingConfig = TempoCoachingConfig.build(
             profile: tempoProfileStore.load(),
-            exercise: trackedExerciseType
+            exercise: trackedExerciseType,
+            userEnabled: intraSetTempoCoachingEnabled
         )
-        tempoDebugLog("CONFIG [\(trackedExerciseType)] enabled=\(tempoCoachingConfig.enabled) intensity=\(tempoCoachingConfig.intensity) verbal=\(tempoCoachingConfig.verbalEnabled) tone=\(tempoCoachingConfig.pauseToneEnabled)")
+        tempoDebugLog("CONFIG [\(trackedExerciseType)] userEnabled=\(intraSetTempoCoachingEnabled) enabled=\(tempoCoachingConfig.enabled) intensity=\(tempoCoachingConfig.intensity) verbal=\(tempoCoachingConfig.verbalEnabled) tone=\(tempoCoachingConfig.pauseToneEnabled)")
     }
 
     /// Channel-agnostic tempo cue decision for the just-counted rep.

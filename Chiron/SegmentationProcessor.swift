@@ -55,9 +55,15 @@ final class SegmentationProcessor: ObservableObject {
     var benchPressViewType: BenchPressViewType = .tripod
 
     // Config
-    var throttleMs: Int = 33 // ~30 fps cap
+    // 10 fps: each processed frame runs a Vision person-segmentation net plus a full
+    // 720p CoreImage->CGImage overlay render. The previous 33 ms cap equaled the
+    // camera's native rate (no real throttle) and made setup screens a major heat
+    // source; a positioning overlay doesn't need more than ~10 Hz.
+    var throttleMs: Int = 100
     var overlayAlpha: CGFloat = 0.55 // toned down
-    var qualitySmoothingFactor: Double = 0.85 // EMA smoothing (higher = smoother)
+    // EMA retention per processed frame. Tuned down alongside the 30->10 fps throttle
+    // so the score's wall-clock responsiveness stays roughly what 0.85 gave at 30 fps.
+    var qualitySmoothingFactor: Double = 0.6
     var colorUpdateMs: Int = 120 // update tint ~8-10 Hz
 
     // Vision

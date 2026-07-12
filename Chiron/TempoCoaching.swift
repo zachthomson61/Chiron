@@ -233,9 +233,25 @@ struct TempoCoachingConfig {
         pauseMeasurableAtRepCount: false
     )
 
-    /// Builds the active config for one set from the persisted onboarding profile.
-    /// `nil` profile (onboarding incomplete) → disabled.
-    static func build(profile: ChironUserProfile?, exercise: TrackedExerciseType) -> TempoCoachingConfig {
+    /// Whether the persisted onboarding goal *suggests* tempo coaching should default on
+    /// (hypertrophy). This is the DEFAULT for the user-facing toggle, not the gate itself —
+    /// the toggle (`userEnabled` in `build`) is authoritative, so a user whose goal store says
+    /// otherwise can still turn coaching on. `nil` profile → no suggestion.
+    static func goalSuggestsCoaching(profile: ChironUserProfile?) -> Bool {
+        profile?.topGoal == .buildMuscle
+    }
+
+    /// Builds the active config for one set.
+    /// - `userEnabled`: the live master toggle. When false, the config is fully disabled
+    ///   regardless of goal; when true, coaching runs on any coached lift. This replaces the
+    ///   old goal-only gate so the feature is user-controllable (and so a stale onboarding
+    ///   goal store can't silently suppress it). `nil` profile still → disabled (no persona /
+    ///   intensity to drive cues).
+    static func build(
+        profile: ChironUserProfile?,
+        exercise: TrackedExerciseType,
+        userEnabled: Bool
+    ) -> TempoCoachingConfig {
         guard let profile else { return .disabled }
 
         let intensity = CoachingIntensity(coachIntensity: profile.coachIntensity)
@@ -270,7 +286,7 @@ struct TempoCoachingConfig {
         }
 
         return TempoCoachingConfig(
-            enabled: profile.topGoal == .buildMuscle && coachedExercise,
+            enabled: userEnabled && coachedExercise,
             intensity: intensity,
             persona: profile.coachPersona,
             targetEccentricMs: 2000,  // the spec floor; any future per-goal base must be max(2000, base)

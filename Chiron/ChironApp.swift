@@ -15,6 +15,7 @@ import UIKit
 struct ChironApp: App {
     @UIApplicationDelegateAdaptor(ChironAppDelegate.self) private var appDelegate
     @StateObject private var appState = AppState()
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         FirebaseApp.configure()
@@ -24,6 +25,22 @@ struct ChironApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
+                .onChange(of: scenePhase) {
+                    // Stop the shared camera session + pose inference when the app
+                    // backgrounds and restore them on return. iOS interrupts capture in
+                    // the background anyway, but doing it explicitly halts delegate and
+                    // inference churn deterministically instead of relying on
+                    // interruption recovery. `.inactive` is deliberately ignored — brief
+                    // app-switcher peeks and system alerts shouldn't cycle the camera.
+                    switch scenePhase {
+                    case .background:
+                        SharedCameraSessionManager.shared.handleAppBackgrounded()
+                    case .active:
+                        SharedCameraSessionManager.shared.handleAppForegrounded()
+                    default:
+                        break
+                    }
+                }
         }
     }
 }

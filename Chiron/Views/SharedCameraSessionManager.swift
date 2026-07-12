@@ -20,6 +20,7 @@
 
 import SwiftUI
 import AVFoundation
+import QuartzCore
 
 // MARK: - Shared Camera Session Manager
 
@@ -47,6 +48,25 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
     
     /// When `true`, Track tab has started a set via "Begin Set" — skip inactivity-based `handleSetEnd` so pauses between reps do not zero the counter.
     var trackExplicitSetActive: Bool = false
+
+    /// Timestamp of the last frame forwarded to MediaPipe. Touched only on the video
+    /// data output queue (`captureOutput`); used for thermal/idle frame decimation.
+    private var lastInferenceAt: CFTimeInterval = 0
+
+    /// Serial queue for all startRunning/stopRunning work. Pause and resume used to
+    /// dispatch to the CONCURRENT global queue, so a fast pause→resume (sheet dismiss,
+    /// tab switch) could execute out of order and leave the camera permanently dark:
+    /// resume's `!isRunning` guard no-ops while the session still runs, then the stale
+    /// pause stops it. Serializing preserves caller order.
+    private let sessionControlQueue = DispatchQueue(label: "cameraSessionControl")
+
+    /// Whether the capture session should be restarted when the app returns to the
+    /// foreground (i.e. it was running when the app backgrounded). Touched only on
+    /// `sessionControlQueue` so it reflects the settled state after pending pause/resume
+    /// work, not a possibly-stale `isRunning` snapshot.
+    private var resumeOnForeground = false
+    /// Whether pose analysis was active when the app backgrounded. Main queue only.
+    private var wasAnalyzingOnBackground = false
     
     private override init() {
         super.init()
@@ -64,8 +84,18 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
         guard let cam = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
               let input = try? AVCaptureDeviceInput(device: cam),
               captureSession.canAddInput(input) else { return }
-        
+
         captureSession.addInput(input)
+
+        // Cap capture at 30 fps. The pose pipeline assumes ~30 fps; on devices whose
+        // default active format delivers 60 fps this would double inference load
+        // (and heat) for zero coaching benefit. Only the ceiling is pinned — leaving
+        // the max frame duration alone lets auto-exposure drop below 30 fps in dim
+        // gyms, which saves power rather than costing it.
+        if (try? cam.lockForConfiguration()) != nil {
+            cam.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+            cam.unlockForConfiguration()
+        }
         
         // Setup video data output
         videoDataOutput = AVCaptureVideoDataOutput()
@@ -185,7 +215,7 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
     /// `startPoseAnalysis()` on resume.
     func pauseCaptureSession() {
         isAnalyzingPose = false
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        sessionControlQueue.async { [weak self] in
             guard let session = self?.captureSession, session.isRunning else { return }
             session.stopRunning()
         }
@@ -194,8 +224,45 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
     /// Resumes a previously paused capture session. Safe no-op if the session is already running
     /// or was never set up.
     func resumeCaptureSession() {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        sessionControlQueue.async { [weak self] in
             guard let session = self?.captureSession, !session.isRunning else { return }
+            session.startRunning()
+        }
+    }
+
+    // MARK: - App lifecycle (scene phase)
+
+    /// Called when the app moves to the background. iOS interrupts camera capture on its
+    /// own, but stopping the session explicitly also halts delegate/inference churn and
+    /// gives a deterministic resume instead of relying on interruption recovery.
+    /// Call on the main queue (ChironApp scene-phase handler).
+    func handleAppBackgrounded() {
+        wasAnalyzingOnBackground = isAnalyzingPose
+        isAnalyzingPose = false
+        sessionControlQueue.async { [weak self] in
+            guard let self else { return }
+            // Sampled on the control queue AFTER any pending pause/resume has drained,
+            // so this is the settled state — not a snapshot that an in-flight
+            // stopRunning is about to falsify.
+            let running = self.captureSession?.isRunning == true
+            self.resumeOnForeground = running
+            if running {
+                self.captureSession?.stopRunning()
+            }
+        }
+    }
+
+    /// Called when the app returns to the foreground; restores whatever camera/analysis
+    /// state `handleAppBackgrounded` tore down, and nothing more. Call on the main queue.
+    func handleAppForegrounded() {
+        if wasAnalyzingOnBackground {
+            isAnalyzingPose = true
+        }
+        wasAnalyzingOnBackground = false
+        sessionControlQueue.async { [weak self] in
+            guard let self, self.resumeOnForeground else { return }
+            self.resumeOnForeground = false
+            guard let session = self.captureSession, !session.isRunning else { return }
             session.startRunning()
         }
     }
@@ -204,18 +271,40 @@ class SharedCameraSessionManager: NSObject, ObservableObject {
 // MARK: - Video Data Output Delegate
 extension SharedCameraSessionManager: AVCaptureVideoDataOutputSampleBufferDelegate {
     /// Forwards pixels to MediaPipe only when not in setup mode and `isAnalyzingPose` is true (`stopPoseAnalysis` vs `endTrackSetKeepingPoseActive`).
+    ///
+    /// Frames are decimated per `ThermalGovernor` policy before inference: full rate only
+    /// during an active set on a cool device, ~12 fps while framing / resting / waiting,
+    /// lower under thermal pressure or Low Power Mode. Rest periods dominate a workout's
+    /// wall-clock time, and full-model inference was previously running through all of
+    /// them — the single largest heat source in the app.
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard !isSetupMode && isAnalyzingPose else { return }
-        
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        
-        // Analyze pose on device
-        poseManager.analyzeFrame(pixelBuffer)
-        
-        // Update form analysis
-        DispatchQueue.main.async {
-            self.currentFormAnalysis = self.poseManager.currentFormAnalysis
+
+        // Cross-queue enum read of workoutState, codebase idiom (see OnDevicePoseManager).
+        // `.waiting` with rep counting live is ALSO an active window: coached workouts
+        // auto-start a set only after the first validated rep, and the bench validators
+        // need several consecutive analyzed frames at the bottom/lockout — at idle rates
+        // a touch-and-go rep may never validate, and the state would never escalate.
+        // Track keeps suppressRepCounting=true between sets, so its rest/framing periods
+        // still decimate.
+        let workoutState = poseManager.workoutState
+        let activeSet = trackExplicitSetActive
+            || workoutState == .exercising
+            || (workoutState == .waiting && !suppressRepCounting)
+        let minInterval = ThermalGovernor.shared.minInferenceInterval(activeSet: activeSet)
+        if minInterval > 0 {
+            let now = CACurrentMediaTime()
+            guard now - lastInferenceAt >= minInterval else { return }
+            lastInferenceAt = now
         }
+
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+        // Analyze pose on device. Downstream form analysis publishes from
+        // OnDevicePoseManager itself; the duplicate per-frame main-queue publish of
+        // `currentFormAnalysis` that used to live here had no readers and cost a
+        // main-thread wakeup + SwiftUI invalidation per frame.
+        poseManager.analyzeFrame(pixelBuffer)
     }
 }
 

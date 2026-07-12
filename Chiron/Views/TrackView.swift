@@ -137,19 +137,36 @@ struct TrackView: View {
                     let pillMaxWidth = min(320, max(0, screenWidth - trailingReserved - leadingReserved))
 
                     ZStack(alignment: .center) {
-                        // Leading: pose overlay toggle
+                        // Leading: pose overlay toggle, tempo-coaching toggle stacked below it
                         HStack {
-                            /// Pose detection overlay toggle. Always shows stick figure icon;
-                            /// icon color indicates active state (green when on, gray when off).
-                            Button {
-                                showPoseOverlay.toggle()
-                            } label: {
-                                Image(systemName: "figure.stand")
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundColor(showPoseOverlay ? .green : .textPrimary)
-                                    .frame(width: 40, height: 40)
-                                    .background(Color.black.opacity(0.3))
-                                    .clipShape(Circle())
+                            VStack(spacing: 10) {
+                                /// Pose detection overlay toggle. Always shows stick figure icon;
+                                /// icon color indicates active state (green when on, gray when off).
+                                Button {
+                                    showPoseOverlay.toggle()
+                                } label: {
+                                    Image(systemName: "figure.stand")
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundColor(showPoseOverlay ? .green : .textPrimary)
+                                        .frame(width: 40, height: 40)
+                                        .background(Color.black.opacity(0.3))
+                                        .clipShape(Circle())
+                                }
+                                /// Intra-set tempo-coaching toggle (eccentric + stretch-pause cues).
+                                /// Green metronome when on, slashed + gray when off. Flipping it
+                                /// rebuilds the coaching config immediately (takes effect this set).
+                                Button {
+                                    poseManager.intraSetTempoCoachingEnabled.toggle()
+                                } label: {
+                                    Image(systemName: poseManager.intraSetTempoCoachingEnabled ? "metronome.fill" : "metronome")
+                                        .font(.system(size: 17, weight: .semibold))
+                                        .foregroundColor(poseManager.intraSetTempoCoachingEnabled ? .green : .textPrimary)
+                                        .frame(width: 40, height: 40)
+                                        .background(Color.black.opacity(0.3))
+                                        .clipShape(Circle())
+                                }
+                                .accessibilityLabel("Tempo coaching")
+                                .accessibilityValue(poseManager.intraSetTempoCoachingEnabled ? "On" : "Off")
                             }
                             Spacer()
                         }
@@ -371,6 +388,15 @@ struct TrackView: View {
             VolumeTriggerCoordinator.shared.setActive(newValue != .idle)
         }
         .onReceive(VolumeTriggerCoordinator.shared.$actionRequestCounter.dropFirst()) { _ in
+            // Ignore Begin Set presses while the camera is paused (another tab is
+            // selected, a sheet covers the preview, or a foreground resume is still in
+            // flight) — otherwise a press from elsewhere begins a phantom set that
+            // records zero frames against a stopped session. End Set (.tracking) is
+            // always honored: mid-set the user must be able to close the set (and its
+            // recording/telemetry/keep-alive) even during the async resume window
+            // right after re-foregrounding.
+            guard trackViewState == .tracking
+                    || cameraManager.getCaptureSession()?.isRunning == true else { return }
             handlePrimaryAction()
         }
         .sheet(isPresented: $showExerciseSelector) {
@@ -687,6 +713,9 @@ struct TrackView: View {
         if trackViewState == .tracking {
             cameraManager.stopPoseAnalysis()
         }
+        // Clear a stale `.exercising` so the decimator doesn't treat the next
+        // framing session as an active set (see endSet).
+        poseManager.endManualSet()
         cameraManager.suppressRepCounting = false
         cameraManager.trackExplicitSetActive = false
         trackViewState = .idle
@@ -762,12 +791,21 @@ struct TrackView: View {
             currentWeight: currentWeight,
             setIndexInSession: setsCompletedInSession + 1
         )
-        // Start debug logging for this set (auto-exported as CSV when the set ends).
+        // Debug logging + screen recording exist solely to feed the telemetry pipeline,
+        // so both follow its consent flag. Previously they ran unconditionally — when
+        // telemetry was off, ReplayKit still hardware-encoded the full screen for the
+        // whole set and the mp4 was then discarded: pure wasted battery and heat.
+        let telemetryOn = TelemetryPreferencesManager.shared.shareDataToImproveChiron
         SquatRepDebugLogger.shared.reset()
-        poseManager.debugLoggerEnabled = true
+        poseManager.debugLoggerEnabled = telemetryOn
         // Screen recording captures the full on-screen experience (camera + overlay) so
         // the CSV trace can be replayed alongside the video. iOS prompts the first time.
-        ScreenRecorder.shared.start()
+        // Skipped under thermal pressure / Low Power Mode: the encode stacks on top of
+        // camera + inference exactly when the device needs to shed load. The CSV (much
+        // cheaper) still uploads, so a set is never entirely unobserved.
+        if telemetryOn && ThermalGovernor.shared.allowsScreenRecording {
+            ScreenRecorder.shared.start()
+        }
         // Open a telemetry session if the user has opted in (no-op otherwise).
         // Coordinator owns CSV writer and parks a video recorder for the
         // ScreenRecorder.stop callback in `exportDebugCSV` to attach.
@@ -798,6 +836,10 @@ struct TrackView: View {
         poseManager.retroactiveEndSetFilter(window: 3.0)
 
         cameraManager.endTrackSetKeepingPoseActive()
+        // Leave `.exercising` explicitly — suppressRepCounting stays true between Track
+        // sets, which blocks the inactivity path that would otherwise do this, and the
+        // frame decimator runs full-rate for as long as the state reads `.exercising`.
+        poseManager.endManualSet()
         trackViewState = .armed
 
         // Close the telemetry session. CSV is finalized + queued; the video
@@ -988,11 +1030,9 @@ struct TrackView: View {
         cameraManager.setupCameraSession()
         // Other flows call `switchToSetupMode()`; re-selecting this tab does not always rerun `onAppear`, so `RootTabView` also calls `switchToWorkoutMode` when Track is selected.
         cameraManager.switchToWorkoutMode()
-        if let session = cameraManager.getCaptureSession(), !session.isRunning {
-            DispatchQueue.global(qos: .userInitiated).async {
-                session.startRunning()
-            }
-        }
+        // Serialized start (not a raw global-queue startRunning): a stale start racing
+        // `onDisappear`'s pause could otherwise leave the camera running behind another tab.
+        cameraManager.resumeCaptureSession()
         cameraSessionReady = true
         // Start pose tracking immediately so overlay/smoothing run before user presses Begin Set.
         cameraManager.suppressRepCounting = true
@@ -1010,8 +1050,17 @@ struct TrackView: View {
             // Balance the `ScreenKeepAlive.begin()` paired with the missing `endSet()`
             // so the screen-on lock doesn't outlive the view.
             ScreenKeepAlive.end()
+            // Clear `.exercising` so the decimator sees an idle pipeline when the
+            // user returns to the tab (see endSet).
+            poseManager.endManualSet()
             trackViewState = .armed
         }
+        // Stop the camera hardware + inference while the tab is hidden. RootTabView keeps
+        // this view mounted after first visit, so without this the camera and MediaPipe
+        // ran at full rate while the user browsed Home/Research/Profile. RootTabView's
+        // tab-change handler restores tracking when the user returns (onAppear may not
+        // re-fire on tab re-selection).
+        cameraManager.pauseCaptureSession()
     }
 
     // MARK: - Screen Recording Finalize

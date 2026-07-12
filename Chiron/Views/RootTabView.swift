@@ -104,8 +104,21 @@ struct RootTabView: View {
             loadedTabs.insert(selectedTab)
 
             // `TrackView.onAppear` may not run again when returning to this tab; coached workouts leave the shared session in setup mode, which blocks `captureOutput` and rep tracking until we re-attach the workout delegate.
+            // `TrackView.onDisappear` pauses the capture session when the tab is left
+            // (camera + inference were previously burning power behind the other tabs),
+            // so returning must also restore the session and framing-mode tracking that
+            // `onAppear` would have set up on first visit.
             if selectedTab == .track {
+                // Coached workouts tear the shared session down entirely (`stopCamera`
+                // nils it), so recreate before resuming — `resumeCaptureSession` alone
+                // no-ops on a nil session and the tab would come back to a black preview.
+                if SharedCameraSessionManager.shared.getCaptureSession() == nil {
+                    SharedCameraSessionManager.shared.setupCameraSession()
+                }
                 SharedCameraSessionManager.shared.switchToWorkoutMode()
+                SharedCameraSessionManager.shared.resumeCaptureSession()
+                SharedCameraSessionManager.shared.suppressRepCounting = true
+                SharedCameraSessionManager.shared.startPoseTrackingOnly()
             }
 
             #if os(iOS)
